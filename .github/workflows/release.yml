@@ -1,0 +1,159 @@
+name: Build & Release (ESP8266)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'        # Auslöser: Tag wie v1.2.3
+  workflow_dispatch:    # Manuell aus dem GitHub-UI auslösbar
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ESP8266 Firmware
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # NodeMCU v2 – Standard-Board (4 MB Flash)
+          - env: nodemcuv2
+            artifact: LaCrosseGatewayMQTT_NodeMCUv2.bin
+
+          # Wemos D1 Mini – sehr verbreitete Hardware-Variante
+          - env: d1_mini
+            artifact: LaCrosseGatewayMQTT_D1-Mini.bin
+
+          # Generisches ESP8266 (z.B. ESP-12E/F, 4 MB)
+          - env: esp12e
+            artifact: LaCrosseGatewayMQTT_ESP8266-generic.bin
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Python ────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # ── 3. PlatformIO Cache ──────────────────────────────
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-esp8266-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-esp8266-${{ runner.os }}-
+
+      # ── 4. PlatformIO installieren ───────────────────────
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade platformio
+
+      # ── 5. Firmware bauen ────────────────────────────────
+      - name: Build firmware [${{ matrix.env }}]
+        run: |
+          pio run --environment ${{ matrix.env }}
+
+      # ── 6. Binary umbenennen & prüfen ────────────────────
+      - name: Rename binary
+        run: |
+          # PlatformIO legt ESP8266-Binaries hier ab:
+          BIN=".pio/build/${{ matrix.env }}/firmware.bin"
+          if [ ! -f "$BIN" ]; then
+            echo "ERROR: $BIN not found!"
+            find .pio/build/${{ matrix.env }} -type f
+            exit 1
+          fi
+          cp "$BIN" "${{ matrix.artifact }}"
+          echo "Binary size: $(du -h ${{ matrix.artifact }})"
+
+      # ── 7. Artefakt hochladen ────────────────────────────
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 7
+
+  # ══════════════════════════════════════════════════════════
+  # RELEASE – nur bei Tag-Push
+  # ══════════════════════════════════════════════════════════
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Alle Binaries in ein Verzeichnis laden
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      # Automatischen Changelog aus Git-Log generieren
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname \
+            | grep -v "^${{ github.ref_name }}$" | head -n1)
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s (%h)" | head -30)
+          else
+            LOG=$(git log ${PREV_TAG}..${{ github.ref_name }} \
+              --pretty=format:"- %s (%h)")
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # GitHub Release mit allen Binaries erstellen
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "LaCrosseGatewayMQTT ${{ github.ref_name }}"
+          body: |
+            ## 🌡️ LaCrosseGatewayMQTT ${{ github.ref_name }}
+
+            ### 📦 Binaries (ESP8266)
+            | Datei | Board | Flash |
+            |---|---|---|
+            | `LaCrosseGatewayMQTT_NodeMCUv2.bin` | NodeMCU v2 (ESP-12E) | 4 MB |
+            | `LaCrosseGatewayMQTT_D1-Mini.bin` | Wemos D1 Mini | 4 MB |
+            | `LaCrosseGatewayMQTT_ESP8266-generic.bin` | ESP-12E/F generisch | 4 MB |
+
+            ### ⚡ Flash-Befehl (esptool)
+            ```bash
+            esptool.py --chip esp8266 --baud 921600 \
+              write_flash 0x0 LaCrosseGatewayMQTT_NodeMCUv2.bin
+            ```
+
+            ### 📝 Änderungen
+            ${{ steps.changelog.outputs.CHANGELOG }}
+          files: release-assets/*.bin
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
