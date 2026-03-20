@@ -3,8 +3,8 @@ name: Build & Release (ESP8266)
 on:
   push:
     tags:
-      - 'v*.*.*'        # Auslöser: Tag wie v1.2.3
-  workflow_dispatch:    # Manuell aus dem GitHub-UI auslösbar
+      - 'v*.*.*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,32 +20,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # NodeMCU v2 – Standard-Board (4 MB Flash)
           - env: nodemcuv2
             artifact: LaCrosseGatewayMQTT_NodeMCUv2.bin
-
-          # Wemos D1 Mini – sehr verbreitete Hardware-Variante
           - env: d1_mini
             artifact: LaCrosseGatewayMQTT_D1-Mini.bin
-
-          # Generisches ESP8266 (z.B. ESP-12E/F, 4 MB)
           - env: esp12e
             artifact: LaCrosseGatewayMQTT_ESP8266-generic.bin
 
     steps:
-      # ── 1. Checkout ──────────────────────────────────────
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ── 2. Python ────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # ── 3. PlatformIO Cache ──────────────────────────────
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:
@@ -57,21 +49,16 @@ jobs:
           restore-keys: |
             pio-esp8266-${{ runner.os }}-
 
-      # ── 4. PlatformIO installieren ───────────────────────
       - name: Install PlatformIO
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade platformio
 
-      # ── 5. Firmware bauen ────────────────────────────────
       - name: Build firmware [${{ matrix.env }}]
-        run: |
-          pio run --environment ${{ matrix.env }}
+        run: pio run --environment ${{ matrix.env }}
 
-      # ── 6. Binary umbenennen & prüfen ────────────────────
       - name: Rename binary
         run: |
-          # PlatformIO legt ESP8266-Binaries hier ab:
           BIN=".pio/build/${{ matrix.env }}/firmware.bin"
           if [ ! -f "$BIN" ]; then
             echo "ERROR: $BIN not found!"
@@ -81,7 +68,6 @@ jobs:
           cp "$BIN" "${{ matrix.artifact }}"
           echo "Binary size: $(du -h ${{ matrix.artifact }})"
 
-      # ── 7. Artefakt hochladen ────────────────────────────
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -89,14 +75,13 @@ jobs:
           path: ${{ matrix.artifact }}
           retention-days: 7
 
-  # ══════════════════════════════════════════════════════════
-  # RELEASE – nur bei Tag-Push
-  # ══════════════════════════════════════════════════════════
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout
@@ -104,7 +89,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Alle Binaries in ein Verzeichnis laden
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -114,7 +98,6 @@ jobs:
       - name: List release assets
         run: ls -lh release-assets/
 
-      # Automatischen Changelog aus Git-Log generieren
       - name: Generate Changelog
         id: changelog
         run: |
@@ -130,7 +113,6 @@ jobs:
           echo "$LOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # GitHub Release mit allen Binaries erstellen
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
