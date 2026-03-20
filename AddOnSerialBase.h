@@ -6,7 +6,7 @@
 #include "WiFiClient.h"
 #include "SC16IS750.h"
 #include "ESP8266WebServer.h"
-#include "FS.h"
+#include <LittleFS.h>
 
 typedef void ProgressCallbackType(byte action, unsigned long offset, unsigned long maxValue, String message);
 

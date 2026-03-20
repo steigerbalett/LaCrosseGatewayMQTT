@@ -22,7 +22,7 @@ void AddOnSerialBase::Begin() {
     m_server->sendHeader("Connection", "close");
     m_server->sendHeader("Access-Control-Allow-Origin", "*");
 
-    Dir dir = SPIFFS.openDir("/");
+    Dir dir = LittleFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
       if (fileName == "/" + m_hexFilename) {
@@ -46,8 +46,8 @@ void AddOnSerialBase::Begin() {
       ////Serial.println("==== STOP ====");
       ////m_server->stop();
       String path = "/" + upload.filename;
-      SPIFFS.begin();
-      m_uploadFile = SPIFFS.open(path, "w");
+      LittleFS.begin();
+      m_uploadFile = LittleFS.open(path, "w");
     }
 
     else if (upload.status == UPLOAD_FILE_WRITE) {

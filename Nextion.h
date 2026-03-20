@@ -5,7 +5,7 @@
 #include "WSBase.h"
 #include "ESP8266WebServer.h"
 #include "ESP8266SoftSerial.h"
-#include "FS.h"
+#include <LittleFS.h>
 #include "StateManager.h"
 
 typedef void ProgressCallbackType(byte action, unsigned long offset, unsigned long maxValue, String message);

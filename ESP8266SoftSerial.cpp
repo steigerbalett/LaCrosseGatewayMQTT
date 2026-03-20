@@ -7,16 +7,16 @@ extern "C" {
 #define WAIT { while (ESP.getCycleCount()-start < wait); wait += m_bitTime; }
 
 ESP8266SoftSerial *ObjList[16];
-void ICACHE_RAM_ATTR sws_isr_0() { ObjList[0]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_1() { ObjList[1]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_2() { ObjList[2]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_3() { ObjList[3]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_4() { ObjList[4]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_5() { ObjList[5]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_12() { ObjList[12]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_13() { ObjList[13]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_14() { ObjList[14]->OnRXD(); };
-void ICACHE_RAM_ATTR sws_isr_15() { ObjList[15]->OnRXD(); };
+void IRAM_ATTR sws_isr_0() { ObjList[0]->OnRXD(); };
+void IRAM_ATTR sws_isr_1() { ObjList[1]->OnRXD(); };
+void IRAM_ATTR sws_isr_2() { ObjList[2]->OnRXD(); };
+void IRAM_ATTR sws_isr_3() { ObjList[3]->OnRXD(); };
+void IRAM_ATTR sws_isr_4() { ObjList[4]->OnRXD(); };
+void IRAM_ATTR sws_isr_5() { ObjList[5]->OnRXD(); };
+void IRAM_ATTR sws_isr_12() { ObjList[12]->OnRXD(); };
+void IRAM_ATTR sws_isr_13() { ObjList[13]->OnRXD(); };
+void IRAM_ATTR sws_isr_14() { ObjList[14]->OnRXD(); };
+void IRAM_ATTR sws_isr_15() { ObjList[15]->OnRXD(); };
 
 static void(*ISRList[16])() = {
   sws_isr_0,

@@ -62,7 +62,7 @@ bool DataPort::Handle(CommandCallbackType* callback) {
       }
     }
     if (!m_client) {
-      m_client = m_server.available();
+      m_client = m_server.accept();
       if (m_client) {
         m_client.setNoDelay(true);
         m_client.setTimeout(10);

@@ -98,11 +98,11 @@ extern "C" {
   #include "mem.h"
   #include "user_interface.h"
   #include "cont.h"
-  #include "espconn.h"
+  #include <lwip/dns.h>
 }
 
 /* Configuration of NTP */
-#define MY_NTP_SERVER "at.pool.ntp.org"           
+#define MY_NTP_SERVER "de.pool.ntp.org"           
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03" 
 
 // The following settings can also be set from FHEM

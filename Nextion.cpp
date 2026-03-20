@@ -17,7 +17,7 @@ bool Nextion::Begin(ESP8266WebServer *webServer, ESP8266SoftSerial *softSerial, 
     m_server->sendHeader("Connection", "close");
     m_server->sendHeader("Access-Control-Allow-Origin", "*");
 
-    Dir dir = SPIFFS.openDir("/");
+    Dir dir = LittleFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
       if (fileName == "/nextion.tft") {
@@ -38,8 +38,8 @@ bool Nextion::Begin(ESP8266WebServer *webServer, ESP8266SoftSerial *softSerial, 
       Log(upload.filename, false);
       Log("'");
       String path = "/" + upload.filename;
-      SPIFFS.begin();
-      m_uploadFile = SPIFFS.open(path, "w");
+      LittleFS.begin();
+      m_uploadFile = LittleFS.open(path, "w");
     }
 
     else if (upload.status == UPLOAD_FILE_WRITE) {
@@ -92,7 +92,7 @@ void Nextion::Handle(WSBase::Frame frame, StateManager *stateManager, int32_t rs
     upTimeText.replace(" ", "");
  
     if (frame.HasTemperature) {
-      SendCommand("LGW#temp.txt=\"" + String(frame.Temperature, 1) + (m_addUnits ? " °C\"" : "\""));
+      SendCommand("LGW#temp.txt=\"" + String(frame.Temperature, 1) + (m_addUnits ? " ï¿½C\"" : "\""));
     }
     if (frame.HasHumidity) {
       SendCommand("LGW#hum.txt=\"" + String(frame.Humidity) + (m_addUnits ? " %rH\"" : "\""));
