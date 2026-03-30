@@ -33,6 +33,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Patch deprecated code for ESP8266 framework 4.x
+        run: |
+          sed -i '/#include.*espconn\.h/d' LaCrosseGateway.ino
+
+          for f in AddOnSerialBase.cpp Nextion.cpp; do
+            sed -i 's/SPIFFS\.openDir/LittleFS.openDir/g' $f
+            sed -i 's/SPIFFS\.begin()/LittleFS.begin()/g' $f
+            sed -i 's/SPIFFS\.open(/LittleFS.open(/g' $f
+            sed -i 's/#include <FS\.h>/#include <LittleFS.h>/g' $f
+          done
+
+          sed -i 's/ICACHE_RAM_ATTR/IRAM_ATTR/g' ESP8266SoftSerial.cpp
+          sed -i 's/m_server\.available()/m_server.accept()/g' DataPort.cpp
+
+          echo "=== Patch-Verifikation ==="
+          grep -rn "espconn\|ICACHE_RAM_ATTR" . \
+            --include="*.ino" --include="*.cpp" --include="*.h" \
+            && echo "⚠️ Warnung: Noch veralteter Code gefunden" \
+            || echo "✅ Alle Patches erfolgreich"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -53,13 +73,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade platformio
-
-      - name: Scan all includes
-        run: |
-          echo "=== Alle #include in Projektdateien ==="
-          grep -rh "^#include" *.ino *.cpp *.h 2>/dev/null \
-            | grep -v '"' \
-            | sort -u
 
       - name: Build firmware [${{ matrix.env }}]
         run: pio run --environment ${{ matrix.env }}
