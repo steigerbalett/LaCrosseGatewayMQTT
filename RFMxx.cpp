@@ -544,4 +544,5 @@ long RFMxx::GetBandwidthHz() {
     case BW250: return 250E3;
     case BW500: return 500E3;
   }
+  return 0;  // Fallback: unbekannte Bandbreite
 }
