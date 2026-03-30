@@ -35,8 +35,13 @@ jobs:
 
       - name: Patch deprecated code for ESP8266 framework 4.x
         run: |
+          # Fix 1: espconn.h Include entfernen
           sed -i '/#include.*espconn\.h/d' LaCrosseGateway.ino
 
+          # Fix 1b: espconn Funktionsaufruf entfernen (nicht mehr in lwIP2)
+          sed -i '/espconn_tcp_set_max_con/d' LaCrosseGateway.ino
+
+          # Fix 2: SPIFFS → LittleFS
           for f in AddOnSerialBase.cpp Nextion.cpp; do
             sed -i 's/SPIFFS\.openDir/LittleFS.openDir/g' $f
             sed -i 's/SPIFFS\.begin()/LittleFS.begin()/g' $f
@@ -44,14 +49,19 @@ jobs:
             sed -i 's/#include <FS\.h>/#include <LittleFS.h>/g' $f
           done
 
+          # Fix 3: ICACHE_RAM_ATTR → IRAM_ATTR
           sed -i 's/ICACHE_RAM_ATTR/IRAM_ATTR/g' ESP8266SoftSerial.cpp
+
+          # Fix 4: available() → accept()
           sed -i 's/m_server\.available()/m_server.accept()/g' DataPort.cpp
 
-          echo "=== Patch-Verifikation ==="
+          # Verifikation
+          echo "=== Verifikation ==="
           grep -rn "espconn\|ICACHE_RAM_ATTR" . \
             --include="*.ino" --include="*.cpp" --include="*.h" \
-            && echo "⚠️ Warnung: Noch veralteter Code gefunden" \
+            && echo "⚠️ Noch veralteter Code vorhanden!" \
             || echo "✅ Alle Patches erfolgreich"
+
 
       - name: Set up Python
         uses: actions/setup-python@v5
