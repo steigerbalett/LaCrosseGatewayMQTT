@@ -8,7 +8,7 @@
 #include "ESPTools.h"
 
 // ═══════════════════════════════════════════════════
-// HILFSFUNKTION
+// HILFSFUNKTION (unverändert)
 // ═══════════════════════════════════════════════════
 String WifiModeToString(WiFiMode_t mode) {
   switch (mode) {
@@ -21,7 +21,8 @@ String WifiModeToString(WiFiMode_t mode) {
 }
 
 // ═══════════════════════════════════════════════════
-// CSS
+// NEU: Gemeinsames CSS (Style aus lacrosse2mqtt)
+// Wird als PROGMEM-Konstante gespeichert
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_CSS[] PROGMEM =
   ":root{"
@@ -99,7 +100,7 @@ const char LGWMQTT_CSS[] PROGMEM =
   "@media(min-width:1200px){.card-grid{grid-template-columns:repeat(3,1fr)}}";
 
 // ═══════════════════════════════════════════════════
-// Theme-Toggle
+// NEU: Theme-Toggle JavaScript
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_JS_THEME[] PROGMEM =
   "<script>"
@@ -125,7 +126,7 @@ const char LGWMQTT_JS_THEME[] PROGMEM =
   "</script>";
 
 // ═══════════════════════════════════════════════════
-// Log-Seite
+// NEU: Log-Seite JavaScript + HTML (ersetzt on_log)
 // ═══════════════════════════════════════════════════
 const char on_log[] PROGMEM =
 "<script>"
@@ -219,7 +220,7 @@ const char on_log[] PROGMEM =
 "</body>";
 
 // ═══════════════════════════════════════════════════
-// Konstruktor & Hilfsmethoden
+// Konstruktor & Hilfsmethoden (unverändert)
 // ═══════════════════════════════════════════════════
 WebFrontend::WebFrontend(int port) : m_webserver(port) {
   m_port = port;
@@ -258,7 +259,7 @@ String GetOption(String option, String defaultValue) {
 }
 
 // ═══════════════════════════════════════════════════
-// GetTop() – Dark/Light CSS + Header
+// GEÄNDERT: GetTop() – Dark/Light CSS + Header
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetTop() {
   String result;
@@ -292,7 +293,7 @@ String WebFrontend::GetTop() {
 }
 
 // ═══════════════════════════════════════════════════
-// GetNavigation() – moderne Navbar
+// GEÄNDERT: GetNavigation() – moderne Navbar
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetNavigation() {
   String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>");
@@ -310,7 +311,7 @@ String WebFrontend::GetNavigation() {
 }
 
 // ═══════════════════════════════════════════════════
-// GetBottom() – Footer + Theme-Init
+// GEÄNDERT: GetBottom() – Footer + Theme-Init
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetBottom() {
   String result;
@@ -323,7 +324,7 @@ String WebFrontend::GetBottom() {
 
 // ═══════════════════════════════════════════════════
 // GetRedirectToRoot(), BuildHardwareRow(),
-// Handle()
+// Handle() – unverändert
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetRedirectToRoot(String message) {
   String result;
@@ -349,8 +350,8 @@ String WebFrontend::GetDisplayName() {
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
 // ═══════════════════════════════════════════════════
-// Begin() – Routen-Logik,
-// Setup-Formular in Cards verpackt
+// Begin() – Routen-Logik UNVERÄNDERT,
+// nur Setup-Formular in Cards verpackt
 // ═══════════════════════════════════════════════════
 void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_stateManager = stateManager;
@@ -580,4 +581,218 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", "10"); data += F("'>");
       data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings.Get("ext1", "0"); data += F("'>");
       data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings.Get("ext2", "0"); data += F("'>");
-      data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data +=
+      data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data += F("'></td></tr>");
+      data += F("</table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: Netzwerk ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
+      data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
+      data += F("<tr><td><label>IP-Adresse:</label></td><td>");
+      data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
+      data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
+      data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
+
+      data += F("<tr><td><label>Hostname:</label></td><td>");
+      data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
+      data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
+      data += F("</table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: Sensoren intern ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#127909; Interne Sensoren</h2><table>");
+      data += F("<tr><td><label>Sensoren:</label></td><td>");
+      data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings.Get("ISID", "0"); data += F("'>");
+      data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings.Get("ISIV", "10"); data += F("'>");
+      data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings.Get("Altitude", "0"); data += F("'>");
+      data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings.Get("CorrT", "0"); data += F("'>");
+      data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings.Get("CorrH", "0"); data += F("'></td></tr>");
+      data += F("</table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: Ports & Bridges ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#128268; Ports &amp; Serial Bridges</h2><table>");
+      data += F("<tr><td><label>Daten-Ports:</label></td><td>");
+      data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings.Get("DataPort1", "81"); data += F("'>&nbsp;");
+      data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings.Get("DataPort2", ""); data += F("'>&nbsp;");
+      data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings.Get("DataPort3", ""); data += F("'></td></tr>");
+
+      data += F("<tr><td><label>Serial Bridge 1:</label></td><td>");
+      data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SerialBridgePort", ""); data += F("'>");
+      data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
+
+      data += F("<tr><td><label>Serial Bridge 2:</label></td><td>");
+      data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings.Get("SerialBridge2Port", ""); data += F("'>");
+      data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
+
+      data += F("<tr><td><label>Soft Serial Bridge:</label></td><td>");
+      data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SSBridgePort", ""); data += F("'>");
+      data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
+      data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings.Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion-Display&nbsp;");
+      data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings.Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten hinzufuegen");
+      data += F("</td></tr>");
+      data += F("</table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: RFM95 ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#128225; RFM95</h2><table>");
+      data += F("<tr><td><label>RFM95:</label></td><td>");
+      data += F("SF: <select name='SF95' style='width:70px'>");
+      String sfValue = settings.Get("SF95", "SF7");
+      data += GetOption("SF6", sfValue); data += GetOption("SF7", sfValue);
+      data += GetOption("SF8", sfValue); data += GetOption("SF9", sfValue);
+      data += GetOption("SF10", sfValue); data += GetOption("SF11", sfValue);
+      data += GetOption("SF12", sfValue);
+      data += F("</select>&nbsp;BW: <select name='BW95' style='width:70px'>");
+      String bwValue = settings.Get("BW95", "125");
+      data += GetOption("7.8", bwValue); data += GetOption("10.4", bwValue);
+      data += GetOption("15.6", bwValue); data += GetOption("20.8", bwValue);
+      data += GetOption("31.25", bwValue); data += GetOption("41.7", bwValue);
+      data += GetOption("62.6", bwValue); data += GetOption("125", bwValue);
+      data += GetOption("250", bwValue); data += GetOption("500", bwValue);
+      data += F("</select></td></tr>");
+      data += F("</table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: Flags ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#9881;&#65039; Optionen</h2><table>");
+      data += F("<tr><td><label>Flags:</label></td><td>");
+      data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
+      data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
+      data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog senden&nbsp;");
+      data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings.Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
+      data += F("<input name='PRD' type='checkbox' value='true' "); data += settings.Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
+      data += F("</td></tr></table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: MCP23008 ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#128268; MCP23008</h2><table><tr><td><label>IO-Ports:</label></td><td>");
+      for (byte nbr = 0; nbr < 8; nbr++) {
+        data += F("IO "); data += String(nbr); data += F(": ");
+        data += F("<select name='IO"); data += String(nbr); data += F("' style='width:130px'>");
+        String value = settings.Get("IO" + String(nbr), "Input");
+        data += GetOption("Input", value); data += GetOption("Output", value);
+        data += GetOption("OLED Off", value); data += GetOption("OLED On", value);
+        data += GetOption("OLED mode=s", value); data += GetOption("OLED mode=t", value);
+        data += GetOption("OLED mode=h", value); data += GetOption("OLED mode=th", value);
+        data += GetOption("OLED mode=thp", value); data += GetOption("OLED mode=thps", value);
+        data += F("</select>&nbsp;");
+        if (nbr == 3) data += F("<br>");
+        m_webserver.sendContent(data); data = "";
+      }
+      data += F("</td></tr></table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: OLED ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#128250; OLED-Display</h2>");
+      data += F("<p class='info'>Werte: 'on', 'off' oder Sekunden bis 'off', 2. Parameter: Modus (th, thp, ...)</p><table>");
+      data += F("<tr><td><label>OLED Start:</label></td><td>");
+      data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings.Get("oledStart", "on"); data += F("'>");
+      data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings.Get("oledMode", ""); data += F("'>&nbsp;");
+      data += F("<input name='oled13' type='checkbox' value='true' "); data += settings.Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
+      data += F("</td></tr></table></div>");
+      m_webserver.sendContent(data); data = "";
+
+      // --- Card: KV / OTA / PCA301 / Flags ---
+      data += F("<div class='card' style='margin-bottom:12px'>");
+      data += F("<h2>&#128196; Weitere Einstellungen</h2><table>");
+      data += F("<tr><td></td><td><p class='info'>KV-Interval: 'off' zum Deaktivieren</p></td></tr>");
+      data += F("<tr><td><label>KV-Interval:</label></td><td>");
+      data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings.Get("KVInterval", "10"); data += F("'>");
+      data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings.Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
+
+      data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings.Get("otaServer", ""); data += F("'></td></tr>");
+      data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings.Get("otaPort", ""); data += F("'></td></tr>");
+      data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings.Get("otaURL", ""); data += F("'></td></tr>");
+      data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
+      data += F("<tr><td></td><td><p class='info'>Nur fuer Entwicklung</p></td></tr>");
+      data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
+      data += F("</table>");
+      data += F("<br><input type='submit' value='Speichern und neu starten'></form>");
+      data += F("</div>");
+      m_webserver.sendContent(data); data = "";
+
+      m_webserver.sendContent(GetBottom());
+      m_webserver.sendContent("");
+    }
+  });
+
+  // ── /getLogData ───────────────────────────────────
+  m_webserver.on("/getLogData", [this]() {
+    String data = "";
+    if (m_logger->IsEnabled()) {
+      while (m_logger->Available())
+        data += m_logger->Pop() + "\n";
+    } else {
+      data += F("SYS: ***CLEARLOG***\n");
+      data += F("DATA:Logger is disabled\n");
+      data += F("SYS:Logger is disabled\n");
+    }
+    m_webserver.send(200, "text/html", data);
+  });
+
+  // ── /log ──────────────────────────────────────────
+  m_webserver.on("/log", [this]() {
+    if (IsAuthentified()) {
+      String result;
+      result += GetTop();
+      result += GetNavigation();
+      result += FPSTR(on_log);
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+    }
+  });
+
+  // ── /login ────────────────────────────────────────
+  m_webserver.on("/login", [this]() {
+    String msg;
+    if (m_webserver.hasArg("DISCONNECT")) {
+      m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nSet-Cookie: ESPSESSIONID=0\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n"));
+      return;
+    }
+    if (m_webserver.hasArg("PASSWORD")) {
+      if (m_webserver.arg("PASSWORD") == m_password) {
+        m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nSet-Cookie: ESPSESSIONID=1\r\nLocation: /\r\nCache-Control: no-cache\r\n\r\n"));
+        return;
+      }
+      msg = "Login fehlgeschlagen";
+    }
+    // Login-Seite im neuen Style
+    String content;
+    content += F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>");
+    content += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+    content += F("<style>");
+    content += FPSTR(LGWMQTT_CSS);
+    content += F("</style></head><body>");
+    content += F("<div style='display:flex;justify-content:center;align-items:center;min-height:80vh'>");
+    content += F("<div class='card' style='min-width:320px;text-align:center'>");
+    content += F("<h2>&#127921; LaCrosseGateway V");
+    content += m_stateManager->GetVersion();
+    content += F("</h2>");
+    content += F("<form action='/login' method='POST' style='box-shadow:none;padding:0'>");
+    content += F("<label>Passwort:</label>");
+    content += F("<input type='password' name='PASSWORD' placeholder='Passwort eingeben'>");
+    content += F("<input type='submit' value='Anmelden' style='width:100%;margin-top:8px'>");
+    content += F("</form>");
+    if (msg.length() > 0) {
+      content += F("<p style='color:var(--err);margin-top:12px'>&#10060; ");
+      content += msg;
+      content += F("</p>");
+    }
+    content += F("</div></div></body></html>");
+    m_webserver.send(200, "text/html", content);
+  });
+
+  m_webserver.onNotFound([this]() {
+    m_webserver.send(404, "text/plain", "Not Found");
+  });
+
+  m_webserver.begin();
+}

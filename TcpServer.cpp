@@ -18,7 +18,7 @@ void TcpServer::SetConnectCallback(ConnectCallbackType* callback) {
 
 void TcpServer::Handle() {
   if (m_wifiServer.hasClient()) {
-    WiFiClient client = m_wifiServer.available();
+    WiFiClient client = m_wifiServer.accept();
     client.setNoDelay(true);
     m_clients.push_back(client);
 
