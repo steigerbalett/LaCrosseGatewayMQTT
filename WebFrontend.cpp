@@ -6,6 +6,7 @@
 #include "Help.h"
 #include "ESP8266WiFiType.h"
 #include "ESPTools.h"
+#include <WiFiClientSecureBearSSL.h>
 
 // ═══════════════════════════════════════════════════
 // HILFSFUNKTION (unverändert)
@@ -350,6 +351,30 @@ String WebFrontend::GetDisplayName() {
 
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
+String GetLatestGithubVersion(Logger* logger) {
+  if (WiFi.status() != WL_CONNECTED) return "";
+
+  BearSSL::WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+
+  if (!http.begin(client, "https://raw.githubusercontent.com/steigerbalett/LaCrosseGatewayMQTT/main/version.txt")) {
+    if (logger) logger->println(F("GitHub-Version: http.begin fehlgeschlagen"));
+    return "";
+  }
+
+  int code = http.GET();
+  String version = "";
+  if (code == HTTP_CODE_OK) {
+    version = http.getString();
+    version.trim();
+  } else {
+    if (logger) logger->println(F("GitHub-Version: Fehler, Code=") + String(code));
+  }
+  http.end();
+  return version;
+}
+
 // ═══════════════════════════════════════════════════
 // Begin() – Routen-Logik UNVERÄNDERT,
 // nur Setup-Formular in Cards verpackt
@@ -457,24 +482,60 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   });
 
   // ── /ota ──────────────────────────────────────────
-  m_webserver.on("/ota", [this]() {
-    if (IsAuthentified()) {
-      Settings settings;
-      settings.Read(m_logger);
-      String result;
-      result += GetTop();
-      result += GetNavigation();
-      result += F("<div class='card'><h2>&#8593;&#65039; OTA Update</h2>");
-      result += F("<form method='get' action='ota_start'>");
-      result += F("<p class='info'>Server: "); result += settings.Get("otaServer", ""); result += F("</p>");
-      result += F("<p class='info'>Port: ");   result += settings.Get("otaPort", "");   result += F("</p>");
-      result += F("<p class='info'>URL: ");    result += settings.Get("otaURL", "");    result += F("</p>");
-      result += F("<br><input type='submit' value='Update and restart'></form>");
-      result += F("</div>");
-      result += GetBottom();
-      m_webserver.send(200, "text/html", result);
+m_webserver.on("/ota", [this]() {
+  if (IsAuthentified()) {
+    Settings settings;
+    settings.Read(m_logger);
+
+    String githubVersion = GetLatestGithubVersion(m_logger);
+    String localVersion  = m_stateManager->GetVersion();
+    bool updateAvailable = githubVersion.length() > 0 && githubVersion != localVersion;
+
+    String result;
+    result += GetTop();
+    result += GetNavigation();
+
+    // ── Versions-Card ────────────────────────────
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#127381; Firmware-Info</h2>");
+    result += F("<table>");
+    result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
+    result += localVersion;
+    result += F("</span></td></tr>");
+    result += F("<tr><td>Aktuelle GitHub-Version:</td><td>");
+    if (githubVersion.length() > 0) {
+      result += F("<span class='badge ");
+      result += updateAvailable ? F("warn") : F("ok");
+      result += F("'>V");
+      result += githubVersion;
+      result += F("</span>");
+    } else {
+      result += F("<span class='badge err'>nicht verfuegbar</span>");
     }
-  });
+    result += F("</td></tr>");
+    if (updateAvailable) {
+      result += F("<tr><td colspan='2'>");
+      result += F("<p class='warn' style='color:var(--warn)'>&#9888;&#65039; Update verfuegbar! ");
+      result += F("Lade die aktuelle .bin von <a href='https://github.com/steigerbalett/LaCrosseGatewayMQTT' target='_blank'>GitHub</a> herunter ");
+      result += F("und installiere sie ueber <a href='update'>BIN-Upload</a>.</p>");
+      result += F("</td></tr>");
+    }
+    result += F("</table></div>");
+
+    // ── OTA-Server-Card ───────────────────────────
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
+    result += F("<form method='get' action='ota_start'>");
+    result += F("<p class='info'>Server: "); result += settings.Get("otaServer", ""); result += F("</p>");
+    result += F("<p class='info'>Port: ");   result += settings.Get("otaPort",   ""); result += F("</p>");
+    result += F("<p class='info'>URL: ");    result += settings.Get("otaURL",    ""); result += F("</p>");
+    result += F("<br><input type='submit' value='OTA-Update starten'></form>");
+    result += F("</div>");
+
+    result += GetBottom();
+    m_webserver.send(200, "text/html", result);
+  }
+});
 
   m_webserver.on("/ota_start", [this]() {
     if (IsAuthentified())

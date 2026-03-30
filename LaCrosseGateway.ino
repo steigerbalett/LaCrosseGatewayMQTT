@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.35"
+#define PROGVERS         "1.36.3"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -332,6 +332,7 @@ Watchdog watchdog;
 SerialPortFlasher serialPortFlasher;
 AnalogPort analogPort;
 bool logIsCleared = false;
+bool mqttEnabled = false;
 
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -1115,11 +1116,11 @@ bool HandleReceivedData(RFMxx *rfm) {
         logger.println(laCrosseAnalysisString);
 
 #ifdef USE_MQTT_Pubsub
-
-        if(WiFi.status() != WL_CONNECTED){
-          logger.println("WiFi disconnected - skip to publish LaCrosse sensor data!");
-        }else{
-          if(laCrosseAnalysisString.indexOf("CRC:OK")>=0){
+  if (mqttEnabled) {
+    if(WiFi.status() != WL_CONNECTED){
+      logger.println(F("WiFi disconnected - skip MQTT publish"));
+    } else {
+      if(laCrosseAnalysisString.indexOf("CRC:OK")>=0){
   
             logger.print("Epoch time incl DST: ");
             String timeNowLocal = getEpochStringByParams(CE.toLocal(now()));
@@ -1854,6 +1855,14 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) 
 
 }
 
+bool IsMqttConfigured(Settings& settings) {
+  String server = settings.Get("serverIpMqtt", "");
+  String topic  = settings.Get("topic", "");
+  server.trim();
+  topic.trim();
+  return server.length() > 0 && server != "---" && topic.length() > 0;
+}
+
 
 void setup(void) {
   Serial.begin(57600);
@@ -2231,26 +2240,28 @@ void setup(void) {
   });
 
 #ifdef USE_MQTT_Pubsub
-  // copying the contents of the string to the char array
-  strcpy(mqtt_server, settings.Get("serverIpMqtt", "---").c_str());
-  mqtt_port = atoi(settings.Get("serverPortMqtt", "1883").c_str());
-  
-  logger.println("Set MQTT server/port (eeprom setting): " + String(mqtt_server) + "/" + String(mqtt_port));
+  mqttEnabled = IsMqttConfigured(settings);
 
-  client.setServer(mqtt_server, mqtt_port);
-  client.setCallback(callback);
-  delay(500);
+  if (mqttEnabled) {
+    strcpy(mqtt_server, settings.Get("serverIpMqtt", "").c_str());
+    mqtt_port = atoi(settings.Get("serverPortMqtt", "1883").c_str());
+    strcpy(mqtt_user, settings.Get("mqttUser", "").c_str());
+    strcpy(mqtt_password, settings.Get("mqttPass", "").c_str());
+    secBetweenPublish = atoi(settings.Get("pubInt", "20").c_str());
+    mqttTopicBaseGW = settings.Get("topic", "esp8266_lacrossegateway");
 
-  // copying the contents of the string to the char array
-  strcpy(mqtt_user, settings.Get("mqttUser", "---").c_str());
-  strcpy(mqtt_password, settings.Get("mqttPass", "---").c_str());
-  secBetweenPublish = atoi(settings.Get("pubInt", "20").c_str());
-  mqttTopicBaseGW = settings.Get("topic", "esp8266_lacrossegateway");
+    logger.println(F("MQTT aktiviert: ") + String(mqtt_server) + ":" + String(mqtt_port)
+      + F(" Interval:") + String(secBetweenPublish) + F(" Topic:") + mqttTopicBaseGW);
 
-  logger.println("MQTT settings (eeprom setting): publishInterval: " + String(secBetweenPublish) + ", BaseTopic: " + mqttTopicBaseGW);
+    client.setServer(mqtt_server, mqtt_port);
+    client.setCallback(callback);
+    delay(500);
 
-  if(WiFi.status() == WL_CONNECTED){
-    reconnectMqtt();
+    if (WiFi.status() == WL_CONNECTED) {
+      reconnectMqtt();
+    }
+  } else {
+    logger.println(F("MQTT deaktiviert: kein Server oder Topic konfiguriert"));
   }
 #endif
   
@@ -2341,15 +2352,16 @@ void loop(void) {
   else {
     stateManager.SetLoopStart();
 #ifdef USE_MQTT_Pubsub
-    if (((WiFi.status() == WL_CONNECTED))&&(!client.connected() && (((millis()-timetry)>2000) || !timetry))) {
-        reconnectMqtt();
-        timetry = millis();
-    } else if ((WiFi.status() != WL_CONNECTED)&&(((millis()-timetry)>5000) || !timetry)) {
-        timetry = millis();
-        logger.println("Wifi disconnected!");
+  if (mqttEnabled) {
+    if ((WiFi.status() == WL_CONNECTED) && !client.connected() && (((millis() - timetry) > 2000) || !timetry)) {
+      reconnectMqtt();
+      timetry = millis();
+    } else if ((WiFi.status() != WL_CONNECTED) && (((millis() - timetry) > 5000) || !timetry)) {
+      timetry = millis();
+      logger.println(F("Wifi disconnected!"));
     }
-   
     client.loop();
+  }
 #endif
     // Handle the commands from the serial port
     // ----------------------------------------
@@ -2390,7 +2402,7 @@ void loop(void) {
 
         String mqttTopicBase = "esp8266_lacrossegateway";
 
-        if((client.connected()) && (WiFi.status() == WL_CONNECTED)){
+        if(mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)){
           logger.println("Publishing sensor data...");
           //publish rssi
           ltoa(WiFi.RSSI(), bufData, 10);

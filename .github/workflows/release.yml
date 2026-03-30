@@ -10,6 +10,49 @@ permissions:
   contents: write
 
 jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write           # Erlaubt commit + push zurück ins Repo
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Version aus .ino extrahieren
+        id: extract
+        run: |
+          VERSION=$(grep -oP '(?<=#define PROGVERS\s{1,20}")([^"]+)' LaCrosseGateway.ino)
+          echo "Gefundene Version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: version.txt aktualisieren
+        run: |
+          echo "${{ steps.extract.outputs.version }}" > version.txt
+          echo "version.txt wurde auf ${{ steps.extract.outputs.version }} gesetzt"
+
+      - name: Prüfen ob version.txt geändert wurde
+        id: check_changes
+        run: |
+          if git diff --quiet version.txt; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Keine Änderung an version.txt nötig"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version.txt hat sich geändert"
+          fi
+
+      - name: version.txt committen und pushen
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.txt
+          git commit -m "chore: version.txt auf ${{ steps.extract.outputs.version }} aktualisiert [skip ci]"
+          git push
+          
   build:
     name: Build ESP8266 Firmware
     runs-on: ubuntu-latest
@@ -38,10 +81,8 @@ jobs:
           # Fix 1: espconn.h Include entfernen
           sed -i '/#include.*espconn\.h/d' LaCrosseGateway.ino
 
-          # Fix 1b: espconn Funktionsaufruf entfernen (nicht mehr in lwIP2)
           sed -i '/espconn_tcp_set_max_con/d' LaCrosseGateway.ino
 
-          # Fix 2: SPIFFS → LittleFS
           for f in AddOnSerialBase.cpp Nextion.cpp; do
             sed -i 's/SPIFFS\.openDir/LittleFS.openDir/g' $f
             sed -i 's/SPIFFS\.begin()/LittleFS.begin()/g' $f
@@ -49,13 +90,10 @@ jobs:
             sed -i 's/#include <FS\.h>/#include <LittleFS.h>/g' $f
           done
 
-          # Fix 3: ICACHE_RAM_ATTR → IRAM_ATTR
           sed -i 's/ICACHE_RAM_ATTR/IRAM_ATTR/g' ESP8266SoftSerial.cpp
 
-          # Fix 4: available() → accept()
           sed -i 's/m_server\.available()/m_server.accept()/g' DataPort.cpp
 
-          # Verifikation
           echo "=== Verifikation ==="
           grep -rn "espconn\|ICACHE_RAM_ATTR" . \
             --include="*.ino" --include="*.cpp" --include="*.h" \
