@@ -301,6 +301,7 @@ String WebFrontend::GetNavigation() {
   result += F("<a href='setup'>&#9881;&#65039; Setup</a>");
   result += F("<a href='hardware'>&#128296; Hardware</a>");
   result += F("<a href='ota'>&#8593;&#65039; OTA-Update</a>");
+  result += F("<a href='update'>&#128190; BIN-Update</a>");
   result += F("<a href='log'>&#128196; Log</a>");
   result += F("<a href='help'>&#10067; Help</a>");
   if (m_password.length() > 0)
@@ -789,6 +790,75 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     content += F("</div></div></body></html>");
     m_webserver.send(200, "text/html", content);
   });
+
+// ── /update (GET) ─────────────────────────────────
+m_webserver.on("/update", HTTP_GET, [this]() {
+  if (IsAuthentified()) {
+    String result;
+    result += GetTop();
+    result += GetNavigation();
+    result += F("<div class='card'>");
+    result += F("<h2>&#128190; Firmware Update (BIN-Upload)</h2>");
+    result += F("<p class='info'>Lade eine <code>.bin</code>-Datei von deinem Computer hoch, um die Firmware zu aktualisieren.</p>");
+    result += F("<form method='POST' action='/update_do' enctype='multipart/form-data'>");
+    result += F("<label>Firmware-Datei (.bin):</label>");
+    result += F("<input type='file' name='firmware' accept='.bin' required style='margin-bottom:12px'>");
+    result += F("<br><input type='submit' value='&#128190; Firmware flashen'>");
+    result += F("</form>");
+    result += F("</div>");
+    result += GetBottom();
+    m_webserver.send(200, "text/html", result);
+  }
+});
+
+// ── /update_do (POST, Multipart-Upload) ───────────
+m_webserver.on("/update_do", HTTP_POST,
+  // Abschluss-Handler (nach komplettem Upload)
+  [this]() {
+    String result;
+    result += GetTop();
+    result += GetNavigation();
+    if (Update.hasError()) {
+      result += F("<div class='card' style='border-left:4px solid var(--err)'>");
+      result += F("<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3>");
+      result += F("<p>");
+      result += Update.getErrorString();
+      result += F("</p></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+    } else {
+      result += F("<div class='card' style='border-left:4px solid var(--ok)'>");
+      result += F("<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>");
+      result += F("<p>Das Gerät wird jetzt neu gestartet...</p>");
+      result += F("</div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      delay(1000);
+      ESP.restart();
+    }
+  },
+  // Upload-Handler (empfängt die Datei-Chunks)
+  [this]() {
+    HTTPUpload& upload = m_webserver.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      m_logger->println("Firmware-Update gestartet: " + upload.filename);
+      uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+      if (!Update.begin(maxSketchSpace, U_FLASH)) {
+        m_logger->println("Update.begin fehlgeschlagen: " + String(Update.getErrorString()));
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        m_logger->println("Update.write fehlgeschlagen: " + String(Update.getErrorString()));
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) {
+        m_logger->println("Firmware-Update abgeschlossen. Groesse: " + String(upload.totalSize));
+      } else {
+        m_logger->println("Update.end fehlgeschlagen: " + String(Update.getErrorString()));
+      }
+    }
+  }
+);
 
   m_webserver.onNotFound([this]() {
     m_webserver.send(404, "text/plain", "Not Found");
