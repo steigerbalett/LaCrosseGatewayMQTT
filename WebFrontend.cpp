@@ -6,6 +6,7 @@
 #include "Help.h"
 #include "ESP8266WiFiType.h"
 #include "ESPTools.h"
+#include <ESP8266httpUpdate.h>
 #include <WiFiClientSecureBearSSL.h>
 
 // ═══════════════════════════════════════════════════
@@ -497,58 +498,70 @@ m_webserver.on("/ota", [this]() {
     Settings settings;
     settings.Read(m_logger);
 
-    String githubVersion = GetLatestGithubVersion(m_logger);
-    String localVersion  = m_stateManager->GetVersion();
-    bool updateAvailable = githubVersion.length() > 0 && githubVersion != localVersion;
+    String localVersion = m_stateManager->GetVersion();
 
     String result;
     result += GetTop();
     result += GetNavigation();
 
-    // ── Versions-Card ────────────────────────────
+    // ── Installierte Version ─────────────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#127381; Firmware-Info</h2>");
     result += F("<table>");
     result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
     result += localVersion;
     result += F("</span></td></tr>");
-    result += F("<tr><td>Aktuelle GitHub-Version:</td><td>");
-    if (githubVersion.length() > 0) {
-      result += F("<span class='badge ");
-      result += updateAvailable ? F("warn") : F("ok");
-      result += F("'>V");
-      result += githubVersion;
-      result += F("</span>");
-    } else {
-      result += F("<span class='badge err'>nicht verfuegbar</span>");
-    }
-    result += F("</td></tr>");
-    if (updateAvailable) {
-      result += F("<tr><td colspan='2'>");
-      result += F("<p class='warn' style='color:var(--warn)'>&#9888;&#65039; Update verfuegbar! ");
-      result += F("Lade die aktuelle .bin von <a href='https://github.com/steigerbalett/LaCrosseGatewayMQTT' target='_blank'>GitHub</a> herunter ");
-      result += F("und installiere sie ueber <a href='update'>BIN-Upload</a>.</p>");
-      result += F("</td></tr>");
-    }
     result += F("</table></div>");
 
-    // ── GitHub OTA Card ───────────────────────────
+    // ── GitHub Releases (per Browser-JS) ─────────
     result += F("<div class='card' style='margin-bottom:12px'>");
-    result += F("<h2>&#128037; GitHub Release Update</h2>");
-    result += F("<form method='get' action='ota_github'>");
-    result += F("<p><label>Owner: <input type='text' name='ghOwner' placeholder='steigerbalett' value='");
-    result += settings.Get("ghOwner", "steigerbalett");
-    result += F("'></label></p>");
-    result += F("<p><label>Repo: <input type='text' name='ghRepo' placeholder='LaCrosseGatewayMQTT' value='");
-    result += settings.Get("ghRepo", "LaCrosseGatewayMQTT");
-    result += F("'></label></p>");
-    result += F("<p><label>Asset: <input type='text' name='ghAsset' placeholder='LaCrosseGateway.bin' value='");
-    result += settings.Get("ghAsset", "LaCrosseGateway.bin");
-    result += F("'></label></p>");
-    result += F("<br><input type='submit' value='Update von GitHub Release'></form>");
+    result += F("<h2>&#128190; GitHub Release installieren</h2>");
+    result += F("<p class='info'>Die Liste wird direkt von der GitHub-API geladen (kein HTTPS auf dem ESP n&ouml;tig).</p>");
+
+    // JavaScript: GitHub API abrufen, Releases als Tabelle anzeigen
+    result += F("<script>");
+    result += F("function loadReleases(){");
+    result += F("  var out=document.getElementById('relDiv');");
+    result += F("  out.innerHTML='<p class=\\'info\\'>Lade Releases von GitHub...</p>';");
+    result += F("  fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')");
+    result += F("  .then(function(r){return r.json();})");
+    result += F("  .then(function(data){");
+    result += F("    var html='<table><thead><tr>");
+    result += F("<th>Version</th><th>Typ</th><th>Datum</th><th>Datei ausw&auml;hlen &amp; flashen</th>");
+    result += F("</tr></thead><tbody>';");
+    result += F("    data.forEach(function(rel){");
+    result += F("      var badge=rel.prerelease");
+    result += F("        ?'<span class=\\'badge warn\\'>Vorab</span>'");
+    result += F("        :'<span class=\\'badge ok\\'>Stabil</span>';");
+    result += F("      var date=rel.published_at?rel.published_at.substring(0,10):'';");
+    result += F("      var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});");
+    result += F("      var links='';");
+    result += F("      if(assets.length===0){");
+    result += F("        links='<span class=\\'info\\'>keine .bin</span>';");
+    result += F("      } else {");
+    result += F("        assets.forEach(function(a){");
+    result += F("          links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'");
+    result += F("            +'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>'");
+    result += F("            +'<button type=\\'submit\\'>&#8595; '+a.name+'</button>'");
+    result += F("            +'</form>';");
+    result += F("        });");
+    result += F("      }");
+    result += F("      html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';");
+    result += F("    });");
+    result += F("    html+='</tbody></table>';");
+    result += F("    document.getElementById('relDiv').innerHTML=html;");
+    result += F("  })");
+    result += F("  .catch(function(e){");
+    result += F("    document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler beim Laden: '+e+'</p>';");
+    result += F("  });");
+    result += F("}");
+    result += F("window.addEventListener('DOMContentLoaded', loadReleases);");
+    result += F("</script>");
+
+    result += F("<div id='relDiv'><p class='info'>JavaScript wird ben&ouml;tigt.</p></div>");
     result += F("</div>");
 
-    // ── OTA-Server-Card ───────────────────────────
+    // ── OTA-Server-Card ─────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
     result += F("<form method='get' action='ota_start'>");
@@ -560,6 +573,64 @@ m_webserver.on("/ota", [this]() {
 
     result += GetBottom();
     m_webserver.send(200, "text/html", result);
+  }
+});
+
+// ── /ota_gh (GitHub Release direkt flashen) ───────
+m_webserver.on("/ota_gh", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+
+  String url = m_webserver.arg("url");
+  if (url.length() == 0) {
+    m_webserver.send(400, "text/plain", "Keine URL angegeben");
+    return;
+  }
+
+  String result;
+  result += GetTop();
+  result += GetNavigation();
+
+  m_logger->println("OTA GitHub: " + url);
+
+  // GitHub Assets nutzen HTTP-Redirects – WiFiClientSecure mit setInsecure()
+  // Der Download läuft über den Browser (URL ist öffentlich), daher reicht
+  // ein einfacher HTTPClient-Aufruf. BearSSL wird nur für den Download genutzt.
+  BearSSL::WiFiClientSecure client;
+  client.setInsecure();
+  client.setBufferSizes(1024, 1024);
+
+  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+  ESPhttpUpdate.rebootOnUpdate(false);
+
+  t_httpUpdate_return ret = ESPhttpUpdate.update(client, url);
+
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      result += F("<div class='card' style='border-left:4px solid var(--ok)'>");
+      result += F("<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>");
+      result += F("<p>Das Ger&auml;t startet neu...</p></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      delay(1000);
+      ESP.restart();
+      break;
+
+    case HTTP_UPDATE_FAILED:
+      result += F("<div class='card' style='border-left:4px solid var(--err)'>");
+      result += F("<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3>");
+      result += F("<p>");
+      result += ESPhttpUpdate.getLastErrorString();
+      result += F("</p></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      break;
+
+    case HTTP_UPDATE_NO_UPDATES:
+      result += F("<div class='card' style='border-left:4px solid var(--warn)'>");
+      result += F("<h3>Kein Update n&ouml;tig</h3></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      break;
   }
 });
 
