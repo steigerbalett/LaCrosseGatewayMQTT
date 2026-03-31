@@ -43,6 +43,7 @@ String OTAUpdate::_resolveGitHubAssetUrl(const String &owner,
                                           const String &assetName) {
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(10);
 
   const char *host = "api.github.com";
   if (!client.connect(host, 443)) {
@@ -60,21 +61,21 @@ String OTAUpdate::_resolveGitHubAssetUrl(const String &owner,
   while (client.connected()) {
     String line = client.readStringUntil('\n');
     if (line == "\r") break;
+    yield();
   }
 
-  // Body mit Timeout lesen
   String body = "";
-  unsigned long timeout = millis() + 5000;
+  unsigned long timeout = millis() + 8000;
   while (client.connected() && millis() < timeout) {
     while (client.available()) {
       body += (char)client.read();
-      timeout = millis() + 5000;
+      timeout = millis() + 8000;
     }
     yield();
   }
   client.stop();
 
-  DynamicJsonDocument doc(16384);
+  DynamicJsonDocument doc(8192);
   DeserializationError err = deserializeJson(doc, body);
   if (err) return "";
 
@@ -94,14 +95,20 @@ String OTAUpdate::StartFromGitHub(const String &owner,
   String result = "";
 
   String downloadUrl = _resolveGitHubAssetUrl(owner, repo, assetName);
+
+  yield();
+  delay(100);
+
   if (downloadUrl.isEmpty()) {
     return "FAILED: Asset nicht gefunden oder API-Fehler";
   }
 
   WiFiClientSecure secureClient;
   secureClient.setInsecure();
+  secureClient.setTimeout(30);
 
   ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  ESPhttpUpdate.rebootOnUpdate(true);
   t_httpUpdate_return updateResult =
       ESPhttpUpdate.update(secureClient, downloadUrl);
 

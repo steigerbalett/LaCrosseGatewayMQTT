@@ -1470,19 +1470,21 @@ static bool StartWifi(Settings settings) {
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
 
-  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
-    OTAUpdate ghOta;
-
-    Settings s;
-    s.Read(nullptr);
-
-    String owner = s.Get("ghOwner", "steigerbalett");
-    String repo  = s.Get("ghRepo",  "LaCrosseGatewayMQTT");
-    String asset = s.Get("ghAsset", "LaCrosseGateway.bin");
-
-    String result = ghOta.StartFromGitHub(owner, repo, asset);
-    frontend.WebServer()->send(200, "text/plain", result);
-  });
+//  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
+//    OTAUpdate ghOta;
+//
+//  // Owner/Repo/Asset direkt aus den URL-Parametern lesen
+//    String owner = frontend.WebServer()->arg("ghOwner");
+//    String repo  = frontend.WebServer()->arg("ghRepo");
+//    String asset = frontend.WebServer()->arg("ghAsset");
+//
+//    if (owner.isEmpty()) owner = "steigerbalett";
+//    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
+//    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
+//
+//    String result = ghOta.StartFromGitHub(owner, repo, asset);
+//    frontend.WebServer()->send(200, "text/plain", result);
+//  });
 
   uint16_t p1 = settings.GetInt("DataPort1", 81);
   uint16_t p2 = settings.GetInt("DataPort2", 0);
