@@ -2,23 +2,28 @@
 #ifndef _OTAUPDATE_h
 #define _OTAUPDATE_h
 
-#include "Arduino.h"
-#include "ESP8266httpUpdate.h"
+#pragma once
+#include <Arduino.h>
+#include <ESP8266HTTPUpdate.h>
+#include <WiFiClientSecure.h>
 #include "Logger.h"
 
+class Logger;
+
 class OTAUpdate {
-protected:
-  static bool m_debug;
-
-
 public:
-  static String Start(Logger *logger);
-  static void SetDebugMode(boolean mode);
+  void SetDebugMode(boolean mode);
+  String Start(Logger *logger);
+  String StartFromGitHub(Logger *logger,
+                         const String &owner,
+                         const String &repo,
+                         const String &assetName);
 
-
-
+private:
+  boolean m_debug = false;
+  String  _resolveGitHubAssetUrl(const String &owner,
+                                  const String &repo,
+                                  const String &assetName);
 };
 
-
 #endif
-

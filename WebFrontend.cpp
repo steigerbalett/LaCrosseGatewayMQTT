@@ -522,6 +522,12 @@ m_webserver.on("/ota", [this]() {
     }
     result += F("</table></div>");
 
+    //<!-- GitHub OTA Quelle -->
+    result += F("<input type="text" name="ghOwner"  placeholder="GitHub Owner (z.B. steigerbalett)">");
+    result += F("<input type="text" name="ghRepo"   placeholder="GitHub Repo  (z.B. LaCrosseGatewayMQTT)">");
+    result += F("<input type="text" name="ghAsset"  placeholder="Asset-Name   (z.B. LaCrosseGateway.bin)">");
+    result += F("<button onclick="startGitHubOTA()">Update von GitHub Release</button>");
+
     // ── OTA-Server-Card ───────────────────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
