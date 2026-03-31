@@ -522,11 +522,21 @@ m_webserver.on("/ota", [this]() {
     }
     result += F("</table></div>");
 
-    //<!-- GitHub OTA Quelle -->
-    result += F("<input type="text" name="ghOwner"  placeholder="GitHub Owner (z.B. steigerbalett)">");
-    result += F("<input type="text" name="ghRepo"   placeholder="GitHub Repo  (z.B. LaCrosseGatewayMQTT)">");
-    result += F("<input type="text" name="ghAsset"  placeholder="Asset-Name   (z.B. LaCrosseGateway.bin)">");
-    result += F("<button onclick="startGitHubOTA()">Update von GitHub Release</button>");
+    // ── GitHub OTA Card ───────────────────────────
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#128037; GitHub Release Update</h2>");
+    result += F("<form method='get' action='ota_github'>");
+    result += F("<p><label>Owner: <input type='text' name='ghOwner' placeholder='steigerbalett' value='");
+    result += settings.Get("ghOwner", "steigerbalett");
+    result += F("'></label></p>");
+    result += F("<p><label>Repo: <input type='text' name='ghRepo' placeholder='LaCrosseGatewayMQTT' value='");
+    result += settings.Get("ghRepo", "LaCrosseGatewayMQTT");
+    result += F("'></label></p>");
+    result += F("<p><label>Asset: <input type='text' name='ghAsset' placeholder='LaCrosseGateway.bin' value='");
+    result += settings.Get("ghAsset", "LaCrosseGateway.bin");
+    result += F("'></label></p>");
+    result += F("<br><input type='submit' value='Update von GitHub Release'></form>");
+    result += F("</div>");
 
     // ── OTA-Server-Card ───────────────────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
@@ -543,10 +553,30 @@ m_webserver.on("/ota", [this]() {
   }
 });
 
-  m_webserver.on("/ota_start", [this]() {
-    if (IsAuthentified())
-      m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
-  });
+// ── /ota_start (bestehender OTA-Server-Update) ────
+m_webserver.on("/ota_start", [this]() {
+  if (IsAuthentified()) {
+    OTAUpdate ota;
+    m_webserver.send(200, "text/html", ota.Start(m_logger));
+  }
+});
+
+// ── /ota_github (neuer GitHub-Release-Update) ─────
+m_webserver.on("/ota_github", [this]() {
+  if (IsAuthentified()) {
+    String owner = m_webserver.arg("ghOwner");
+    String repo  = m_webserver.arg("ghRepo");
+    String asset = m_webserver.arg("ghAsset");
+
+    if (owner.isEmpty()) owner = "steigerbalett";
+    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
+    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
+
+    OTAUpdate ota;
+    String result = ota.StartFromGitHub(owner, repo, asset);
+    m_webserver.send(200, "text/plain", result);
+  }
+});
 
   // ── /save ─────────────────────────────────────────
   m_webserver.on("/save", [this]() {
