@@ -212,8 +212,6 @@ static void LogBssid(uint8_t *b) {
 byte scanWifi(String ctSSID) {
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
-  uint8_t *thisBssid;
-  char obuf[10];
   
   logger.println("Number of all SSIDs: " + String(numSsid));
 
@@ -1932,12 +1930,10 @@ void setup(void) {
     StartWifi(settings);
 
     configTime(MY_TZ, MY_NTP_SERVER);
-logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
-time_t t = 0;
-for (int i = 0; i < 20 && t < 100000; i++) { delay(500); t = time(nullptr); }
-logger.println(F("NTP sync: ") + getLocalTimeString());
-      
-    }
+    logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
+    time_t t = 0;
+    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); t = time(nullptr); }
+    logger.println(F("NTP sync: ") + getLocalTimeString());
   }
   else {
     WiFi.mode(WiFiMode::WIFI_OFF);
