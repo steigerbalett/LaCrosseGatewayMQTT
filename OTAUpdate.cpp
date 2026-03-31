@@ -5,11 +5,6 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
-// define firmware HTTPSRV firmware FHEM/firmware firmware
-// OTA-Server: 192.168.11.11
-// OTA-Port:   8083
-// OTA-url:    /fhem/firmware/LaCrosseGateway.bin
-
 void OTAUpdate::SetDebugMode(boolean mode) {
   m_debug = mode;
 }
@@ -18,7 +13,7 @@ String OTAUpdate::Start(Logger *logger) {
   String result = "";
 
   WiFiClient client;
-  
+
   Settings s;
   s.Read(logger);
   String otaServer = s.Get("otaServer", "");
@@ -46,7 +41,6 @@ String OTAUpdate::Start(Logger *logger) {
 String OTAUpdate::_resolveGitHubAssetUrl(const String &owner,
                                           const String &repo,
                                           const String &assetName) {
-
   WiFiClientSecure client;
   client.setInsecure();
 
@@ -62,14 +56,21 @@ String OTAUpdate::_resolveGitHubAssetUrl(const String &owner,
                "Accept: application/vnd.github+json\r\n" +
                "Connection: close\r\n\r\n");
 
+  // HTTP-Header überspringen
   while (client.connected()) {
     String line = client.readStringUntil('\n');
     if (line == "\r") break;
   }
 
+  // Body mit Timeout lesen
   String body = "";
-  while (client.available()) {
-    body += client.readString();
+  unsigned long timeout = millis() + 5000;
+  while (client.connected() && millis() < timeout) {
+    while (client.available()) {
+      body += (char)client.read();
+      timeout = millis() + 5000;
+    }
+    yield();
   }
   client.stop();
 
@@ -87,24 +88,14 @@ String OTAUpdate::_resolveGitHubAssetUrl(const String &owner,
   return "";
 }
 
-String OTAUpdate::StartFromGitHub(Logger *logger,
-                                   const String &owner,
+String OTAUpdate::StartFromGitHub(const String &owner,
                                    const String &repo,
                                    const String &assetName) {
   String result = "";
 
-  if (m_debug && logger) {
-    logger->Log("OTA-GitHub: Suche Asset " + assetName +
-                " in " + owner + "/" + repo);
-  }
-
   String downloadUrl = _resolveGitHubAssetUrl(owner, repo, assetName);
   if (downloadUrl.isEmpty()) {
     return "FAILED: Asset nicht gefunden oder API-Fehler";
-  }
-
-  if (m_debug && logger) {
-    logger->Log("OTA-GitHub: URL=" + downloadUrl);
   }
 
   WiFiClientSecure secureClient;

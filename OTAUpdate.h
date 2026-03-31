@@ -1,4 +1,3 @@
-
 #ifndef _OTAUPDATE_h
 #define _OTAUPDATE_h
 
@@ -7,14 +6,11 @@
 #include <ESP8266httpUpdate.h>
 #include <WiFiClientSecure.h>
 
-class Logger;
-
 class OTAUpdate {
 public:
   void SetDebugMode(boolean mode);
   String Start(Logger *logger);
-  String StartFromGitHub(Logger *logger,
-                         const String &owner,
+  String StartFromGitHub(const String &owner,
                          const String &repo,
                          const String &assetName);
 

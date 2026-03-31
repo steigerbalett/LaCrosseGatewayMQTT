@@ -1469,23 +1469,20 @@ static bool StartWifi(Settings settings) {
 
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
-  // OTA Github
-  if (request->hasParam("ota")) {
-    OTAUpdate ota;
-    ota.SetDebugMode(true);
-  
-    String source = request->getParam("source")->value();  // "custom" oder "github"
+  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
+    OTAUpdate ghOta;
+    ghOta.SetDebugMode(false);
 
-    if (source == "github") {
-      Settings s;  s.Read(logger);
-      String owner  = s.Get("ghOwner",  "steigerbalett");
-      String repo   = s.Get("ghRepo",   "LaCrosseGatewayMQTT");
-      String asset  = s.Get("ghAsset",  "LaCrosseGateway.bin");
-      result = ota.StartFromGitHub(logger, owner, repo, asset);
-    } else {
-      result = ota.Start(logger);
-    }
-  }
+    Settings s;
+    s.Read(nullptr);
+
+    String owner = s.Get("ghOwner", "steigerbalett");
+    String repo  = s.Get("ghRepo",  "LaCrosseGatewayMQTT");
+    String asset = s.Get("ghAsset", "LaCrosseGateway.bin");
+
+    String result = ghOta.StartFromGitHub(nullptr, owner, repo, asset);
+    frontend.WebServer()->send(200, "text/plain", result);
+  });
 
   uint16_t p1 = settings.GetInt("DataPort1", 81);
   uint16_t p2 = settings.GetInt("DataPort2", 0);
