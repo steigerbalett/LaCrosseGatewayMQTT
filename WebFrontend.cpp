@@ -22,7 +22,17 @@ String WifiModeToString(WiFiMode_t mode) {
 }
 
 // ═══════════════════════════════════════════════════
-// NEU: Gemeinsames CSS (Style aus lacrosse2mqtt)
+// Favicon als inline SVG Data-URI
+// ═══════════════════════════════════════════════════
+const char LGWMQTT_FAVICON[] PROGMEM =
+  "<link rel='icon' type='image/svg+xml' "
+  "href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
+  "%3Ccircle cx='32' cy='32' r='30' fill='%2303a9f4'/%3E"
+  "%3Ctext x='32' y='44' font-size='36' text-anchor='middle' fill='white' font-family='Arial'%3E"
+  "L%3C/text%3E%3C/svg%3E\">";
+
+
+// ═══════════════════════════════════════════════════
 // Wird als PROGMEM-Konstante gespeichert
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_CSS[] PROGMEM =
@@ -101,7 +111,7 @@ const char LGWMQTT_CSS[] PROGMEM =
   "@media(min-width:1200px){.card-grid{grid-template-columns:repeat(3,1fr)}}";
 
 // ═══════════════════════════════════════════════════
-// NEU: Theme-Toggle JavaScript
+// Theme-Toggle JavaScript
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_JS_THEME[] PROGMEM =
   "<script>"
@@ -127,7 +137,7 @@ const char LGWMQTT_JS_THEME[] PROGMEM =
   "</script>";
 
 // ═══════════════════════════════════════════════════
-// NEU: Log-Seite JavaScript + HTML (ersetzt on_log)
+// Log-Seite JavaScript + HTML (ersetzt on_log)
 // ═══════════════════════════════════════════════════
 const char on_log[] PROGMEM =
 "<script>"
@@ -221,7 +231,7 @@ const char on_log[] PROGMEM =
 "</body>";
 
 // ═══════════════════════════════════════════════════
-// Konstruktor & Hilfsmethoden (unverändert)
+// Konstruktor & Hilfsmethoden
 // ═══════════════════════════════════════════════════
 WebFrontend::WebFrontend(int port) : m_webserver(port) {
   m_port = port;
@@ -260,7 +270,7 @@ String GetOption(String option, String defaultValue) {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetTop() – Dark/Light CSS + Header
+// GetTop() – Dark/Light CSS + Header
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetTop() {
   String result;
@@ -270,6 +280,7 @@ String WebFrontend::GetTop() {
   result += F("<head><title>");
   result += GetDisplayName();
   result += F("</title>");
+  result += FPSTR(LGWMQTT_FAVICON);
   result += F("<style>");
   result += FPSTR(LGWMQTT_CSS);
   result += F("</style>");
@@ -294,7 +305,7 @@ String WebFrontend::GetTop() {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetNavigation() – moderne Navbar
+// GetNavigation() – moderne Navbar
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetNavigation() {
   String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>");
@@ -313,7 +324,7 @@ String WebFrontend::GetNavigation() {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetBottom() – Footer + Theme-Init
+// GetBottom() – Footer + Theme-Init
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetBottom() {
   String result;
@@ -326,7 +337,7 @@ String WebFrontend::GetBottom() {
 
 // ═══════════════════════════════════════════════════
 // GetRedirectToRoot(), BuildHardwareRow(),
-// Handle() – unverändert
+// Handle()
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetRedirectToRoot(String message) {
   String result;
@@ -376,8 +387,7 @@ String GetLatestGithubVersion(Logger* logger) {
 }
 
 // ═══════════════════════════════════════════════════
-// Begin() – Routen-Logik UNVERÄNDERT,
-// nur Setup-Formular in Cards verpackt
+// Begin() – Routen-Logik
 // ═══════════════════════════════════════════════════
 void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_stateManager = stateManager;
@@ -756,6 +766,107 @@ m_webserver.on("/ota_github", [this]() {
       data += F("</table></div>");
       m_webserver.sendContent(data); data = "";
 
+      // Card – LGW-Betrieb (FHEM-Einstellungen)
+data += F("<div class='card' style='margin-bottom:12px'>");
+data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
+data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p>");
+data += F("<table>");
+
+// Modus
+data += F("<tr><td><label>Modus:</label></td><td>");
+data += F("<select name='lgwMode'>");
+String lgwMode = settings.Get("lgwMode", "0");
+data += GetOption("0", lgwMode);
+data += GetOption("1", lgwMode);
+data += GetOption("2", lgwMode);
+data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
+
+// Kanal
+data += F("<tr><td><label>Kanal:</label></td><td>");
+data += F("<input name='lgwChannel' size='5' maxlength='3' value='");
+data += settings.Get("lgwChannel", "0");
+data += F("'> <span class='info'>0–255</span></td></tr>");
+
+// RFM-Frequenz
+data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td>");
+data += F("<input name='lgwFreq' size='12' maxlength='10' value='");
+data += settings.Get("lgwFreq", "868300");
+data += F("'> <span class='info'>z.B. 868300</span></td></tr>");
+
+// Sendeleistung
+data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td>");
+data += F("<select name='lgwPower'>");
+String lgwPwr = settings.Get("lgwPower", "10");
+for (int p = 0; p <= 20; p += 2) { data += GetOption(String(p), lgwPwr); }
+data += F("</select></td></tr>");
+
+// Datenrate
+data += F("<tr><td><label>Datenrate (Baud):</label></td><td>");
+data += F("<select name='lgwDataRate'>");
+String lgwDR = settings.Get("lgwDataRate", "17241");
+data += GetOption("4800", lgwDR); data += GetOption("9600", lgwDR);
+data += GetOption("17241", lgwDR); data += GetOption("19200", lgwDR);
+data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
+data += F("</select> <span class='info'>Standard: 17241</span></td></tr>");
+
+// RSSI-Filter
+data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td>");
+data += F("<input name='lgwRssiThreshold' size='7' maxlength='5' value='");
+data += settings.Get("lgwRssiThreshold", "-200");
+data += F("'> <span class='info'>Pakete darunter ignorieren</span></td></tr>");
+
+// Encrypt-Key
+data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td>");
+data += F("<input name='lgwEncryptKey' size='40' maxlength='32' placeholder='leer = keine Verschluesselung' value='");
+data += settings.Get("lgwEncryptKey", "");
+data += F("'></td></tr>");
+
+// Watchdog
+data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td>");
+data += F("<input name='lgwWatchdog' size='7' maxlength='5' value='");
+data += settings.Get("lgwWatchdog", "0");
+data += F("'> <span class='info'>0 = deaktiviert</span></td></tr>");
+
+data += F("</table></div>");
+m_webserver.sendContent(data); data = "";
+
+// Card – Sende-Verhalten
+data += F("<div class='card' style='margin-bottom:12px'>");
+data += F("<h2>&#128228; Sende-Verhalten</h2>");
+data += F("<table>");
+
+data += F("<tr><td><label>SendMode:</label></td><td>");
+data += F("<select name='SendMode'>");
+String sendMode = settings.Get("SendMode", "0");
+data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
+data += F("</select> <span class='info'>0=kein Senden, 1=alle, 2=nur neue IDs</span></td></tr>");
+
+data += F("<tr><td><label>SendRetries:</label></td><td>");
+data += F("<input name='SendRetries' size='5' maxlength='3' value='");
+data += settings.Get("SendRetries", "3");
+data += F("'></td></tr>");
+
+data += F("<tr><td><label>Optionen:</label></td><td>");
+data += F("<input name='SendHumidity' type='checkbox' value='true' ");
+data += settings.Get("SendHumidity", "true") == "true" ? "checked" : "";
+data += F("> Luftfeuchte&nbsp;&nbsp;");
+
+data += F("<input name='SendBatteryBeep' type='checkbox' value='true' ");
+data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : "";
+data += F("> Batterie-Warnung&nbsp;&nbsp;");
+
+data += F("<input name='AsDataFull' type='checkbox' value='true' ");
+data += settings.Get("AsDataFull", "false") == "true" ? "checked" : "";
+data += F("> Vollst. Daten&nbsp;&nbsp;");
+
+data += F("<input name='ToggleLed' type='checkbox' value='true' ");
+data += settings.Get("ToggleLed", "true") == "true" ? "checked" : "";
+data += F("> LED blinken</td></tr>");
+
+data += F("</table></div>");
+m_webserver.sendContent(data); data = "";
+
+
       // --- Card: Flags ---
       data += F("<div class='card' style='margin-bottom:12px'>");
       data += F("<h2>&#9881;&#65039; Optionen</h2><table>");
@@ -866,6 +977,7 @@ m_webserver.on("/ota_github", [this]() {
     String content;
     content += F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>");
     content += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+    content += FPSTR(LGWMQTT_FAVICON);
     content += F("<style>");
     content += FPSTR(LGWMQTT_CSS);
     content += F("</style></head><body>");
