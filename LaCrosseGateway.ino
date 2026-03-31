@@ -182,7 +182,7 @@ Logger logger;
   #define MSG_BUFFER_SIZE  (200)
   char msg[MSG_BUFFER_SIZE];
   int value = 0;
-  int secBetweenPublish = TIME_SEC_BETWEEN_PUBLISH;
+  unsigned long secBetweenPublish = TIME_SEC_BETWEEN_PUBLISH;
 
   char mqtt_server[40] = "";
   int mqtt_port = 1883;
@@ -301,7 +301,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
@@ -1207,12 +1207,10 @@ bool HandleReceivedData(RFMxx *rfm) {
 
         Dispatch(data, raw);
       }
-    }
-  
+    } 
   }
-  
-  delete payload;
 
+  delete payload;
   return result;
 }
 
@@ -1285,9 +1283,6 @@ void HandleProgressRequest(byte action, unsigned long offset, unsigned long maxV
   }
 
 }
-
-bool ntpTimeUpdated = false;
-char obuf[20];
 
 void updateNetworkTime() {
   configTime(MY_TZ, MY_NTP_SERVER);
@@ -2037,10 +2032,9 @@ void HandleDataRate() {
   }
 }
 
-unsigned long timetry = 0;
-
 // **********************************************************************
 void loop(void) {
+  static unsigned long timetry = 0;
   String mqttTopic;
   
   if (serialPortFlasher.IsUploading()) {
