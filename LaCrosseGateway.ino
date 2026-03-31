@@ -103,7 +103,10 @@ extern "C" {
 
 /* Configuration of NTP */
 #define MY_NTP_SERVER "de.pool.ntp.org"           
-#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03" 
+#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
+
+RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
+
 
 // The following settings can also be set from FHEM
 #define ENABLE_ACTIVITY_LED    1         // <n>a       set to 0 if the blue LED bothers
