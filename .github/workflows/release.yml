@@ -28,7 +28,8 @@ jobs:
       - name: Version aus .ino extrahieren
         id: extract
         run: |
-          VERSION=$(sed -n 's/^#define PROGVERS[[:space:]]*"\([^"]*\)".*/\1/p' LaCrosseGateway.ino)
+          VERSION=$(cat version.txt | tr -d '[:space:]')
+          sed -i "s/#define PROGVERS.*/#define PROGVERS         \"${VERSION}\"/" LaCrosseGateway.ino
           echo "Gefundene Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
