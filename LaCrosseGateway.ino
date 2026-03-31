@@ -105,9 +105,6 @@ extern "C" {
 #define MY_NTP_SERVER "de.pool.ntp.org"           
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
 
-RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
-
-
 // The following settings can also be set from FHEM
 #define ENABLE_ACTIVITY_LED    1         // <n>a       set to 0 if the blue LED bothers
                                          // <n,d>b     Alert n beeps for d seconds
@@ -258,7 +255,7 @@ RFMxx rfm2(13, 12, 14, RFM2_SS);
 RFMxx rfm3(13, 12, 14, RFM3_SS);
 RFMxx rfm4(13, 12, 14, 0, -1, AddOnPinHandler);
 RFMxx rfm5(13, 12, 14, 1, -1, AddOnPinHandler);
-RFMxx* rfms[5];
+RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
 
 AlarmHandler alarm(7, AddOnPinHandler);
 
