@@ -6,6 +6,8 @@
 #include <ESP8266httpUpdate.h>
 #include <WiFiClientSecure.h>
 
+class Logger; 
+
 class OTAUpdate {
 public:
   void SetDebugMode(boolean mode);

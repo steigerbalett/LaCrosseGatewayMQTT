@@ -1469,9 +1469,9 @@ static bool StartWifi(Settings settings) {
 
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
+
   frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
     OTAUpdate ghOta;
-    ghOta.SetDebugMode(false);
 
     Settings s;
     s.Read(nullptr);
@@ -1480,7 +1480,7 @@ static bool StartWifi(Settings settings) {
     String repo  = s.Get("ghRepo",  "LaCrosseGatewayMQTT");
     String asset = s.Get("ghAsset", "LaCrosseGateway.bin");
 
-    String result = ghOta.StartFromGitHub(nullptr, owner, repo, asset);
+    String result = ghOta.StartFromGitHub(owner, repo, asset);
     frontend.WebServer()->send(200, "text/plain", result);
   });
 
