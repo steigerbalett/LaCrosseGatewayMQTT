@@ -105,6 +105,9 @@ extern "C" {
 #define MY_NTP_SERVER "de.pool.ntp.org"           
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03" 
 
+unsigned long *lastToggles[5] = { &lastToggleR1, &lastToggleR2, &lastToggleR3, &lastToggleR4, &lastToggleR5 };
+unsigned long *dataRates[5]   = { &DATA_RATE_R1, &DATA_RATE_R2, &DATA_RATE_R3, &DATA_RATE_R4, &DATA_RATE_R5 };
+
 // The following settings can also be set from FHEM
 #define ENABLE_ACTIVITY_LED    1         // <n>a       set to 0 if the blue LED bothers
                                          // <n,d>b     Alert n beeps for d seconds
@@ -212,6 +215,7 @@ static void LogBssid(uint8_t *b) {
 byte scanWifi(String ctSSID) {
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
+  uint8_t *thisBssid;
   
   logger.println("Number of all SSIDs: " + String(numSsid));
 
@@ -1067,11 +1071,10 @@ bool HandleReceivedData(RFMxx *rfm) {
             if (b_publishData){
               client.publish(bufTopic, bufData);        
             }
-  #endif
-  
           }
         }
       }
+  #endif
       if(bitRead(ANALYZE_FRAMES, 1) && TX22IT::IsValidDataRate(dataRate)) {
         logger.println(TX22IT::AnalyzeFrame(payload));
       }
@@ -2016,10 +2019,6 @@ byte HandleDataReception() {
   }
   return receivedPackets;
 }
-
-// Neue Arrays direkt neben den bestehenden Deklarationen:
-unsigned long *lastToggles[5] = { &lastToggleR1, &lastToggleR2, &lastToggleR3, &lastToggleR4, &lastToggleR5 };
-unsigned long *dataRates[5]   = { &DATA_RATE_R1, &DATA_RATE_R2, &DATA_RATE_R3, &DATA_RATE_R4, &DATA_RATE_R5 };
 
 void HandleDataRate() {
   for (int i = 0; i < 5; i++) {
