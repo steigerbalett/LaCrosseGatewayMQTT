@@ -62,6 +62,7 @@ public:
   void SendArray(byte *data, byte length);
   void SendString(String data);
   void SetDataRate(unsigned long dataRate);
+  void ApplyDataRateByName(const String &name); 
   unsigned long GetDataRate();
   void SetFrequency(unsigned long kHz);
   unsigned long GetFrequency();

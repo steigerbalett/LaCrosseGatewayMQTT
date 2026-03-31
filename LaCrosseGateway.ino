@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.3"
+#define PROGVERS         "1.36.4
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -208,6 +208,18 @@ static void LogBssid(uint8_t *b) {
   }
   logger.println("");
 }
+
+struct RadioToggleState {
+  bool     enabled;
+  String   type;
+  long     freqKHz;
+  String   fixedDataRate;
+  uint8_t  toggleMask;
+  uint32_t toggleIntervalS;
+  uint8_t  toggleIndex;
+  uint32_t lastToggleMs;
+};
+RadioToggleState g_radio[5];
 
 byte scanWifi(String ctSSID) {
   byte numSsid = WiFi.scanNetworks();
@@ -650,6 +662,20 @@ static void HandleSerialPort(char c) {
     HandleCommandV();
   }
   
+}
+
+void LoadRadioSettings(Settings &settings) {
+  for (byte i = 0; i < 5; i++) {
+    String p = "Radio" + String(i + 1);
+    g_radio[i].type            = settings.Get(p + "Type", i == 0 ? "RFM69" : "---");
+    g_radio[i].enabled         = (g_radio[i].type != "---");
+    g_radio[i].freqKHz         = (long)settings.GetInt(p + "Freq", i == 0 ? 868310 : 868300);
+    g_radio[i].fixedDataRate   = settings.Get(p + "DataRate", "17.241");
+    g_radio[i].toggleMask      = (uint8_t) settings.GetInt(p + "ToggleMask",  0);
+    g_radio[i].toggleIntervalS = (uint32_t)settings.GetInt(p + "ToggleInterval", i == 0 ? 30 : 0);
+    g_radio[i].toggleIndex  = 0;
+    g_radio[i].lastToggleMs = 0;
+  }
 }
 
 void HandleCommandString(String command) {
@@ -1560,12 +1586,12 @@ String CommandHandler(String command) {
   return "";
 }
 
-void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) {
+void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings, long freqKHz = 0) {
   if (!rfm->IsConnected()) return;
 
   if (rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
     rfm->InitializeLoRa();
-    rfm->SetFrequency(868200);
+    rfm->SetFrequency(freqKHz > 0 ? freqKHz : 868200);
 
     // Spreading Factor Lookup
     static const struct { const char *name; RFMxx::SpreadingFactor sf; } sfTable[] = {
@@ -1602,7 +1628,7 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) 
 
   } else {
     rfm->InitializeLaCrosse();
-    rfm->SetFrequency(INITIAL_FREQ);
+    rfm->SetFrequency(freqKHz > 0 ? freqKHz : INITIAL_FREQ);
     SetDataRate(rfm, dataRate);
   }
 
@@ -1636,6 +1662,7 @@ void setup(void) {
   
   Settings settings;
   settings.Read(&logger);
+  LoadRadioSettings(settings);
   
   pinMode(D7, INPUT);
   if (digitalRead(D7)) {
@@ -1824,11 +1851,10 @@ void setup(void) {
     rfm5.Begin();
   }
 
-  rfm1.ToggleMode = TOGGLE_MODE_R1; rfm1.ToggleInterval = TOGGLE_INTERVAL_R1;
-  rfm2.ToggleMode = TOGGLE_MODE_R2; rfm2.ToggleInterval = TOGGLE_INTERVAL_R2;
-  rfm3.ToggleMode = TOGGLE_MODE_R3; rfm3.ToggleInterval = TOGGLE_INTERVAL_R3;
-  rfm4.ToggleMode = TOGGLE_MODE_R4; rfm4.ToggleInterval = TOGGLE_INTERVAL_R4;
-  rfm5.ToggleMode = TOGGLE_MODE_R5; rfm5.ToggleInterval = TOGGLE_INTERVAL_R5;
+for (byte i = 0; i < 5; i++) {
+  rfms[i]->ToggleMode     = g_radio[i].enabled ? g_radio[i].toggleMask      : 0;
+  rfms[i]->ToggleInterval = g_radio[i].enabled ? g_radio[i].toggleIntervalS : 0;
+}
 
   ownSensors.TryInitialize(!rfm3.IsConnected(), !rfm2.IsConnected() && !rfm3.IsConnected(), settings.GetBool("PRD", false));
 
@@ -1929,11 +1955,27 @@ void setup(void) {
   }
 
   logger.println("Searching RFMs and Sensors");
-  CheckRFM(1, &rfm1, DATA_RATE_R1, &settings);
-  CheckRFM(2, &rfm2, DATA_RATE_R2, &settings);
-  CheckRFM(3, &rfm3, DATA_RATE_R3, &settings);
-  CheckRFM(4, &rfm4, DATA_RATE_R4, &settings);
-  CheckRFM(5, &rfm5, DATA_RATE_R5, &settings);
+auto parseDataRateLong = [](const String &s) -> unsigned long {
+  if (s == "17.241") return 17241ul;
+  if (s == "9.579")  return 9579ul;
+  if (s == "8.842")  return 8842ul;
+  if (s == "6.631")  return 6631ul;
+  if (s == "4.800")  return 4800ul;
+  return 17241ul;
+};
+
+for (byte i = 0; i < 5; i++) {
+  unsigned long dr   = g_radio[i].enabled ? parseDataRateLong(g_radio[i].fixedDataRate) : 17241ul;
+  long          freq = g_radio[i].enabled ? g_radio[i].freqKHz : 0;
+  CheckRFM(i + 1, rfms[i], dr, &settings, freq);
+}
+
+DATA_RATE_R1 = g_radio[0].enabled ? parseDataRateLong(g_radio[0].fixedDataRate) : 17241ul;
+DATA_RATE_R2 = g_radio[1].enabled ? parseDataRateLong(g_radio[1].fixedDataRate) : 9579ul;
+DATA_RATE_R3 = g_radio[2].enabled ? parseDataRateLong(g_radio[2].fixedDataRate) : 8842ul;
+DATA_RATE_R4 = g_radio[3].enabled ? parseDataRateLong(g_radio[3].fixedDataRate) : 17241ul;
+DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) : 17241ul;
+
 
   // Start wifi
   if (USE_WIFI) {

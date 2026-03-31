@@ -546,3 +546,11 @@ long RFMxx::GetBandwidthHz() {
   }
   return 0;  // Fallback: unbekannte Bandbreite
 }
+
+void RFMxx::ApplyDataRateByName(const String &name) {
+  if      (name == "17.241") SetDataRate(17241);
+  else if (name == "9.579")  SetDataRate(9579);
+  else if (name == "8.842")  SetDataRate(8842);
+  else if (name == "6.631")  SetDataRate(6631);
+  else if (name == "4.800")  SetDataRate(4800);
+}

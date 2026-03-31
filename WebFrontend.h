@@ -32,6 +32,7 @@ private:
   String GetNavigation();
   String GetTop();
   String GetBottom();
+  String BuildRadioCard(Settings &settings, byte radioNbr);
   String GetIOCombo(byte nbr, String defaultValue);
   String GetMCPCombos(Settings *settings, byte part);
   String GetRedirectToRoot(String message = "");
@@ -41,4 +42,3 @@ private:
 };
 
 #endif
-
