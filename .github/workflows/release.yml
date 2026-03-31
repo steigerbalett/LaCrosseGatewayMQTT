@@ -201,12 +201,21 @@ jobs:
             | `LaCrosseGatewayMQTT_D1-Mini.bin` | Wemos D1 Mini | 4 MB |
             | `LaCrosseGatewayMQTT_ESP8266-generic.bin` | ESP-12E/F generisch | 4 MB |
 
+            ### ⚡ Flash-Befehl (per web gui)
+            [https://esptool.spacehuhn.com](https://esptool.spacehuhn.com)
+
+            * Öffne [serial.huhn.me](https://esptool.spacehuhn.com) in Chrome oder Edge
+            * ESP8266 per USB anschließen
+            * Klicke Connect → COM-Port auswählen
+            * .bin-Datei hochladen
+            * Klicke Program
+
             ### ⚡ Flash-Befehl (esptool)
             ```bash
             esptool.py --chip esp8266 --baud 921600 \
               write_flash 0x0 LaCrosseGatewayMQTT_NodeMCUv2.bin
             ```
-
+            
             ### 📝 Änderungen
             ${{ steps.changelog.outputs.CHANGELOG }}
           files: release-assets/*.bin

@@ -103,7 +103,7 @@ extern "C" {
 
 /* Configuration of NTP */
 #define MY_NTP_SERVER "de.pool.ntp.org"           
-#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03" 
+#define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
 
 // The following settings can also be set from FHEM
 #define ENABLE_ACTIVITY_LED    1         // <n>a       set to 0 if the blue LED bothers
@@ -255,7 +255,7 @@ RFMxx rfm2(13, 12, 14, RFM2_SS);
 RFMxx rfm3(13, 12, 14, RFM3_SS);
 RFMxx rfm4(13, 12, 14, 0, -1, AddOnPinHandler);
 RFMxx rfm5(13, 12, 14, 1, -1, AddOnPinHandler);
-RFMxx* rfms[5];
+RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
 
 AlarmHandler alarm(7, AddOnPinHandler);
 
@@ -1469,7 +1469,23 @@ static bool StartWifi(Settings settings) {
 
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
-  
+
+//  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
+//    OTAUpdate ghOta;
+//
+//  // Owner/Repo/Asset direkt aus den URL-Parametern lesen
+//    String owner = frontend.WebServer()->arg("ghOwner");
+//    String repo  = frontend.WebServer()->arg("ghRepo");
+//    String asset = frontend.WebServer()->arg("ghAsset");
+//
+//    if (owner.isEmpty()) owner = "steigerbalett";
+//    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
+//    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
+//
+//    String result = ghOta.StartFromGitHub(owner, repo, asset);
+//    frontend.WebServer()->send(200, "text/plain", result);
+//  });
+
   uint16_t p1 = settings.GetInt("DataPort1", 81);
   uint16_t p2 = settings.GetInt("DataPort2", 0);
   uint16_t p3 = settings.GetInt("DataPort3", 0);

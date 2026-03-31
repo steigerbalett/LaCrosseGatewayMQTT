@@ -6,6 +6,7 @@
 #include "Help.h"
 #include "ESP8266WiFiType.h"
 #include "ESPTools.h"
+#include <ESP8266httpUpdate.h>
 #include <WiFiClientSecureBearSSL.h>
 
 // ═══════════════════════════════════════════════════
@@ -22,7 +23,17 @@ String WifiModeToString(WiFiMode_t mode) {
 }
 
 // ═══════════════════════════════════════════════════
-// NEU: Gemeinsames CSS (Style aus lacrosse2mqtt)
+// Favicon als inline SVG Data-URI
+// ═══════════════════════════════════════════════════
+const char LGWMQTT_FAVICON[] PROGMEM =
+  "<link rel='icon' type='image/svg+xml' "
+  "href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
+  "%3Ccircle cx='32' cy='32' r='30' fill='%2303a9f4'/%3E"
+  "%3Ctext x='32' y='44' font-size='36' text-anchor='middle' fill='white' font-family='Arial'%3E"
+  "L%3C/text%3E%3C/svg%3E\">";
+
+
+// ═══════════════════════════════════════════════════
 // Wird als PROGMEM-Konstante gespeichert
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_CSS[] PROGMEM =
@@ -101,7 +112,7 @@ const char LGWMQTT_CSS[] PROGMEM =
   "@media(min-width:1200px){.card-grid{grid-template-columns:repeat(3,1fr)}}";
 
 // ═══════════════════════════════════════════════════
-// NEU: Theme-Toggle JavaScript
+// Theme-Toggle JavaScript
 // ═══════════════════════════════════════════════════
 const char LGWMQTT_JS_THEME[] PROGMEM =
   "<script>"
@@ -127,7 +138,7 @@ const char LGWMQTT_JS_THEME[] PROGMEM =
   "</script>";
 
 // ═══════════════════════════════════════════════════
-// NEU: Log-Seite JavaScript + HTML (ersetzt on_log)
+// Log-Seite JavaScript + HTML (ersetzt on_log)
 // ═══════════════════════════════════════════════════
 const char on_log[] PROGMEM =
 "<script>"
@@ -221,7 +232,7 @@ const char on_log[] PROGMEM =
 "</body>";
 
 // ═══════════════════════════════════════════════════
-// Konstruktor & Hilfsmethoden (unverändert)
+// Konstruktor & Hilfsmethoden
 // ═══════════════════════════════════════════════════
 WebFrontend::WebFrontend(int port) : m_webserver(port) {
   m_port = port;
@@ -260,7 +271,7 @@ String GetOption(String option, String defaultValue) {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetTop() – Dark/Light CSS + Header
+// GetTop() – Dark/Light CSS + Header
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetTop() {
   String result;
@@ -270,6 +281,7 @@ String WebFrontend::GetTop() {
   result += F("<head><title>");
   result += GetDisplayName();
   result += F("</title>");
+  result += FPSTR(LGWMQTT_FAVICON);
   result += F("<style>");
   result += FPSTR(LGWMQTT_CSS);
   result += F("</style>");
@@ -294,7 +306,7 @@ String WebFrontend::GetTop() {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetNavigation() – moderne Navbar
+// GetNavigation() – moderne Navbar
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetNavigation() {
   String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>");
@@ -313,7 +325,7 @@ String WebFrontend::GetNavigation() {
 }
 
 // ═══════════════════════════════════════════════════
-// GEÄNDERT: GetBottom() – Footer + Theme-Init
+// GetBottom() – Footer + Theme-Init
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetBottom() {
   String result;
@@ -326,7 +338,7 @@ String WebFrontend::GetBottom() {
 
 // ═══════════════════════════════════════════════════
 // GetRedirectToRoot(), BuildHardwareRow(),
-// Handle() – unverändert
+// Handle()
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetRedirectToRoot(String message) {
   String result;
@@ -376,8 +388,7 @@ String GetLatestGithubVersion(Logger* logger) {
 }
 
 // ═══════════════════════════════════════════════════
-// Begin() – Routen-Logik UNVERÄNDERT,
-// nur Setup-Formular in Cards verpackt
+// Begin() – Routen-Logik
 // ═══════════════════════════════════════════════════
 void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_stateManager = stateManager;
@@ -487,42 +498,70 @@ m_webserver.on("/ota", [this]() {
     Settings settings;
     settings.Read(m_logger);
 
-    String githubVersion = GetLatestGithubVersion(m_logger);
-    String localVersion  = m_stateManager->GetVersion();
-    bool updateAvailable = githubVersion.length() > 0 && githubVersion != localVersion;
+    String localVersion = m_stateManager->GetVersion();
 
     String result;
     result += GetTop();
     result += GetNavigation();
 
-    // ── Versions-Card ────────────────────────────
+    // ── Installierte Version ─────────────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#127381; Firmware-Info</h2>");
     result += F("<table>");
     result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
     result += localVersion;
     result += F("</span></td></tr>");
-    result += F("<tr><td>Aktuelle GitHub-Version:</td><td>");
-    if (githubVersion.length() > 0) {
-      result += F("<span class='badge ");
-      result += updateAvailable ? F("warn") : F("ok");
-      result += F("'>V");
-      result += githubVersion;
-      result += F("</span>");
-    } else {
-      result += F("<span class='badge err'>nicht verfuegbar</span>");
-    }
-    result += F("</td></tr>");
-    if (updateAvailable) {
-      result += F("<tr><td colspan='2'>");
-      result += F("<p class='warn' style='color:var(--warn)'>&#9888;&#65039; Update verfuegbar! ");
-      result += F("Lade die aktuelle .bin von <a href='https://github.com/steigerbalett/LaCrosseGatewayMQTT' target='_blank'>GitHub</a> herunter ");
-      result += F("und installiere sie ueber <a href='update'>BIN-Upload</a>.</p>");
-      result += F("</td></tr>");
-    }
     result += F("</table></div>");
 
-    // ── OTA-Server-Card ───────────────────────────
+    // ── GitHub Releases (per Browser-JS) ─────────
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#128190; GitHub Release installieren</h2>");
+    result += F("<p class='info'>Die Liste wird direkt von der GitHub-API geladen (kein HTTPS auf dem ESP n&ouml;tig).</p>");
+
+    // JavaScript: GitHub API abrufen, Releases als Tabelle anzeigen
+    result += F("<script>");
+    result += F("function loadReleases(){");
+    result += F("  var out=document.getElementById('relDiv');");
+    result += F("  out.innerHTML='<p class=\\'info\\'>Lade Releases von GitHub...</p>';");
+    result += F("  fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')");
+    result += F("  .then(function(r){return r.json();})");
+    result += F("  .then(function(data){");
+    result += F("    var html='<table><thead><tr>");
+    result += F("<th>Version</th><th>Typ</th><th>Datum</th><th>Datei ausw&auml;hlen &amp; flashen</th>");
+    result += F("</tr></thead><tbody>';");
+    result += F("    data.forEach(function(rel){");
+    result += F("      var badge=rel.prerelease");
+    result += F("        ?'<span class=\\'badge warn\\'>Vorab</span>'");
+    result += F("        :'<span class=\\'badge ok\\'>Stabil</span>';");
+    result += F("      var date=rel.published_at?rel.published_at.substring(0,10):'';");
+    result += F("      var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});");
+    result += F("      var links='';");
+    result += F("      if(assets.length===0){");
+    result += F("        links='<span class=\\'info\\'>keine .bin</span>';");
+    result += F("      } else {");
+    result += F("        assets.forEach(function(a){");
+    result += F("          links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'");
+    result += F("            +'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>'");
+    result += F("            +'<button type=\\'submit\\'>&#8595; '+a.name+'</button>'");
+    result += F("            +'</form>';");
+    result += F("        });");
+    result += F("      }");
+    result += F("      html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';");
+    result += F("    });");
+    result += F("    html+='</tbody></table>';");
+    result += F("    document.getElementById('relDiv').innerHTML=html;");
+    result += F("  })");
+    result += F("  .catch(function(e){");
+    result += F("    document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler beim Laden: '+e+'</p>';");
+    result += F("  });");
+    result += F("}");
+    result += F("window.addEventListener('DOMContentLoaded', loadReleases);");
+    result += F("</script>");
+
+    result += F("<div id='relDiv'><p class='info'>JavaScript wird ben&ouml;tigt.</p></div>");
+    result += F("</div>");
+
+    // ── OTA-Server-Card ─────────────
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
     result += F("<form method='get' action='ota_start'>");
@@ -537,10 +576,88 @@ m_webserver.on("/ota", [this]() {
   }
 });
 
-  m_webserver.on("/ota_start", [this]() {
-    if (IsAuthentified())
-      m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
-  });
+// ── /ota_gh (GitHub Release direkt flashen) ───────
+m_webserver.on("/ota_gh", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+
+  String url = m_webserver.arg("url");
+  if (url.length() == 0) {
+    m_webserver.send(400, "text/plain", "Keine URL angegeben");
+    return;
+  }
+
+  String result;
+  result += GetTop();
+  result += GetNavigation();
+
+  m_logger->println("OTA GitHub: " + url);
+
+  // GitHub Assets nutzen HTTP-Redirects – WiFiClientSecure mit setInsecure()
+  // Der Download läuft über den Browser (URL ist öffentlich), daher reicht
+  // ein einfacher HTTPClient-Aufruf. BearSSL wird nur für den Download genutzt.
+  BearSSL::WiFiClientSecure client;
+  client.setInsecure();
+  client.setBufferSizes(1024, 1024);
+
+  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+  ESPhttpUpdate.rebootOnUpdate(false);
+
+  t_httpUpdate_return ret = ESPhttpUpdate.update(client, url);
+
+  switch (ret) {
+    case HTTP_UPDATE_OK:
+      result += F("<div class='card' style='border-left:4px solid var(--ok)'>");
+      result += F("<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>");
+      result += F("<p>Das Ger&auml;t startet neu...</p></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      delay(1000);
+      ESP.restart();
+      break;
+
+    case HTTP_UPDATE_FAILED:
+      result += F("<div class='card' style='border-left:4px solid var(--err)'>");
+      result += F("<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3>");
+      result += F("<p>");
+      result += ESPhttpUpdate.getLastErrorString();
+      result += F("</p></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      break;
+
+    case HTTP_UPDATE_NO_UPDATES:
+      result += F("<div class='card' style='border-left:4px solid var(--warn)'>");
+      result += F("<h3>Kein Update n&ouml;tig</h3></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+      break;
+  }
+});
+
+// ── /ota_start (bestehender OTA-Server-Update) ────
+m_webserver.on("/ota_start", [this]() {
+  if (IsAuthentified()) {
+    OTAUpdate ota;
+    m_webserver.send(200, "text/html", ota.Start(m_logger));
+  }
+});
+
+// ── /ota_github (neuer GitHub-Release-Update) ─────
+m_webserver.on("/ota_github", [this]() {
+  if (IsAuthentified()) {
+    String owner = m_webserver.arg("ghOwner");
+    String repo  = m_webserver.arg("ghRepo");
+    String asset = m_webserver.arg("ghAsset");
+
+    if (owner.isEmpty()) owner = "steigerbalett";
+    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
+    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
+
+    OTAUpdate ota;
+    String result = ota.StartFromGitHub(owner, repo, asset);
+    m_webserver.send(200, "text/plain", result);
+  }
+});
 
   // ── /save ─────────────────────────────────────────
   m_webserver.on("/save", [this]() {
@@ -720,6 +837,107 @@ m_webserver.on("/ota", [this]() {
       data += F("</table></div>");
       m_webserver.sendContent(data); data = "";
 
+      // Card – LGW-Betrieb (FHEM-Einstellungen)
+data += F("<div class='card' style='margin-bottom:12px'>");
+data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
+data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p>");
+data += F("<table>");
+
+// Modus
+data += F("<tr><td><label>Modus:</label></td><td>");
+data += F("<select name='lgwMode'>");
+String lgwMode = settings.Get("lgwMode", "0");
+data += GetOption("0", lgwMode);
+data += GetOption("1", lgwMode);
+data += GetOption("2", lgwMode);
+data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
+
+// Kanal
+data += F("<tr><td><label>Kanal:</label></td><td>");
+data += F("<input name='lgwChannel' size='5' maxlength='3' value='");
+data += settings.Get("lgwChannel", "0");
+data += F("'> <span class='info'>0–255</span></td></tr>");
+
+// RFM-Frequenz
+data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td>");
+data += F("<input name='lgwFreq' size='12' maxlength='10' value='");
+data += settings.Get("lgwFreq", "868300");
+data += F("'> <span class='info'>z.B. 868300</span></td></tr>");
+
+// Sendeleistung
+data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td>");
+data += F("<select name='lgwPower'>");
+String lgwPwr = settings.Get("lgwPower", "10");
+for (int p = 0; p <= 20; p += 2) { data += GetOption(String(p), lgwPwr); }
+data += F("</select></td></tr>");
+
+// Datenrate
+data += F("<tr><td><label>Datenrate (Baud):</label></td><td>");
+data += F("<select name='lgwDataRate'>");
+String lgwDR = settings.Get("lgwDataRate", "17241");
+data += GetOption("4800", lgwDR); data += GetOption("9600", lgwDR);
+data += GetOption("17241", lgwDR); data += GetOption("19200", lgwDR);
+data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
+data += F("</select> <span class='info'>Standard: 17241</span></td></tr>");
+
+// RSSI-Filter
+data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td>");
+data += F("<input name='lgwRssiThreshold' size='7' maxlength='5' value='");
+data += settings.Get("lgwRssiThreshold", "-200");
+data += F("'> <span class='info'>Pakete darunter ignorieren</span></td></tr>");
+
+// Encrypt-Key
+data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td>");
+data += F("<input name='lgwEncryptKey' size='40' maxlength='32' placeholder='leer = keine Verschluesselung' value='");
+data += settings.Get("lgwEncryptKey", "");
+data += F("'></td></tr>");
+
+// Watchdog
+data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td>");
+data += F("<input name='lgwWatchdog' size='7' maxlength='5' value='");
+data += settings.Get("lgwWatchdog", "0");
+data += F("'> <span class='info'>0 = deaktiviert</span></td></tr>");
+
+data += F("</table></div>");
+m_webserver.sendContent(data); data = "";
+
+// Card – Sende-Verhalten
+data += F("<div class='card' style='margin-bottom:12px'>");
+data += F("<h2>&#128228; Sende-Verhalten</h2>");
+data += F("<table>");
+
+data += F("<tr><td><label>SendMode:</label></td><td>");
+data += F("<select name='SendMode'>");
+String sendMode = settings.Get("SendMode", "0");
+data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
+data += F("</select> <span class='info'>0=kein Senden, 1=alle, 2=nur neue IDs</span></td></tr>");
+
+data += F("<tr><td><label>SendRetries:</label></td><td>");
+data += F("<input name='SendRetries' size='5' maxlength='3' value='");
+data += settings.Get("SendRetries", "3");
+data += F("'></td></tr>");
+
+data += F("<tr><td><label>Optionen:</label></td><td>");
+data += F("<input name='SendHumidity' type='checkbox' value='true' ");
+data += settings.Get("SendHumidity", "true") == "true" ? "checked" : "";
+data += F("> Luftfeuchte&nbsp;&nbsp;");
+
+data += F("<input name='SendBatteryBeep' type='checkbox' value='true' ");
+data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : "";
+data += F("> Batterie-Warnung&nbsp;&nbsp;");
+
+data += F("<input name='AsDataFull' type='checkbox' value='true' ");
+data += settings.Get("AsDataFull", "false") == "true" ? "checked" : "";
+data += F("> Vollst. Daten&nbsp;&nbsp;");
+
+data += F("<input name='ToggleLed' type='checkbox' value='true' ");
+data += settings.Get("ToggleLed", "true") == "true" ? "checked" : "";
+data += F("> LED blinken</td></tr>");
+
+data += F("</table></div>");
+m_webserver.sendContent(data); data = "";
+
+
       // --- Card: Flags ---
       data += F("<div class='card' style='margin-bottom:12px'>");
       data += F("<h2>&#9881;&#65039; Optionen</h2><table>");
@@ -830,6 +1048,7 @@ m_webserver.on("/ota", [this]() {
     String content;
     content += F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>");
     content += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+    content += FPSTR(LGWMQTT_FAVICON);
     content += F("<style>");
     content += FPSTR(LGWMQTT_CSS);
     content += F("</style></head><body>");
