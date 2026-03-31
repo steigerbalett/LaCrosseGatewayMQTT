@@ -4,9 +4,8 @@
 
 #pragma once
 #include <Arduino.h>
-#include <ESP8266HTTPUpdate.h>
+#include <ESP8266httpUpdate.h>
 #include <WiFiClientSecure.h>
-#include "Logger.h"
 
 class Logger;
 
