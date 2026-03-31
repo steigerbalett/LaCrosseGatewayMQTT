@@ -13,7 +13,9 @@ jobs:
   update-version:
     runs-on: ubuntu-latest
     permissions:
-      contents: write           # Erlaubt commit + push zurück ins Repo
+      contents: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Repository auschecken
@@ -24,7 +26,7 @@ jobs:
       - name: Version aus .ino extrahieren
         id: extract
         run: |
-          VERSION=$(grep -oP '(?<=#define PROGVERS\s{1,20}")([^"]+)' LaCrosseGateway.ino)
+          VERSION=$(sed -n 's/^#define PROGVERS[[:space:]]*"\([^"]*\)".*/\1/p' LaCrosseGateway.ino)
           echo "Gefundene Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -55,6 +57,7 @@ jobs:
           
   build:
     name: Build ESP8266 Firmware
+    needs: update-version
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -84,10 +87,12 @@ jobs:
           sed -i '/espconn_tcp_set_max_con/d' LaCrosseGateway.ino
 
           for f in AddOnSerialBase.cpp Nextion.cpp; do
-            sed -i 's/SPIFFS\.openDir/LittleFS.openDir/g' $f
-            sed -i 's/SPIFFS\.begin()/LittleFS.begin()/g' $f
-            sed -i 's/SPIFFS\.open(/LittleFS.open(/g' $f
-            sed -i 's/#include <FS\.h>/#include <LittleFS.h>/g' $f
+            [ -f "$f" ] && sed -i \
+              -e 's/SPIFFS\.openDir/LittleFS.openDir/g' \
+              -e 's/SPIFFS\.begin()/LittleFS.begin()/g' \
+              -e 's/SPIFFS\.open(/LittleFS.open(/g' \
+              -e 's/#include <FS\.h>/#include <LittleFS.h>/g' \
+             "$f" && echo "✅ Patched $f" || echo "⚠️ $f nicht gefunden, übersprungen"
           done
 
           sed -i 's/ICACHE_RAM_ATTR/IRAM_ATTR/g' ESP8266SoftSerial.cpp
