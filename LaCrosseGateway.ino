@@ -26,10 +26,10 @@
 
 #include <PubSubClient.h>         //MQTT server library
 
-#include <NTPClient.h>
-#include <TimeLib.h>
+//#include <NTPClient.h>
+//#include <TimeLib.h>
 #include <time.h>
-#include <Timezone.h>    // https://github.com/JChristensen/Timezone
+//#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 
 // Other libs
 #include "ArrayList.h"
@@ -182,66 +182,37 @@ Logger logger;
   #define MSG_BUFFER_SIZE  (200)
   char msg[MSG_BUFFER_SIZE];
   int value = 0;
-  int secBetweenPublish = TIME_SEC_BETWEEN_PUBLISH;
+  unsigned long secBetweenPublish = TIME_SEC_BETWEEN_PUBLISH;
 
-  char mqtt_server[20] = "192.168.178.111";
+  char mqtt_server[40] = "";
   int mqtt_port = 1883;
-  char mqtt_user[20] = "mqttdevice";
-  char mqtt_password[20] = "mlp9MLP9";
-  String mqttTopicBaseGW = "esp8266_lacrossegateway";
+  char mqtt_user[40] = "";
+  char mqtt_password[64] = "";
+  String mqttTopicBaseGW = "lacrossegateway";
 #endif
 
-const long utcOffsetInSeconds = 0;
-//const long utcOffsetInSeconds = 0;
-
-char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-
-// Define NTP Client to get time
-WiFiUDP ntpUDP;
-
-int GTMOffset = 0; // SET TO UTC TIME
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", GTMOffset*60*60, 60*60*1000);
-
-// Central European Time (Frankfurt, Paris)
-TimeChangeRule CEST = {"CEST", Last, Sun, Mar, 2, 120};     // Central European Summer Time
-TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       // Central European Standard Time
-Timezone CE(CEST, CET);
-
-/**
- * Input time in epoch format and return tm time format
- * by Renzo Mischianti <www.mischianti.org> 
- */
-static tm getDateTimeByParams(long time){
-    struct tm *newtime;
-    const time_t tim = time;
-    newtime = localtime(&tim);
-    return *newtime;
+static String getLocalTimeString() {
+  time_t now = time(nullptr);
+  struct tm *ti = localtime(&now);
+  char buf[30];
+  strftime(buf, sizeof(buf), "%d/%m/%Y %H:%M:%S", ti);
+  return String(buf);
 }
-/**
- * Input tm time format and return String with format pattern
- * by Renzo Mischianti <www.mischianti.org>
- */
-static String getDateTimeStringByParams(tm *newtime, char* pattern = (char *)"%d/%m/%Y %H:%M:%S"){
-    char buffer[30];
-    strftime(buffer, 30, pattern, newtime);
-    return buffer;
-}
-/**
- * Input time in epoch format format and return String with format pattern
- * by Renzo Mischianti <www.mischianti.org> 
- */
-static String getEpochStringByParams(long time, char* pattern = (char *)"%d/%m/%Y %H:%M:%S"){
-//    struct tm *newtime;
-    tm newtime;
-    newtime = getDateTimeByParams(time);
-    return getDateTimeStringByParams(&newtime, pattern);
+
+static void LogBssid(uint8_t *b) {
+  char obuf[4];
+  for (int i = 0; i < 6; i++) {
+    itoa(b[i], obuf, 16);
+    logger.print(String(obuf));
+    if (i < 5) logger.print(":");
+  }
+  logger.println("");
 }
 
 byte scanWifi(String ctSSID) {
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
   uint8_t *thisBssid;
-  char obuf[10];
   
   logger.println("Number of all SSIDs: " + String(numSsid));
 
@@ -253,18 +224,8 @@ byte scanWifi(String ctSSID) {
       
       thisBssid = WiFi.BSSID(thisNet);
       logger.print("SSID " + ctSSID + " found on ch: " + String(WiFi.channel(thisNet)) + ", rssi: " + String(WiFi.RSSI(thisNet))+ ", bssid: ");
-      itoa(*thisBssid++,obuf,16);
-      logger.print(String(obuf) + ":");
-      itoa(*thisBssid++,obuf,16);
-      logger.print(String(obuf) + ":");
-      itoa(*thisBssid++,obuf,16);
-      logger.print(String(obuf) + ":");
-      itoa(*thisBssid++,obuf,16);
-      logger.print(String(obuf) + ":");
-      itoa(*thisBssid++,obuf,16);
-      logger.print(String(obuf) + ":");
-      itoa(*thisBssid++,obuf,16);
-      logger.println(String(obuf) + " ,thisNet: " + String(thisNet));
+      LogBssid(WiFi.BSSID(thisNet));
+      logger.println(F(" ,thisNet: ") + String(thisNet));
       logger.print("Last rssi: " + String(rssi));
   
       if (WiFi.RSSI(thisNet) > rssi) {
@@ -339,7 +300,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
@@ -399,11 +360,7 @@ byte AddOnPinHandler(byte command, byte pin, byte value) {
 void SetDebugMode(boolean mode) {
   DEBUG = mode;
   SensorBase::SetDebugMode(mode);
-  rfm1.SetDebugMode(mode);
-  rfm2.SetDebugMode(mode);
-  rfm3.SetDebugMode(mode);
-  rfm4.SetDebugMode(mode);
-  rfm5.SetDebugMode(mode);
+  for (int i = 0; i < 5; i++) rfms[i]->SetDebugMode(mode);
 }
 
 void Dispatch(String data, String raw="") {
@@ -769,35 +726,10 @@ void HandleCommandI(unsigned long *commandData, byte length){
 
 // This function is for testing 
 void HandleCommandX(byte value) {
-  if(value == 1) {
-
+  if (value == 22) {
+    String dhtTest = dht.TryInitialize(0) ? F("OK :-)") : F("not found :-(");
+    logger.println(String(F("DHT22: ")) + dhtTest);
   }
-  else if (value == 2) {
- 
-  }
-  else if (value == 3) {
-    
-  }
-  else if (value == 4) {
-    
-  }
-  else if (value == 5) {
-
-  }
-  else if (value == 6) {
-
-  }
-  else if (value == 7) {
-
-  }
-  else if (value == 22) {
-    String dhtTest = dht.TryInitialize(0) ? "OK :-)" : "not found :-(";
-    logger.println("DHT22: " + dhtTest);
-  }
-  else {
-
-  }
-
 }
 
 void HandleCommandS(unsigned long *data, byte size) {
@@ -832,24 +764,8 @@ void HandlePCA301Send(unsigned long *data, byte size) {
 }
 
 RFMxx *GetRfmForNumber(byte number) {
-RFMxx *result = NULL;
-  if (number == 1) {
-    result = &rfm1;
-  }
-  else if (number == 2) {
-    result = &rfm2;
-  }
-  else if (number == 3) {
-    result = &rfm3;
-  }
-  else if (number == 4) {
-    result = &rfm4;
-  }
-  else if (number == 5) {
-    result = &rfm5;
-  }
-
-  return result;
+  if (number >= 1 && number <= 5) return rfms[number - 1];
+  return NULL;
 }
 
 void HandleCommandO(byte rfmNbr, unsigned long value, unsigned long *data, byte size) {
@@ -860,6 +776,32 @@ void HandleCommandO(byte rfmNbr, unsigned long value, unsigned long *data, byte 
   }
 }
 
+static void AppendRfmInfo(String &result, byte num, RFMxx *rfm) {
+  if (!rfm->IsConnected()) return;
+  result += (num == 1) ? F(" (") : F(" + (");
+  result += String(num);
+  result += "=";
+  result += rfm->GetRadioName();
+  result += F(" f:");
+  result += rfm->GetFrequency();
+  if (rfm->ToggleInterval) {
+    result += F(" t:");
+    result += rfm->ToggleInterval;
+    result += "~";
+    result += rfm->ToggleMode;
+  } else if (rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
+    result += F(" LoRa SF=");
+    result += String(rfm->GetSpreadingFactor());
+    result += F(" BW=");
+    result += String(rfm->GetBandwidthHz() / 1000);
+    result += F(" kHz");
+  } else {
+    result += F(" r:");
+    result += rfm->GetDataRate();
+  }
+  result += ")";
+}
+
 void HandleCommandV() {
   String result = "\n";
 
@@ -868,141 +810,7 @@ void HandleCommandV() {
   result += ".";
   result += PROGVERS;
 
-  if (rfm1.IsConnected()) {
-    result += " (1=";
-    result += rfm1.GetRadioName();
-    result += " f:";
-    result += rfm1.GetFrequency();
-
-    if (rfm1.ToggleInterval) {
-      result += " t:";
-      result += rfm1.ToggleInterval;
-      result += "~";
-      result += rfm1.ToggleMode;
-    }
-    else {
-      if(rfm1.GetRadioType() == RFMxx::RadioType::RFM95W) {
-        result += " LoRa SF=";
-        result += String(rfm1.GetSpreadingFactor());
-        result += " BW=";
-        result += String(rfm1.GetBandwidthHz() / 1000);
-        result += " kHz";
-      }
-      else {
-        result += " r:";
-        result += rfm1.GetDataRate();
-      }
-    }
-    result += ")";
-  }
-
-  if (rfm2.IsConnected()) {
-    result += " + (2=";
-    result += rfm2.GetRadioName();
-    result += " f:";
-    result += rfm2.GetFrequency();
-    if (rfm2.ToggleInterval) {
-      result += " t:";
-      result += rfm2.ToggleInterval;
-      result += "~";
-      result += rfm2.ToggleMode;
-    }
-    else {
-      if(rfm2.GetRadioType() == RFMxx::RadioType::RFM95W) {
-        result += " LoRa SF=";
-        result += String(rfm2.GetSpreadingFactor());
-        result += " BW=";
-        result += String(rfm2.GetBandwidthHz() / 1000);
-        result += " kHz";
-      }
-      else {
-        result += " r:";
-        result += rfm2.GetDataRate();
-      }
-    }
-    result += ")";
-  }
-
-  if (rfm3.IsConnected()) {
-    result += " + (3=";
-    result += rfm3.GetRadioName();
-    result += " f:";
-    result += rfm3.GetFrequency();
-    if (rfm3.ToggleInterval) {
-      result += " t:";
-      result += rfm3.ToggleInterval;
-      result += "~";
-      result += rfm3.ToggleMode;
-    }
-    else {
-      if(rfm3.GetRadioType() == RFMxx::RadioType::RFM95W) {
-        result += " LoRa SF=";
-        result += String(rfm3.GetSpreadingFactor());
-        result += " BW=";
-        result += String(rfm3.GetBandwidthHz() / 1000);
-        result += " kHz";
-      }
-      else {
-        result += " r:";
-        result += rfm3.GetDataRate();
-      }
-    }
-    result += ")";
-  }
-
-  if (rfm4.IsConnected()) {
-    result += " + (4=";
-    result += rfm4.GetRadioName();
-    result += " f:";
-    result += rfm4.GetFrequency();
-    if (rfm4.ToggleInterval) {
-      result += " t:";
-      result += rfm4.ToggleInterval;
-      result += "~";
-      result += rfm4.ToggleMode;
-    }
-    else {
-      if(rfm4.GetRadioType() == RFMxx::RadioType::RFM95W) {
-        result += " LoRa SF=";
-        result += String(rfm4.GetSpreadingFactor());
-        result += " BW=";
-        result += String(rfm4.GetBandwidthHz() / 1000);
-        result += " kHz";
-      }
-      else {
-        result += " r:";
-        result += rfm4.GetDataRate();
-      }
-    }
-    result += ")";
-  }
-
-  if (rfm5.IsConnected()) {
-    result += " + (5=";
-    result += rfm5.GetRadioName();
-    result += " f:";
-    result += rfm5.GetFrequency();
-    if (rfm5.ToggleInterval) {
-      result += " t:";
-      result += rfm5.ToggleInterval;
-      result += "~";
-      result += rfm5.ToggleMode;
-    }
-    else {
-      if(rfm5.GetRadioType() == RFMxx::RadioType::RFM95W) {
-        result += " LoRa SF=";
-        result += String(rfm5.GetSpreadingFactor());
-        result += " BW=";
-        result += String(rfm5.GetBandwidthHz() / 1000);
-        result += " kHz";
-      }
-      else {
-        result += " r:";
-        result += rfm5.GetDataRate();
-      }
-    }
-    result += ")";
-  }
+  for (int i = 0; i < 5; i++) AppendRfmInfo(result, i + 1, rfms[i]);
 
   if (ownSensors.HasSHT75()) {
     result += " + SHT75";
@@ -1079,14 +887,12 @@ unsigned long sensorRxTime[MAX_LACROSSE_SENSORS] = {0};
 char bufData[30];
 char bufTopic[100];
 
-String publishData;
-          
 bool HandleReceivedData(RFMxx *rfm) {
   unsigned long timeNow = millis();
   bool result = false;
   bool b_publishData = false;
   char activeChannelStrNew[2 + 2 * ACTIVE_CH_LEN + 1]; //leading '0x' - ...data... - tailing \0 byte
-
+  String publishData;
 
   rfm->EnableReceiver(false);
   byte *payload;
@@ -1123,7 +929,7 @@ bool HandleReceivedData(RFMxx *rfm) {
       if(laCrosseAnalysisString.indexOf("CRC:OK")>=0){
   
             logger.print("Epoch time incl DST: ");
-            String timeNowLocal = getEpochStringByParams(CE.toLocal(now()));
+            String timeNowLocal = getLocalTimeString();
             logger.println(timeNowLocal);
             
             //Extract ID
@@ -1262,11 +1068,11 @@ bool HandleReceivedData(RFMxx *rfm) {
             if (b_publishData){
               client.publish(bufTopic, bufData);        
             }
-  #endif
-  
           }
         }
       }
+    }
+  #endif
       if(bitRead(ANALYZE_FRAMES, 1) && TX22IT::IsValidDataRate(dataRate)) {
         logger.println(TX22IT::AnalyzeFrame(payload));
       }
@@ -1400,12 +1206,10 @@ bool HandleReceivedData(RFMxx *rfm) {
 
         Dispatch(data, raw);
       }
-    }
-  
+    } 
   }
-  
-  delete payload;
 
+  delete payload;
   return result;
 }
 
@@ -1479,29 +1283,9 @@ void HandleProgressRequest(byte action, unsigned long offset, unsigned long maxV
 
 }
 
-bool ntpTimeUpdated = false;
-char obuf[20];
-
-void updateNetworkTime(){
-  bool res;
-  String outString;
-  // timeClient.setTimeOffset(utcOffsetInSeconds); // NOt needed - adjusting to localtime in CE.toLocal();
-  //update ntpTime with OSINTERVAL (10sec)
-  /*
-  if (timeClient.update()){
-     logger.println( "Adjust local clock" );
-     unsigned long epoch = timeClient.getEpochTime();
-     setTime(epoch); //Set internal time
-  }else{
-     logger.println( "NTP Update did not WORK!!" );
-  }
-  */
-  res = timeClient.update();
-  outString = (res==true)?"NTP update OK":"NTP update Failed";
-  logger.println( "Adjust local clock, res: " + outString);
-  unsigned long epoch = timeClient.getEpochTime();
-  Serial.println(timeClient.getFormattedTime());
-  setTime(epoch); //Set internal time
+void updateNetworkTime() {
+  configTime(MY_TZ, MY_NTP_SERVER);
+  logger.println(F("NTP: configTime gesetzt"));
 }
 
 void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
@@ -1517,19 +1301,9 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     numSsid = scanWifi(ctSSID);
 
     logger.println("");
-    logger.print("SSID " + ctSSID + " search result - #: " + String(numSsid) + ", ch: " + String(channel) + ", rssi: " + String(rssi)+ ", bssid: ");
-    itoa(bssid[0],obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(bssid[1],obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(bssid[2],obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(bssid[3],obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(bssid[4],obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(bssid[5],obuf,16);
-    logger.println(String(obuf));
+    logger.print(F("SSID ") + ctSSID + F(" search result - #: ") + String(numSsid)
+      + F(", ch: ") + String(channel) + F(", rssi: ") + String(rssi) + F(", bssid: "));
+    LogBssid(bssid);;
 
     if (rssi != -999) {
       logger.println("Connecting to bssid");
@@ -1540,20 +1314,9 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
       WiFi.begin(ctSSID.c_str(), ctPass.c_str());
     }
 
-    thisBssid = WiFi.BSSID();
-    logger.print("Connected to ch: " + String(WiFi.channel()) + ", rssi: " + String(WiFi.RSSI())+ ", bssid: ");
-    itoa(*thisBssid++,obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(*thisBssid++,obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(*thisBssid++,obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(*thisBssid++,obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(*thisBssid++,obuf,16);
-    logger.print(String(obuf) + ":");
-    itoa(*thisBssid++,obuf,16);
-    logger.println(String(obuf));
+    logger.print(F("Connected to ch: ") + String(WiFi.channel())
+      + F(", rssi: ") + String(WiFi.RSSI()) + F(", bssid: "));
+    LogBssid(WiFi.BSSID());
 
     logger.println("Connect " + String(timeout) + " seconds to an AP (SSID " + String(nbr) + ")");
     esp.SwitchLed(true, true);
@@ -1782,77 +1545,56 @@ String CommandHandler(String command) {
 }
 
 void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) {
-  if(rfm->IsConnected()) {
-    if(rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
-      rfm->InitializeLoRa();
-      rfm->SetFrequency(868200);
+  if (!rfm->IsConnected()) return;
 
-      String sfValue = settings->Get("SF95", "SF7");
-      if(sfValue == "SF6") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF6);
-      }
-      else if(sfValue == "SF7") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF7);
-      }
-      else if(sfValue == "SF8") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF8);
-      }
-      else if(sfValue == "SF9") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF9);
-      }
-      else if(sfValue == "SF10") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF10);
-      }
-      else if(sfValue == "SF11") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF11);
-      }
-      else if(sfValue == "SF12") {
-        rfm->SetSpreadingFactor(RFMxx::SpreadingFactor::SF12);
-      }
+  if (rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
+    rfm->InitializeLoRa();
+    rfm->SetFrequency(868200);
 
-      String bwValue = settings->Get("BW95", "125");
-      if(bwValue == "7.8") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW7_8);
-      }
-      else if(bwValue == "10.4") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW10_4);
-      }
-      else if(bwValue == "15.6") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW15_6);
-      }
-      else if(bwValue == "20.8") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW20_8);
-      }
-      else if(bwValue == "31.25") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW31_25);
-      }
-      else if(bwValue == "41.7") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW41_7);
-      }
-      else if(bwValue == "62.6") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW62_5);
-      }
-      else if(bwValue == "125") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW125);
-      }
-      else if(bwValue == "250") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW250);
-      }
-      else if(bwValue == "500") {
-        rfm->SetBandwidth(RFMxx::Bandwidth::BW500);
-      }
-
+    // Spreading Factor Lookup
+    static const struct { const char *name; RFMxx::SpreadingFactor sf; } sfTable[] = {
+      {"SF6",  RFMxx::SpreadingFactor::SF6 },
+      {"SF7",  RFMxx::SpreadingFactor::SF7 },
+      {"SF8",  RFMxx::SpreadingFactor::SF8 },
+      {"SF9",  RFMxx::SpreadingFactor::SF9 },
+      {"SF10", RFMxx::SpreadingFactor::SF10},
+      {"SF11", RFMxx::SpreadingFactor::SF11},
+      {"SF12", RFMxx::SpreadingFactor::SF12}
+    };
+    String sfValue = settings->Get("SF95", "SF7");
+    for (auto &e : sfTable) {
+      if (sfValue == e.name) { rfm->SetSpreadingFactor(e.sf); break; }
     }
-    else {
-      rfm->InitializeLaCrosse();
-      rfm->SetFrequency(INITIAL_FREQ);
-      SetDataRate(rfm, dataRate);
+
+    // Bandwidth Lookup
+    static const struct { const char *name; RFMxx::Bandwidth bw; } bwTable[] = {
+      {"7.8",   RFMxx::Bandwidth::BW7_8  },
+      {"10.4",  RFMxx::Bandwidth::BW10_4 },
+      {"15.6",  RFMxx::Bandwidth::BW15_6 },
+      {"20.8",  RFMxx::Bandwidth::BW20_8 },
+      {"31.25", RFMxx::Bandwidth::BW31_25},
+      {"41.7",  RFMxx::Bandwidth::BW41_7 },
+      {"62.6",  RFMxx::Bandwidth::BW62_5 },
+      {"125",   RFMxx::Bandwidth::BW125  },
+      {"250",   RFMxx::Bandwidth::BW250  },
+      {"500",   RFMxx::Bandwidth::BW500  }
+    };
+    String bwValue = settings->Get("BW95", "125");
+    for (auto &e : bwTable) {
+      if (bwValue == e.name) { rfm->SetBandwidth(e.bw); break; }
     }
-    rfm->EnableReceiver(true);
-    logger.print("Radio #" + String(nbr) + " found: ");
-    logger.println(rfm->GetRadioName());
+
+  } else {
+    rfm->InitializeLaCrosse();
+    rfm->SetFrequency(INITIAL_FREQ);
+    SetDataRate(rfm, dataRate);
   }
 
+  rfm->EnableReceiver(true);
+  logger.print(F("Radio #"));
+  logger.print(String(nbr));
+  logger.print(F(" found: "));
+  logger.println(rfm->GetRadioName());
 }
 
 bool IsMqttConfigured(Settings& settings) {
@@ -2188,20 +1930,11 @@ void setup(void) {
     logger.println("Starting wifi");
     StartWifi(settings);
 
-    timeClient.begin();
-    // timeClient.setTimeOffset(0);
-    if(WiFi.status() == WL_CONNECTED){
-      //if Wifi is connected, update networkTime
-      logger.println("Forcing ntp time update");
-      while(!timeClient.update()) {
-        timeClient.forceUpdate();
-      }
-      logger.println("...Done");
-
-      setTime(timeClient.getEpochTime()); //Set internal time
-      logger.println("Epoch time incl DST: " + getEpochStringByParams(CE.toLocal(now())));
-      
-    }
+    configTime(MY_TZ, MY_NTP_SERVER);
+    logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
+    time_t t = 0;
+    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); t = time(nullptr); }
+    logger.println(F("NTP sync: ") + getLocalTimeString());
   }
   else {
     WiFi.mode(WiFiMode::WIFI_OFF);
@@ -2275,72 +2008,28 @@ void setup(void) {
 
 byte HandleDataReception() {
   byte receivedPackets = 0;
-  if (rfm1.IsConnected()) {
-    rfm1.Receive(); 
-    if (rfm1.PayloadIsReady()) {
-      if (HandleReceivedData(&rfm1)) {
+  for (int i = 0; i < 5; i++) {
+    if (rfms[i]->IsConnected()) {
+      rfms[i]->Receive();
+      if (rfms[i]->PayloadIsReady() && HandleReceivedData(rfms[i]))
         receivedPackets++;
-      }
     }
   }
-  if (rfm2.IsConnected()) {
-    rfm2.Receive();
-    if (rfm2.PayloadIsReady()) {
-      if(HandleReceivedData(&rfm2)) {
-        receivedPackets++;
-      }
-    }
-  }
-  if (rfm3.IsConnected()) {
-    rfm3.Receive();
-    if (rfm3.PayloadIsReady()) {
-      if (HandleReceivedData(&rfm3)) {
-        receivedPackets++;
-      }
-    }
-  }
-  if (rfm4.IsConnected()) {
-    rfm4.Receive();
-    if (rfm4.PayloadIsReady()) {
-      if (HandleReceivedData(&rfm4)) {
-        receivedPackets++;
-      }
-    }
-  }
-  if (rfm5.IsConnected()) {
-    rfm5.Receive();
-    if (rfm5.PayloadIsReady()) {
-      if (HandleReceivedData(&rfm5)) {
-        receivedPackets++;
-      }
-    }
-  }
-
   return receivedPackets;
 }
 
 void HandleDataRate() {
-  if (rfm1.IsConnected()) {
-    HandleDataRateToggle(&rfm1, &lastToggleR1, &DATA_RATE_R1);
-  }
-  if (rfm2.IsConnected()) {
-    HandleDataRateToggle(&rfm2, &lastToggleR2, &DATA_RATE_R2);
-  }
-  if (rfm3.IsConnected()) {
-    HandleDataRateToggle(&rfm3, &lastToggleR3, &DATA_RATE_R3);
-  }
-  if (rfm4.IsConnected()) {
-    HandleDataRateToggle(&rfm4, &lastToggleR4, &DATA_RATE_R4);
-  }
-  if (rfm5.IsConnected()) {
-    HandleDataRateToggle(&rfm5, &lastToggleR5, &DATA_RATE_R5);
+  static unsigned long *lastToggles[5] = { &lastToggleR1, &lastToggleR2, &lastToggleR3, &lastToggleR4, &lastToggleR5 };
+  static unsigned long *dataRates[5]   = { &DATA_RATE_R1, &DATA_RATE_R2, &DATA_RATE_R3, &DATA_RATE_R4, &DATA_RATE_R5 };
+  for (int i = 0; i < 5; i++) {
+    if (rfms[i]->IsConnected())
+      HandleDataRateToggle(rfms[i], lastToggles[i], dataRates[i]);
   }
 }
 
-unsigned long timetry = 0;
-
 // **********************************************************************
 void loop(void) {
+  static unsigned long timetry = 0;
   String mqttTopic;
   
   if (serialPortFlasher.IsUploading()) {
@@ -2420,7 +2109,7 @@ void loop(void) {
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
 
-          String timeNowLocal = getEpochStringByParams(CE.toLocal(now()));
+          String timeNowLocal = getLocalTimeString();
           mqttTopic = mqttTopicBaseGW + "/timeStamp";
           mqttTopic.toCharArray(bufTopic, 100);
           timeNowLocal.toCharArray(bufData, 30);
