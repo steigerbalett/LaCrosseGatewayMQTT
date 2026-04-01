@@ -262,14 +262,13 @@ String GetOption(String option, String defaultValue) {
 // ═══════════════════════════════════════════════════════════════════════════
 String WebFrontend::BuildRadioCard(Settings &settings, byte radioNbr) {
   String p  = "Radio" + String(radioNbr);
-  String id = "r"     + String(radioNbr);   // JS-ID-Präfix (eindeutig)
+  String id = "r"     + String(radioNbr);
 
-  String typeVal  = settings.Get(p + "Type",           radioNbr == 1 ? "RFM69" : "---");
-  String freqVal  = settings.Get(p + "Freq",           radioNbr == 1 ? "868310" : "");
+  String typeVal  = settings.Get(p + "Type",  radioNbr == 1 ? "RFM69" : "---");
+  String freqVal  = settings.Get(p + "Freq",  radioNbr == 1 ? "868310" : "");
   int    mask     = settings.GetInt(p + "ToggleMask",  radioNbr == 1 ? 1 : 0);
   String interval = settings.Get(p + "ToggleInterval", "30");
 
-  // Anzahl aktiver Bits → Toggle-Zeile initial sichtbar?
   int activeBits = 0;
   for (int b = 0; b < 5; b++) if (mask & (1 << b)) activeBits++;
 
@@ -295,42 +294,52 @@ String WebFrontend::BuildRadioCard(Settings &settings, byte radioNbr) {
   result += F("'> <span class='info'>z.B. 868310</span></td></tr>");
 
   // Datenraten als Checkboxen
-  const char* rateLabels[] = {"17.241 kbps", "9.579 kbps", "8.842 kbps", "6.631 kbps", "4.800 kbps"};
+  // WICHTIG: name=RadioNRateB, value="1" – wird nur gesendet wenn checked
+  // Bit0=17.241 / Bit1=9.579 / Bit2=8.842 / Bit3=6.631 / Bit4=4.800
+  const char* rateLabels[] = {
+    "17.241 kbps", "9.579 kbps", "8.842 kbps", "6.631 kbps", "4.800 kbps"
+  };
   result += F("<tr><td><label>Datenrate(n):</label></td><td>");
   result += F("<span class='info' style='display:block;margin-bottom:6px'>"
-              "&#128161; Eine Auswahl = fixe Rate &nbsp;|&nbsp; Mehrere = Toggle zwischen diesen Raten</span>");
+              "&#128161; Eine Auswahl = fixe Rate &nbsp;|&nbsp; "
+              "Mehrere = Toggle zwischen diesen Raten</span>");
   for (int i = 0; i < 5; i++) {
-    result += F("<label style='display:inline-flex;align-items:center;margin-right:16px;margin-bottom:4px'>");
-    result += F("<input type='checkbox' name='"); result += p;
-    result += F("Rate"); result += String(i); result += F("' value='1' ");
-    if (mask & (1 << i)) result += F("checked ");
-    result += F("onchange='updateToggle"); result += id; result += F("()'>");
-    result += F("&nbsp;"); result += rateLabels[i]; result += F("</label>");
+    result += F("<label style='display:inline-flex;align-items:center;"
+                "gap:4px;margin-right:16px;margin-bottom:4px'>");
+    result += F("<input type='checkbox' name='");
+    result += p; result += F("Rate"); result += String(i);
+    result += F("' value='1'");
+    if (mask & (1 << i)) result += F(" checked");
+    result += F(" onchange='upd"); result += id; result += F("()'>");
+    result += rateLabels[i];
+    result += F("</label>");
   }
   result += F("</td></tr>");
 
-  // Toggle-Intervall (ein-/ausgeblendet per JS)
-  result += F("<tr id='"); result += id; result += F("TR' style='");
-  result += (activeBits > 1) ? F("") : F("display:none");
-  result += F("'><td><label>Toggle-Intervall (s):</label></td><td>");
+  // Toggle-Intervall – nur sichtbar wenn >1 Checkbox aktiv
+  result += F("<tr id='"); result += id; result += F("TR'");
+  if (activeBits <= 1) result += F(" style='display:none'");
+  result += F("><td><label>Toggle-Intervall (s):</label></td><td>");
   result += F("<input id='"); result += id; result += F("IV' name='");
   result += p; result += F("ToggleInterval' size='6' maxlength='5' value='");
   result += interval;
-  result += F("'> <span class='info'>Sekunden zwischen den Datenraten-Wechseln (Default: 30)</span></td></tr>");
+  result += F("'> <span class='info'>Sekunden zwischen den Wechseln"
+              " (Default: 30)</span></td></tr>");
 
   result += F("</table>");
 
-  // JS: Toggle-Zeile ein-/ausblenden + Default 30 s setzen
-  result += F("<script>function updateToggle"); result += id; result += F("(){");
-  result += F("var c=0;");
+  // Inline-JS: Toggle-Zeile ein-/ausblenden + Default 30s
+  result += F("<script>function upd"); result += id; result += F("(){");
+  result += F("var n=0;");
   for (int i = 0; i < 5; i++) {
-    result += F("if(document.querySelector(\"input[name='"); result += p;
-    result += F("Rate"); result += String(i); result += F("']\").checked)c++;");
+    result += F("if(document.querySelector(\"[name='");
+    result += p; result += F("Rate"); result += String(i);
+    result += F("']\").checked)n++;");
   }
-  result += F("var row=document.getElementById('"); result += id; result += F("TR');");
-  result += F("row.style.display=c>1?'':'none';");
-  result += F("if(c>1){var iv=document.getElementById('"); result += id; result += F("IV');");
-  result += F("if(iv.value===''||iv.value==='0')iv.value='30';}}</script>");
+  result += F("var r=document.getElementById('"); result += id; result += F("TR');");
+  result += F("r.style.display=n>1?'':'none';");
+  result += F("if(n>1){var v=document.getElementById('"); result += id; result += F("IV');");
+  result += F("if(!v.value||v.value==='0')v.value='30';}}</script>");
 
   result += F("</div>");
   return result;
@@ -597,41 +606,55 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     if (IsAuthentified()) {
       Settings settings;
       bool gotUseWiFi = false;
+
+      // Radio-RateN-Felder herausfiltern, alle anderen normal übernehmen
       for (byte i = 0; i < m_webserver.args(); i++) {
-        settings.Add(m_webserver.argName(i), m_webserver.arg(i));
-        if (m_webserver.argName(i) == "UseWiFi") gotUseWiFi = true;
+        String argName = m_webserver.argName(i);
+        // RadioNRateB-Felder überspringen → werden unten als ToggleMask gespeichert
+        bool isRateCb = false;
+        for (byte rn = 1; rn <= 5 && !isRateCb; rn++) {
+          String prefix = "Radio" + String(rn) + "Rate";
+          if (argName.startsWith(prefix)) isRateCb = true;
+        }
+        if (!isRateCb) {
+          settings.Add(argName, m_webserver.arg(i));
+          if (argName == "UseWiFi") gotUseWiFi = true;
+        }
       }
       if (!gotUseWiFi) settings.Add("UseWiFi", "false");
 
-      // ── Radio-Einstellungen: ToggleMask aus Checkbox-Feldern berechnen ───
-      const char* rateNames[] = {"17.241", "9.579", "8.842", "6.631", "4.800"};
+      // Radio-Einstellungen: Bitmaske + abgeleitete Werte explizit setzen
+      const char* rateNames[] = {
+        "17.241", "9.579", "8.842", "6.631", "4.800"
+      };
       for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
         String p = "Radio" + String(radioNbr);
-        // Bitmaske aus Rate0..Rate4
+
+        // Bitmaske aus Rate0..Rate4 berechnen
+        // Checkbox sendet "1" wenn checked, fehlt komplett wenn nicht checked
         int mask = 0;
         for (int b = 0; b < 5; b++) {
           if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
         }
         settings.Add(p + "ToggleMask", String(mask));
 
-        // Fixe DataRate = erstes gesetztes Bit (niedrigste Priorität → höchste Rate)
+        // Fixe DataRate = erstes gesetztes Bit (wird genutzt wenn kein Toggle)
         String fixedRate = "17.241";
-        for (int b = 0; b < 5; b++) { if (mask & (1 << b)) { fixedRate = rateNames[b]; break; } }
+        for (int b = 0; b < 5; b++) {
+          if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
+        }
         settings.Add(p + "DataRate", fixedRate);
 
-        // Toggle-Intervall: 0 bei einer Datenrate, sonst gespeicherter Wert (Default 30)
+        // Toggle-Intervall: 0 wenn ≤1 Datenrate, sonst Wert aus Formular
         int activeBits = 0;
         for (int b = 0; b < 5; b++) if (mask & (1 << b)) activeBits++;
         if (activeBits <= 1) {
           settings.Add(p + "ToggleInterval", "0");
         } else {
           String iv = m_webserver.arg(p + "ToggleInterval");
-          if (iv == "" || iv == "0") iv = "30";
+          if (iv.length() == 0 || iv == "0") iv = "30";
           settings.Add(p + "ToggleInterval", iv);
         }
-
-        // Temp-Keys nicht ins EEPROM schreiben
-        for (int b = 0; b < 5; b++) settings.Remove(p + "Rate" + String(b));
       }
 
       bool saveIt = true;
