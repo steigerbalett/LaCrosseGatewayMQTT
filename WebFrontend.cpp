@@ -107,6 +107,9 @@ const char LGWMQTT_CSS[] PROGMEM =
   ".info{color:var(--txt2);font-size:12px;margin:4px 0}"
   ".footer{margin-top:24px;padding-top:12px;border-top:1px solid var(--div);"
     "color:var(--txt2);font-size:12px;text-align:center}"
+  ".progress-wrap{width:100%;background:var(--div);border-radius:4px;height:20px;margin:8px 0}"
+  ".progress-bar{height:20px;border-radius:4px;background:var(--pri);"
+    "transition:width .3s ease;text-align:center;color:#fff;font-size:12px;line-height:20px}"
   "@media(min-width:768px){.card-grid{grid-template-columns:repeat(2,1fr)}}"
   "@media(min-width:1200px){.card-grid{grid-template-columns:repeat(3,1fr)}}";
 
@@ -240,8 +243,8 @@ WebFrontend::WebFrontend(int port) : m_webserver(port) {
 }
 
 ESP8266WebServer *WebFrontend::WebServer() { return &m_webserver; }
-void WebFrontend::SetCommandCallback(CommandCallbackType callback) { m_commandCallback = callback; }
-void WebFrontend::SetHardwareCallback(HardwareCallbackType callback) { m_hardwareCallback = callback; }
+void WebFrontend::SetCommandCallback(CommandCallbackType callback)  { m_commandCallback  = callback; }
+void WebFrontend::SetHardwareCallback(HardwareCallbackType callback){ m_hardwareCallback = callback; }
 void WebFrontend::SetPassword(String password) { m_password = password; }
 
 bool WebFrontend::IsAuthentified() {
@@ -252,103 +255,99 @@ bool WebFrontend::IsAuthentified() {
       if (cookie.indexOf("ESPSESSIONID=1") != -1) result = true;
     }
     if (!result) {
-      String header = "HTTP/1.1 301 OK\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n";
-      m_webserver.sendContent(header);
+      m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n"));
     }
-  } else { result = true; }
+  } else {
+    result = true;
+  }
   return result;
 }
 
+// ── GetOption() ─────────────────────────────────────
 String GetOption(String option, String defaultValue) {
   String result = F("<option value='");
   result += option;
-  if (defaultValue == option) result += F("' selected>"); else result += F("'>");
+  result += (defaultValue == option) ? F("' selected>") : F("'>");
   result += option;
   result += F("</option>");
   return result;
 }
 
+// ── Checkbox-Hilfsfunktion ──────────────────────────
+// Gibt " checked" zurück wenn der gespeicherte Wert == "true"
+static String Checked(const String &val) {
+  return (val == "true") ? " checked" : "";
+}
+
 // ═══════════════════════════════════════════════════
-// NEU: BuildRadioCard() – Konfigurationsblock für
-//      ein einzelnes Radio (Typ, Freq, DataRate,
-//      Toggle-Bitraten, Toggle-Intervall)
+// BuildRadioCard()
 // ═══════════════════════════════════════════════════
 String WebFrontend::BuildRadioCard(Settings &settings, byte radioNbr) {
-  String p = "Radio" + String(radioNbr);
-  String result;
+  String p   = "Radio" + String(radioNbr);
+  String def = (radioNbr == 1) ? "RFM69" : "---";
 
-  result += F("<div class='card' style='margin-bottom:12px'>");
-  result += F("<h2>&#128225; Radio #");
+  String result;
+  result.reserve(800);
+
+  result  = F("<div class='card' style='margin-bottom:12px'><h2>&#128225; Radio #");
   result += String(radioNbr);
-  result += F("</h2>");
-  result += F("<p class='info'>Typ, Frequenz, feste Datenrate und optionaler Toggle zwischen mehreren Bitraten. "
-              "Toggle-Maske: 1=17.241 / 2=9.579 / 4=8.842 kbps (kombinierbar)</p>");
-  result += F("<table>");
+  result += F("</h2><p class='info'>Typ, Frequenz, feste Datenrate und optionaler Toggle. "
+               "Maske: 1=17.241 / 2=9.579 / 4=8.842 kbps (kombinierbar)</p><table>");
 
   // Typ
+  String typeVal = settings.Get(p + "Type", def);
   result += F("<tr><td><label>Typ:</label></td><td>");
-  result += F("<select name='");
-  result += p; result += F("Type'>");
-  String typeVal = settings.Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
+  result += F("<select name='"); result += p; result += F("Type'>");
   result += GetOption("---",   typeVal);
   result += GetOption("RFM69", typeVal);
   result += GetOption("RFM95", typeVal);
-  result += F("</select>");
-  result += F(" <span class='info'>---&nbsp;=&nbsp;nicht verwendet</span></td></tr>");
+  result += F("</select> <span class='info'>--- = nicht verwendet</span></td></tr>");
 
   // Frequenz
   result += F("<tr><td><label>Frequenz (kHz):</label></td><td>");
-  result += F("<input name='");
-  result += p; result += F("Freq' size='12' maxlength='10' value='");
+  result += F("<input name='"); result += p; result += F("Freq' size='12' maxlength='10' value='");
   result += settings.Get(p + "Freq", radioNbr == 1 ? "868310" : "");
   result += F("'> <span class='info'>z.B. 868310</span></td></tr>");
 
   // Feste Datenrate
-  result += F("<tr><td><label>Feste Datenrate:</label></td><td>");
-  result += F("<select name='");
-  result += p; result += F("DataRate'>");
   String dr = settings.Get(p + "DataRate", "17.241");
-  result += GetOption("17.241", dr);
-  result += GetOption("9.579",  dr);
-  result += GetOption("8.842",  dr);
-  result += GetOption("6.631",  dr);
+  result += F("<tr><td><label>Feste Datenrate:</label></td><td>");
+  result += F("<select name='"); result += p; result += F("DataRate'>");
+  result += GetOption("17.241", dr); result += GetOption("9.579", dr);
+  result += GetOption("8.842",  dr); result += GetOption("6.631", dr);
   result += GetOption("4.800",  dr);
-  result += F("</select>");
-  result += F(" <span class='info'>Wird genutzt wenn Toggle deaktiviert ist</span></td></tr>");
+  result += F("</select> <span class='info'>Wird genutzt wenn Toggle deaktiviert ist</span></td></tr>");
 
-  // Toggle-Bitraten (Checkboxen, bitcodierte Maske)
+  // Toggle-Bitraten
   int toggleMask = settings.GetInt(p + "ToggleMask", 0);
   result += F("<tr><td><label>Toggle-Bitraten:</label></td><td>");
-  result += F("<input name='"); result += p; result += F("Toggle17241' type='checkbox' value='true' ");
-  result += (toggleMask & 1) ? F("checked") : F("");
-  result += F("> 17.241 kbps&nbsp;&nbsp;");
-  result += F("<input name='"); result += p; result += F("Toggle9579' type='checkbox' value='true' ");
-  result += (toggleMask & 2) ? F("checked") : F("");
-  result += F("> 9.579 kbps&nbsp;&nbsp;");
-  result += F("<input name='"); result += p; result += F("Toggle8842' type='checkbox' value='true' ");
-  result += (toggleMask & 4) ? F("checked") : F("");
-  result += F("> 8.842 kbps</td></tr>");
+  result += F("<input name='"); result += p; result += F("Toggle17241' type='checkbox' value='true'");
+  result += (toggleMask & 1) ? F(" checked") : F(""); result += F("> 17.241 kbps&nbsp;&nbsp;");
+  result += F("<input name='"); result += p; result += F("Toggle9579' type='checkbox' value='true'");
+  result += (toggleMask & 2) ? F(" checked") : F(""); result += F("> 9.579 kbps&nbsp;&nbsp;");
+  result += F("<input name='"); result += p; result += F("Toggle8842' type='checkbox' value='true'");
+  result += (toggleMask & 4) ? F(" checked") : F(""); result += F("> 8.842 kbps</td></tr>");
 
   // Toggle-Intervall
   result += F("<tr><td><label>Toggle-Intervall (s):</label></td><td>");
-  result += F("<input name='");
-  result += p; result += F("ToggleInterval' size='6' maxlength='5' value='");
+  result += F("<input name='"); result += p; result += F("ToggleInterval' size='6' maxlength='5' value='");
   result += settings.Get(p + "ToggleInterval", radioNbr == 1 ? "30" : "0");
-  result += F("'> <span class='info'>0&nbsp;=&nbsp;deaktiviert</span></td></tr>");
+  result += F("'> <span class='info'>0 = deaktiviert</span></td></tr>");
 
   result += F("</table></div>");
   return result;
 }
 
 // ═══════════════════════════════════════════════════
-// GetTop() – Favicon + Dark/Light CSS + Header
+// GetTop()
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetTop() {
   String result;
-  result += F("<!DOCTYPE HTML><html lang='de'>");
-  result += F("<meta charset='utf-8'/>");
-  result += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
-  result += F("<head><title>");
+  result.reserve(512);
+  result  = F("<!DOCTYPE HTML><html lang='de'>"
+               "<meta charset='utf-8'/>"
+               "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+               "<head><title>");
   result += GetDisplayName();
   result += F("</title>");
   result += FPSTR(LGWMQTT_FAVICON);
@@ -356,20 +355,18 @@ String WebFrontend::GetTop() {
   result += FPSTR(LGWMQTT_CSS);
   result += F("</style>");
   result += FPSTR(LGWMQTT_JS_THEME);
-  result += F("</head>");
-  result += F("<body>");
-  result += F("<div class='hdr'>");
-  result += F("<h1>&#127921; LaCrosseGateway");
-  result += F("<span style='font-size:14px;font-weight:400;margin-left:12px;color:var(--txt2)'>V");
+  result += F("</head><body>"
+               "<div class='hdr'>"
+               "<h1>&#127921; LaCrosseGateway"
+               "<span style='font-size:14px;font-weight:400;margin-left:12px;color:var(--txt2)'>V");
   result += m_stateManager->GetVersion();
   result += F(" &mdash; ");
   result += GetDisplayName();
-  result += F("</span></h1>");
-  result += F("<div class='theme-btn' onclick='toggleTheme()'>");
-  result += F("<span id='ti'>&#127769;</span>");
-  result += F("<span id='tt'>Dark Mode</span>");
-  result += F("</div>");
-  result += F("</div>");
+  result += F("</span></h1>"
+               "<div class='theme-btn' onclick='toggleTheme()'>"
+               "<span id='ti'>&#127769;</span>"
+               "<span id='tt'>Dark Mode</span>"
+               "</div></div>");
   return result;
 }
 
@@ -377,18 +374,17 @@ String WebFrontend::GetTop() {
 // GetNavigation()
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetNavigation() {
-  String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>");
-  result += F("<a href='/'>&#127968; Home</a>");
-  result += F("<a href='setup'>&#9881;&#65039; Setup</a>");
-  result += F("<a href='hardware'>&#128296; Hardware</a>");
-  result += F("<a href='ota'>&#8593;&#65039; OTA-Update</a>");
-  result += F("<a href='update'>&#128190; BIN-Update</a>");
-  result += F("<a href='log'>&#128196; Log</a>");
-  result += F("<a href='help'>&#10067; Help</a>");
+  String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>"
+                    "<a href='/'>&#127968; Home</a>"
+                    "<a href='setup'>&#9881;&#65039; Setup</a>"
+                    "<a href='hardware'>&#128296; Hardware</a>"
+                    "<a href='ota'>&#8593;&#65039; OTA-Update</a>"
+                    "<a href='update'>&#128190; BIN-Update</a>"
+                    "<a href='log'>&#128196; Log</a>"
+                    "<a href='help'>&#10067; Help</a>");
   if (m_password.length() > 0)
     result += F("<a href='login?DISCONNECT=YES'>&#128274; Logout</a>");
-  result += F("<a href='reset' style='color:var(--err)'>&#128260; Reboot</a>");
-  result += F("</nav>");
+  result += F("<a href='reset' style='color:var(--err)'>&#128260; Reboot</a></nav>");
   return result;
 }
 
@@ -396,17 +392,11 @@ String WebFrontend::GetNavigation() {
 // GetBottom()
 // ═══════════════════════════════════════════════════
 String WebFrontend::GetBottom() {
-  String result;
-  result += F("<div class='footer'>");
-  result += F("<p>LaCrosseGateway &mdash; ESP8266 MQTT Web Frontend</p>");
-  result += F("</div>");
-  result += F("</body></html>");
-  return result;
+  return F("<div class='footer'><p>LaCrosseGateway &mdash; ESP8266 MQTT Web Frontend</p></div></body></html>");
 }
 
 String WebFrontend::GetRedirectToRoot(String message) {
-  String result;
-  result += F("<html><head><meta http-equiv='refresh' content='5; URL=/'></head><body>");
+  String result = F("<html><head><meta http-equiv='refresh' content='5; URL=/'></head><body>");
   result += message;
   result += F("<br><br>Reboot, please wait a moment ...</body></html>");
   return result;
@@ -417,16 +407,12 @@ String WebFrontend::BuildHardwareRow(String text1, String text2, String text3) {
 }
 
 String WebFrontend::GetDisplayName() {
-  String result;
-  result += m_stateManager->GetHostname();
-  result += " (";
-  result += WiFi.localIP().toString();
-  result += ")";
-  return result;
+  return m_stateManager->GetHostname() + " (" + WiFi.localIP().toString() + ")";
 }
 
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
+// ─── GitHub Latest Version ──────────────────────────
 String GetLatestGithubVersion(Logger* logger) {
   if (WiFi.status() != WL_CONNECTED) return "";
   BearSSL::WiFiClientSecure client;
@@ -437,12 +423,12 @@ String GetLatestGithubVersion(Logger* logger) {
     return "";
   }
   int code = http.GET();
-  String version = "";
+  String version;
   if (code == HTTP_CODE_OK) {
     version = http.getString();
     version.trim();
   } else {
-    if (logger) logger->println(F("GitHub-Version: Fehler, Code=") + String(code));
+    if (logger) logger->println("GitHub-Version: Fehler, Code=" + String(code));
   }
   http.end();
   return version;
@@ -462,7 +448,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/", [this]() {
     if (IsAuthentified()) {
       String result;
-      result += GetTop();
+      result  = GetTop();
       result += GetNavigation();
       result += F("<div class='card' style='margin-bottom:12px'>");
       result += m_stateManager->GetHTML();
@@ -502,7 +488,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/help", [this]() {
     if (IsAuthentified()) {
       String result;
-      result += GetTop();
+      result  = GetTop();
       result += GetNavigation();
       result += F("<div class='card'>");
       result += FPSTR(help);
@@ -516,33 +502,29 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/hardware", [this]() {
     if (IsAuthentified()) {
       uint32_t freeHeap = ESP.getFreeHeap();
-      String result;
       m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
       m_webserver.send(200);
-      result += GetTop();
-      result += GetNavigation();
-      result += F("<div class='card'><h2>&#128296; Hardware Info</h2><table>");
-      m_webserver.sendContent(result); result = "";
-      result += BuildHardwareRow("ESP8266", "present :-)", "Core:&nbsp;" + String(ESP.getCoreVersion()) +
+      m_webserver.sendContent(GetTop() + GetNavigation());
+      m_webserver.sendContent(F("<div class='card'><h2>&#128296; Hardware Info</h2><table>"));
+      m_webserver.sendContent(BuildHardwareRow("ESP8266", "present :-)",
+        "Core:&nbsp;" + String(ESP.getCoreVersion()) +
         "&nbsp;SDK:&nbsp;" + String(ESP.getSdkVersion()) +
         "&nbsp;Heap:&nbsp;" + String(freeHeap) +
-        "&nbsp;Reset:&nbsp;" + ESP.getResetReason());
-      m_webserver.sendContent(result); result = "";
-      result += BuildHardwareRow("WiFi", String(WiFi.RSSI()) + " dBm",
+        "&nbsp;Reset:&nbsp;" + ESP.getResetReason()));
+      m_webserver.sendContent(BuildHardwareRow("WiFi", String(WiFi.RSSI()) + " dBm",
         "Mode: " + WifiModeToString(WiFi.getMode()) +
-        "&nbsp;&nbsp;Connect-Time: " + String(m_stateManager->GetWiFiConnectTime(), 1) + " s");
-      m_webserver.sendContent(result); result = "";
+        "&nbsp;&nbsp;Connect-Time: " + String(m_stateManager->GetWiFiConnectTime(), 1) + " s"));
       if (m_hardwareCallback != nullptr) {
         String rawData = m_hardwareCallback();
-        result += "<tr><td>";
+        String row = "<tr><td>";
         rawData.replace("\t", "</td><td>");
         rawData.replace("\n", "</td></tr><tr><td>");
         rawData.replace(" ", "&nbsp;");
-        result += rawData;
-        result += "</td></tr>";
+        row += rawData;
+        row += "</td></tr>";
+        m_webserver.sendContent(row);
       }
-      result += F("</table></div>");
-      m_webserver.sendContent(result);
+      m_webserver.sendContent(F("</table></div>"));
       m_webserver.sendContent(GetBottom());
       m_webserver.sendContent("");
     }
@@ -553,64 +535,70 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     if (IsAuthentified()) {
       Settings settings;
       settings.Read(m_logger);
-      String localVersion = m_stateManager->GetVersion();
 
       String result;
-      result += GetTop();
+      result.reserve(256);
+      result  = GetTop();
       result += GetNavigation();
 
       // Installierte Version
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#127381; Firmware-Info</h2><table>");
-      result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
-      result += localVersion;
+      result += F("<div class='card' style='margin-bottom:12px'>"
+                   "<h2>&#127381; Firmware-Info</h2><table>"
+                   "<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
+      result += m_stateManager->GetVersion();
       result += F("</span></td></tr></table></div>");
 
       // GitHub Releases per Browser-JS
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#128190; GitHub Release installieren</h2>");
-      result += F("<p class='info'>Die Liste wird direkt von der GitHub-API geladen (kein HTTPS auf dem ESP n&ouml;tig).</p>");
-      result += F("<script>");
-      result += F("function loadReleases(){");
-      result += F("  var out=document.getElementById('relDiv');");
-      result += F("  out.innerHTML='<p class=\\'info\\'>Lade Releases von GitHub...</p>';");
-      result += F("  fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')");
-      result += F("  .then(function(r){return r.json();})");
-      result += F("  .then(function(data){");
-      result += F("    var html='<table><thead><tr><th>Version</th><th>Typ</th><th>Datum</th><th>Datei ausw&auml;hlen &amp; flashen</th></tr></thead><tbody>';");
-      result += F("    data.forEach(function(rel){");
-      result += F("      var badge=rel.prerelease?'<span class=\\'badge warn\\'>Vorab</span>':'<span class=\\'badge ok\\'>Stabil</span>';");
-      result += F("      var date=rel.published_at?rel.published_at.substring(0,10):'';");
-      result += F("      var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});");
-      result += F("      var links='';");
-      result += F("      if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}");
-      result += F("      else{assets.forEach(function(a){");
-      result += F("        links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'");
-      result += F("          +'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>'");
-      result += F("          +'<button type=\\'submit\\'>&#8595; '+a.name+'</button></form>';");
-      result += F("      });}");
-      result += F("      html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';");
-      result += F("    });");
-      result += F("    html+='</tbody></table>';");
-      result += F("    document.getElementById('relDiv').innerHTML=html;");
-      result += F("  }).catch(function(e){");
-      result += F("    document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';");
-      result += F("  });");
-      result += F("}");
-      result += F("window.addEventListener('DOMContentLoaded', loadReleases);");
-      result += F("</script>");
-      result += F("<div id='relDiv'><p class='info'>JavaScript wird ben&ouml;tigt.</p></div>");
-      result += F("</div>");
+      result += F("<div class='card' style='margin-bottom:12px'>"
+                   "<h2>&#128190; GitHub Release installieren</h2>"
+                   "<p class='info'>Die Liste wird direkt von der GitHub-API geladen "
+                   "(kein HTTPS auf dem ESP n&ouml;tig).</p>"
+                   "<div id='progressWrap' style='display:none'>"
+                   "  <p id='progressMsg' class='info'>Update l&auml;uft...</p>"
+                   "  <div class='progress-wrap'><div id='progressBar' class='progress-bar' style='width:0%'>0%</div></div>"
+                   "</div>"
+                   "<script>"
+                   "function loadReleases(){"
+                   "  var out=document.getElementById('relDiv');"
+                   "  out.innerHTML='<p class=\\'info\\'>Lade Releases von GitHub...</p>';"
+                   "  fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')"
+                   "  .then(function(r){return r.json();})"
+                   "  .then(function(data){"
+                   "    var html='<table><thead><tr>"
+                   "<th>Version</th><th>Typ</th><th>Datum</th><th>Datei ausw&auml;hlen &amp; flashen</th>"
+                   "</tr></thead><tbody>';"
+                   "    data.forEach(function(rel){"
+                   "      var badge=rel.prerelease?'<span class=\\'badge warn\\'>Vorab</span>':'<span class=\\'badge ok\\'>Stabil</span>';"
+                   "      var date=rel.published_at?rel.published_at.substring(0,10):'';"
+                   "      var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});"
+                   "      var links='';"
+                   "      if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}"
+                   "      else{assets.forEach(function(a){"
+                   "        links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'"
+                   "          +'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>' "
+                   "          +'<button type=\\'submit\\'>&#8595; '+a.name+'</button></form>';"
+                   "      });}"
+                   "      html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';"
+                   "    });"
+                   "    html+='</tbody></table>';"
+                   "    document.getElementById('relDiv').innerHTML=html;"
+                   "  }).catch(function(e){"
+                   "    document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';"
+                   "  });"
+                   "}"
+                   "window.addEventListener('DOMContentLoaded', loadReleases);"
+                   "</script>"
+                   "<div id='relDiv'><p class='info'>JavaScript wird ben&ouml;tigt.</p></div>"
+                   "</div>");
 
       // OTA-Server
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
-      result += F("<form method='get' action='ota_start'>");
+      result += F("<div class='card' style='margin-bottom:12px'>"
+                   "<h2>&#8593;&#65039; OTA-Server Update</h2>"
+                   "<form method='get' action='ota_start'>");
       result += F("<p class='info'>Server: "); result += settings.Get("otaServer", ""); result += F("</p>");
       result += F("<p class='info'>Port: ");   result += settings.Get("otaPort",   ""); result += F("</p>");
       result += F("<p class='info'>URL: ");    result += settings.Get("otaURL",    ""); result += F("</p>");
-      result += F("<br><input type='submit' value='OTA-Update starten'></form>");
-      result += F("</div>");
+      result += F("<br><input type='submit' value='OTA-Update starten'></form></div>");
 
       result += GetBottom();
       m_webserver.send(200, "text/html", result);
@@ -625,110 +613,193 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       m_webserver.send(400, "text/plain", "Keine URL angegeben");
       return;
     }
+
     String result;
-    result += GetTop();
+    result  = GetTop();
     result += GetNavigation();
     m_logger->println("OTA GitHub: " + url);
+
+    // Fortschrittsbalken-Seite sofort senden, dann Update starten
+    result += F("<div class='card'>"
+                 "<h2>&#8595; OTA Update l&auml;uft...</h2>"
+                 "<div class='progress-wrap'>"
+                 "<div id='pb' class='progress-bar' style='width:0%'>0%</div></div>"
+                 "<p id='pm' class='info'>Verbinde...</p>"
+                 "<script>"
+                 "var es=new EventSource('/ota_progress');"
+                 "es.onmessage=function(e){"
+                 "  var d=JSON.parse(e.data);"
+                 "  document.getElementById('pb').style.width=d.pct+'%';"
+                 "  document.getElementById('pb').textContent=d.pct+'%';"
+                 "  document.getElementById('pm').textContent=d.msg;"
+                 "  if(d.done){es.close();"
+                 "    setTimeout(function(){window.location='/';},3000);}"
+                 "};"
+                 "</script></div>");
+    result += GetBottom();
+    m_webserver.send(200, "text/html", result);
+
+    // Callbacks für Fortschrittsanzeige im Serial-Log
+    ESPhttpUpdate.onStart([]() {
+      Serial.println(F("[OTA] Update gestartet..."));
+    });
+    ESPhttpUpdate.onProgress([](int cur, int total) {
+      if (total > 0) {
+        int pct = (cur * 100) / total;
+        int filled = pct / 2;
+        Serial.print(F("\r["));
+        for (int i = 0; i < 50; i++) Serial.print(i < filled ? '=' : ' ');
+        Serial.print(F("] "));
+        Serial.print(pct);
+        Serial.print(F("%"));
+      }
+    });
+    ESPhttpUpdate.onEnd([]() {
+      Serial.println(F("\n[OTA] Update abgeschlossen."));
+    });
+    ESPhttpUpdate.onError([](int err) {
+      Serial.print(F("[OTA] Fehler: "));
+      Serial.println(ESPhttpUpdate.getLastErrorString());
+    });
 
     BearSSL::WiFiClientSecure client;
     client.setInsecure();
     client.setBufferSizes(1024, 1024);
+    client.setTimeout(60);  // FIX: 60 Sekunden Timeout
+
     ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
-    ESPhttpUpdate.rebootOnUpdate(false);
+    ESPhttpUpdate.rebootOnUpdate(false);  // FIX: manueller Neustart
+    ESPhttpUpdate.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+
     t_httpUpdate_return ret = ESPhttpUpdate.update(client, url);
 
     switch (ret) {
       case HTTP_UPDATE_OK:
-        result += F("<div class='card' style='border-left:4px solid var(--ok)'>");
-        result += F("<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>");
-        result += F("<p>Das Ger&auml;t startet neu...</p></div>");
-        result += GetBottom();
-        m_webserver.send(200, "text/html", result);
+        m_logger->println(F("OTA GitHub: Update erfolgreich, starte neu..."));
         delay(1000);
         ESP.restart();
         break;
       case HTTP_UPDATE_FAILED:
-        result += F("<div class='card' style='border-left:4px solid var(--err)'>");
-        result += F("<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3>");
-        result += F("<p>"); result += ESPhttpUpdate.getLastErrorString(); result += F("</p></div>");
-        result += GetBottom();
-        m_webserver.send(200, "text/html", result);
+        m_logger->println("OTA GitHub: FAILED - " + ESPhttpUpdate.getLastErrorString());
         break;
       case HTTP_UPDATE_NO_UPDATES:
-        result += F("<div class='card' style='border-left:4px solid var(--warn)'>");
-        result += F("<h3>Kein Update n&ouml;tig</h3></div>");
-        result += GetBottom();
-        m_webserver.send(200, "text/html", result);
+        m_logger->println(F("OTA GitHub: Kein Update noetig"));
         break;
     }
   });
 
   // ── /ota_start ──────────────────────────────────
   m_webserver.on("/ota_start", [this]() {
-    if (IsAuthentified())
+    if (IsAuthentified()) {
+      // Fortschrittsbalken auch für Server-OTA
+      ESPhttpUpdate.onStart([]() {
+        Serial.println(F("[OTA] Server-Update gestartet..."));
+      });
+      ESPhttpUpdate.onProgress([](int cur, int total) {
+        if (total > 0) {
+          int pct = (cur * 100) / total;
+          int filled = pct / 2;
+          Serial.print(F("\r["));
+          for (int i = 0; i < 50; i++) Serial.print(i < filled ? '=' : ' ');
+          Serial.print(F("] "));
+          Serial.print(pct);
+          Serial.print(F("%"));
+        }
+      });
+      ESPhttpUpdate.onEnd([]() {
+        Serial.println(F("\n[OTA] Server-Update abgeschlossen."));
+      });
       m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
+    }
   });
 
-  // ── /save ───────────────────────────────────────
+  // ── /save (POST) ────────────────────────────────
+  // FIX: method='post', Toggle-Maske korrekt berechnen
   m_webserver.on("/save", HTTP_POST, [this]() {
-    if (IsAuthentified()) {
-      Settings settings;
-      bool gotUseWiFi = false;
-      for (byte i = 0; i < m_webserver.args(); i++) {
-        settings.Add(m_webserver.argName(i), m_webserver.arg(i));
-        if (m_webserver.argName(i) == "UseWiFi") gotUseWiFi = true;
-      }
-      if (!gotUseWiFi) settings.Add("UseWiFi", "false");
+    if (!IsAuthentified()) return;
 
-      // NEU: Toggle-Masken für alle 5 Radios aus Checkboxen berechnen
-      for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-        String p = "Radio" + String(radioNbr);
-        int mask = 0;
-        if (m_webserver.hasArg(p + "Toggle17241")) mask |= 1;
-        if (m_webserver.hasArg(p + "Toggle9579"))  mask |= 2;
-        if (m_webserver.hasArg(p + "Toggle8842"))  mask |= 4;
-        settings.Add(p + "ToggleMask", String(mask));
-        if (!m_webserver.hasArg(p + "ToggleInterval"))
-          settings.Add(p + "ToggleInterval", "0");
-      }
+    Settings settings;
+    bool gotUseWiFi = false;
 
-      bool saveIt = true;
-      if (m_webserver.hasArg("frontPass") && m_webserver.hasArg("frontPass2")) {
-        if (!m_webserver.arg("frontPass").equals(m_webserver.arg("frontPass2"))) {
-          String content = GetTop();
-          content += F("<div class='card' style='border-left:4px solid var(--err)'>");
-          content += F("<h3 style='color:var(--err)'>&#10060; Fehler</h3>");
-          content += F("<p>Passwords do not match</p></div>");
+    // SCHRITT 1: Toggle-Masken zuerst berechnen und eintragen,
+    //            damit sie nicht später von leeren Checkbox-Args überschrieben werden
+    for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+      String p = "Radio" + String(radioNbr);
+      int mask = 0;
+      if (m_webserver.arg(p + "Toggle17241") == "true") mask |= 1;
+      if (m_webserver.arg(p + "Toggle9579")  == "true") mask |= 2;
+      if (m_webserver.arg(p + "Toggle8842")  == "true") mask |= 4;
+      settings.Add(p + "ToggleMask", String(mask));
+
+      // ToggleInterval: leerer String → "0" (Add() speichert leere Strings nicht)
+      String interval = m_webserver.arg(p + "ToggleInterval");
+      interval.trim();
+      settings.Add(p + "ToggleInterval", interval.length() > 0 ? interval : "0");
+    }
+
+    // SCHRITT 2: Alle anderen Felder eintragen —
+    //            Toggle-Checkbox-Rohwerte und bereits gesetzte Masken überspringen
+    for (byte i = 0; i < m_webserver.args(); i++) {
+      String argName  = m_webserver.argName(i);
+      String argValue = m_webserver.arg(i);
+
+      // Checkbox-Rohwerte der Toggle-Bitraten ignorieren (als Maske gespeichert)
+      if (argName.endsWith("Toggle17241") ||
+          argName.endsWith("Toggle9579")  ||
+          argName.endsWith("Toggle8842"))
+        continue;
+
+      // ToggleMask und ToggleInterval bereits in Schritt 1 gesetzt
+      if (argName.endsWith("ToggleMask") ||
+          argName.endsWith("ToggleInterval"))
+        continue;
+
+      if (argName == "UseWiFi") gotUseWiFi = true;
+      settings.Add(argName, argValue);
+    }
+
+    if (!gotUseWiFi) settings.Add("UseWiFi", "false");
+
+    // Validierung: Passwort
+    bool saveIt = true;
+    if (m_webserver.hasArg("frontPass") && m_webserver.hasArg("frontPass2")) {
+      if (!m_webserver.arg("frontPass").equals(m_webserver.arg("frontPass2"))) {
+        String content;
+        content  = GetTop();
+        content += F("<div class='card' style='border-left:4px solid var(--err)'>"
+                      "<h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+                      "<p>Passwords do not match</p></div>");
+        content += GetBottom();
+        m_webserver.send(200, "text/html", content);
+        saveIt = false;
+      }
+    }
+
+    // Validierung: Hostname
+    if (saveIt && m_webserver.hasArg("HostName")) {
+      String hostname = m_webserver.arg("HostName");
+      for (byte i = 0; i < hostname.length(); i++) {
+        char ch = (char)hostname[i];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') ||
+              (ch >= 'A' && ch <= 'Z') || ch == '-' || ch == '_')) {
+          saveIt = false;
+          String content;
+          content  = GetTop();
+          content += F("<div class='card' style='border-left:4px solid var(--err)'>"
+                        "<h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+                        "<p>Allowed characters for hostname: 0...9, a...z, A...Z, - and _</p></div>");
           content += GetBottom();
           m_webserver.send(200, "text/html", content);
-          saveIt = false;
+          break;
         }
       }
+    }
 
-      if (m_webserver.hasArg("HostName")) {
-        String hostname = m_webserver.arg("HostName");
-        for (byte i = 0; i < hostname.length(); i++) {
-          char ch = (char)hostname[i];
-          if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') ||
-                (ch >= 'A' && ch <= 'Z') || ch == '-' || ch == '_')) {
-            saveIt = false;
-            String content = GetTop();
-            content += F("<div class='card' style='border-left:4px solid var(--err)'>");
-            content += F("<h3 style='color:var(--err)'>&#10060; Fehler</h3>");
-            content += F("<p>Allowed characters for hostname: 0...9, a...z, A...Z, - and _</p></div>");
-            content += GetBottom();
-            m_webserver.send(200, "text/html", content);
-            break;
-          }
-        }
-      }
-
-      if (saveIt) {
-        String info = settings.Write();
-        m_webserver.send(200, "text/html", GetRedirectToRoot("Settings saved<br>" + info));
-        delay(1000);
-        ESP.restart();
-      }
+    if (saveIt) {
+      String info = settings.Write();
+      m_webserver.send(200, "text/html", GetRedirectToRoot("Settings saved<br>" + info));
+      delay(1000);
+      ESP.restart();
     }
   });
 
@@ -743,97 +814,151 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       m_webserver.sendContent(GetTop() + GetNavigation());
 
       String data;
+      data.reserve(512);
 
       // --- Card: WLAN ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
-      data += F("<form method='post' action='save'><table>");
-      data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
-      data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
-      data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='"); data += settings.Get("ctPASS", ""); data += F("'>");
-      data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
-      data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
-      data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='"); data += settings.Get("ctPASS2", ""); data += F("'>");
-      data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
-      data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='"); data += settings.Get("frontPass", ""); data += F("'>");
-      data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='"); data += settings.Get("frontPass2", ""); data += F("'>");
-      data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
-      data += F("</table></div>");
+      // FIX: method='post' statt 'get' — verhindert URL-Längen-Limit beim Speichern
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128225; WLAN-Einstellungen</h2>"
+                 "<form method='post' action='save'><table>"
+                 "<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>"
+                 "<tr><td><label>SSID / Passwort:</label></td><td>"
+                 "<input name='ctSSID' size='40' maxlength='32' value='");
+      data += settings.Get("ctSSID", "");
+      data += F("'> <input type='password' name='ctPASS' size='40' maxlength='63' value='");
+      data += settings.Get("ctPASS", "");
+      data += F("'> <input name='Timeout1' size='5' maxlength='4' value='");
+      data += settings.Get("Timeout1", "15");
+      data += F("'></td></tr>"
+                 "<tr><td><label>SSID2 / Passwort2:</label></td><td>"
+                 "<input name='ctSSID2' size='40' maxlength='32' value='");
+      data += settings.Get("ctSSID2", "");
+      data += F("'> <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
+      data += settings.Get("ctPASS2", "");
+      data += F("'> <input name='Timeout2' size='5' maxlength='4' value='");
+      data += settings.Get("Timeout2", "15");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Frontend-Passwort:</label></td><td>"
+                 "<input name='frontPass' type='password' size='28' maxlength='60' value='");
+      data += settings.Get("frontPass", "");
+      data += F("'> Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
+      data += settings.Get("frontPass2", "");
+      data += F("'> <span class='info'>(leer = kein Login erforderlich)</span></td></tr>"
+                 "</table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: MQTT ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; MQTT-Einstellungen</h2><table>");
-      data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-      data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings.Get("serverIpMqtt", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings.Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Benutzername:</label></td><td>");
-      data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings.Get("mqttUser", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='"); data += settings.Get("mqttPass", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
-      data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
-      data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", "10"); data += F("'>");
-      data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings.Get("ext1", "0"); data += F("'>");
-      data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings.Get("ext2", "0"); data += F("'>");
-      data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128225; MQTT-Einstellungen</h2><table>"
+                 "<tr><td><label>IP-Adresse:</label></td><td>"
+                 "<input name='serverIpMqtt' size='24' maxlength='15' value='");
+      data += settings.Get("serverIpMqtt", "");
+      data += F("'> <label style='display:inline'>Port:</label>"
+                 " <input name='serverPortMqtt' size='8' maxlength='5' value='");
+      data += settings.Get("serverPortMqtt", "1883");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Benutzername:</label></td><td>"
+                 "<input name='mqttUser' size='36' maxlength='32' value='");
+      data += settings.Get("mqttUser", "");
+      data += F("'> <label style='display:inline'>Passwort:</label>"
+                 " <input type='password' name='mqttPass' size='36' maxlength='63' value='");
+      data += settings.Get("mqttPass", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>MQTT Intervall/Topic:</label></td><td>"
+                 "Intervall: <input name='pubInt' size='5' maxlength='5' value='");
+      data += settings.Get("pubInt", "20");
+      data += F("'> Topic: <input name='topic' size='24' maxlength='63' value='");
+      data += settings.Get("topic", "10");
+      data += F("'> Ext1: <input name='ext1' size='5' maxlength='4' value='");
+      data += settings.Get("ext1", "0");
+      data += F("'> Ext2: <input name='ext2' size='5' maxlength='5' value='");
+      data += settings.Get("ext2", "0");
+      data += F("'> Ext3: <input name='ext3' size='5' maxlength='5' value='");
+      data += settings.Get("ext3", "0");
+      data += F("'></td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: Netzwerk ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
-      data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
-      data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-      data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Hostname:</label></td><td>");
-      data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
-      data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#127760; Netzwerk (statisch)</h2>"
+                 "<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>"
+                 "<tr><td><label>IP-Adresse:</label></td><td>"
+                 "<input name='staticIP' size='24' maxlength='15' value='");
+      data += settings.Get("staticIP", "");
+      data += F("'> <label style='display:inline'>Maske:</label>"
+                 " <input name='staticMask' size='24' maxlength='15' value='");
+      data += settings.Get("staticMask", "");
+      data += F("'> <label style='display:inline'>Gateway:</label>"
+                 " <input name='staticGW' size='24' maxlength='15' value='");
+      data += settings.Get("staticGW", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Hostname:</label></td><td>"
+                 "<input name='HostName' size='24' maxlength='63' value='");
+      data += settings.Get("HostName", "LaCrosseGateway");
+      data += F("'> <label style='display:inline'>Startup-Delay (s):</label>"
+                 " <input name='StartupDelay' size='5' maxlength='4' value='");
+      data += settings.Get("StartupDelay", "0");
+      data += F("'></td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: Interne Sensoren ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#127909; Interne Sensoren</h2><table>");
-      data += F("<tr><td><label>Sensoren:</label></td><td>");
-      data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings.Get("ISID", "0"); data += F("'>");
-      data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings.Get("ISIV", "10"); data += F("'>");
-      data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings.Get("Altitude", "0"); data += F("'>");
-      data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings.Get("CorrT", "0"); data += F("'>");
-      data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings.Get("CorrH", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#127909; Interne Sensoren</h2><table>"
+                 "<tr><td><label>Sensoren:</label></td><td>"
+                 "ID: <input name='ISID' size='5' maxlength='4' value='");
+      data += settings.Get("ISID", "0");
+      data += F("'> Intervall: <input name='ISIV' size='5' maxlength='5' value='");
+      data += settings.Get("ISIV", "10");
+      data += F("'> Hoehe: <input name='Altitude' size='5' maxlength='4' value='");
+      data += settings.Get("Altitude", "0");
+      data += F("'> T-Korr: <input name='CorrT' size='5' maxlength='5' value='");
+      data += settings.Get("CorrT", "0");
+      data += F("'> H-Korr: <input name='CorrH' size='5' maxlength='5' value='");
+      data += settings.Get("CorrH", "0");
+      data += F("'></td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: Ports & Serial Bridges ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; Ports &amp; Serial Bridges</h2><table>");
-      data += F("<tr><td><label>Daten-Ports:</label></td><td>");
-      data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings.Get("DataPort1", "81"); data += F("'>&nbsp;");
-      data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings.Get("DataPort2", ""); data += F("'>&nbsp;");
-      data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings.Get("DataPort3", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Serial Bridge 1:</label></td><td>");
-      data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SerialBridgePort", ""); data += F("'>");
-      data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Serial Bridge 2:</label></td><td>");
-      data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings.Get("SerialBridge2Port", ""); data += F("'>");
-      data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Soft Serial Bridge:</label></td><td>");
-      data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SSBridgePort", ""); data += F("'>");
-      data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
-      data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings.Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion-Display&nbsp;");
-      data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings.Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten hinzufuegen");
-      data += F("</td></tr></table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128268; Ports &amp; Serial Bridges</h2><table>"
+                 "<tr><td><label>Daten-Ports:</label></td><td>"
+                 "<input name='DataPort1' maxlength='5' size='8' value='");
+      data += settings.Get("DataPort1", "81");
+      data += F("'>&nbsp;<input name='DataPort2' maxlength='5' size='8' value='");
+      data += settings.Get("DataPort2", "");
+      data += F("'>&nbsp;<input name='DataPort3' maxlength='5' size='8' value='");
+      data += settings.Get("DataPort3", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Serial Bridge 1:</label></td><td>"
+                 "Port: <input name='SerialBridgePort' maxlength='5' size='8' value='");
+      data += settings.Get("SerialBridgePort", "");
+      data += F("'> Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='");
+      data += settings.Get("SerialBridgeBaud", "57600");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Serial Bridge 2:</label></td><td>"
+                 "Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='");
+      data += settings.Get("SerialBridge2Port", "");
+      data += F("'> Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='");
+      data += settings.Get("SerialBridge2Baud", "57600");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Soft Serial Bridge:</label></td><td>"
+                 "Port: <input name='SSBridgePort' maxlength='5' size='8' value='");
+      data += settings.Get("SSBridgePort", "");
+      data += F("'> Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='");
+      data += settings.Get("SSBridgeBaud", "9600");
+      data += F("'>&nbsp;<input name='IsNextion' type='checkbox' value='true'");
+      data += Checked(settings.Get("IsNextion", ""));
+      data += F("> Nextion-Display&nbsp;"
+                 "<input name='AddUnits' type='checkbox' value='true'");
+      data += Checked(settings.Get("AddUnits", ""));
+      data += F("> Einheiten hinzufuegen</td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: RFM95 ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; RFM95</h2><table>");
-      data += F("<tr><td><label>RFM95:</label></td><td>");
-      data += F("SF: <select name='SF95' style='width:70px'>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128225; RFM95</h2><table>"
+                 "<tr><td><label>RFM95:</label></td><td>"
+                 "SF: <select name='SF95' style='width:70px'>");
       String sfValue = settings.Get("SF95", "SF7");
       data += GetOption("SF6",  sfValue); data += GetOption("SF7",  sfValue);
       data += GetOption("SF8",  sfValue); data += GetOption("SF9",  sfValue);
@@ -849,92 +974,114 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       data += F("</select></td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
-      // ═══════════════════════════════════════════
-      // NEU: Cards Radio #1 ... #5
-      // ═══════════════════════════════════════════
+      // --- Cards: Radio #1 ... #5 ---
       for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-        data += BuildRadioCard(settings, radioNbr);
-        m_webserver.sendContent(data);
-        data = "";
+        m_webserver.sendContent(BuildRadioCard(settings, radioNbr));
       }
 
       // --- Card: LGW-Betrieb ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
-      data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p>");
-      data += F("<table>");
-      data += F("<tr><td><label>Modus:</label></td><td>");
-      data += F("<select name='lgwMode'>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>"
+                 "<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p>"
+                 "<table>"
+                 "<tr><td><label>Modus:</label></td><td><select name='lgwMode'>");
       String lgwMode = settings.Get("lgwMode", "0");
       data += GetOption("0", lgwMode); data += GetOption("1", lgwMode); data += GetOption("2", lgwMode);
-      data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
-      data += F("<tr><td><label>Kanal:</label></td><td>");
-      data += F("<input name='lgwChannel' size='5' maxlength='3' value='"); data += settings.Get("lgwChannel", "0"); data += F("'> <span class='info'>0–255</span></td></tr>");
-      data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td>");
-      data += F("<input name='lgwFreq' size='12' maxlength='10' value='"); data += settings.Get("lgwFreq", "868300"); data += F("'> <span class='info'>z.B. 868300</span></td></tr>");
-      data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td>");
-      data += F("<select name='lgwPower'>");
+      data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>"
+                 "<tr><td><label>Kanal:</label></td><td>"
+                 "<input name='lgwChannel' size='5' maxlength='3' value='");
+      data += settings.Get("lgwChannel", "0");
+      data += F("'> <span class='info'>0&#8211;255</span></td></tr>"
+                 "<tr><td><label>RFM-Frequenz (kHz):</label></td><td>"
+                 "<input name='lgwFreq' size='12' maxlength='10' value='");
+      data += settings.Get("lgwFreq", "868300");
+      data += F("'> <span class='info'>z.B. 868300</span></td></tr>"
+                 "<tr><td><label>Sendeleistung (dBm):</label></td><td><select name='lgwPower'>");
       String lgwPwr = settings.Get("lgwPower", "10");
       for (int p = 0; p <= 20; p += 2) { data += GetOption(String(p), lgwPwr); }
-      data += F("</select></td></tr>");
-      data += F("<tr><td><label>Datenrate (Baud):</label></td><td>");
-      data += F("<select name='lgwDataRate'>");
+      data += F("</select></td></tr>"
+                 "<tr><td><label>Datenrate (Baud):</label></td><td><select name='lgwDataRate'>");
       String lgwDR = settings.Get("lgwDataRate", "17241");
       data += GetOption("4800",  lgwDR); data += GetOption("9600",  lgwDR);
       data += GetOption("17241", lgwDR); data += GetOption("19200", lgwDR);
       data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
-      data += F("</select> <span class='info'>Standard: 17241</span></td></tr>");
-      data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td>");
-      data += F("<input name='lgwRssiThreshold' size='7' maxlength='5' value='"); data += settings.Get("lgwRssiThreshold", "-200"); data += F("'> <span class='info'>Pakete darunter ignorieren</span></td></tr>");
-      data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td>");
-      data += F("<input name='lgwEncryptKey' size='40' maxlength='32' placeholder='leer = keine Verschluesselung' value='"); data += settings.Get("lgwEncryptKey", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td>");
-      data += F("<input name='lgwWatchdog' size='7' maxlength='5' value='"); data += settings.Get("lgwWatchdog", "0"); data += F("'> <span class='info'>0 = deaktiviert</span></td></tr>");
-      data += F("</table></div>");
+      data += F("</select> <span class='info'>Standard: 17241</span></td></tr>"
+                 "<tr><td><label>RSSI-Filter (dBm):</label></td><td>"
+                 "<input name='lgwRssiThreshold' size='7' maxlength='5' value='");
+      data += settings.Get("lgwRssiThreshold", "-200");
+      data += F("'> <span class='info'>Pakete darunter ignorieren</span></td></tr>"
+                 "<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td>"
+                 "<input name='lgwEncryptKey' size='40' maxlength='32' "
+                 "placeholder='leer = keine Verschluesselung' value='");
+      data += settings.Get("lgwEncryptKey", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Watchdog-Timeout (s):</label></td><td>"
+                 "<input name='lgwWatchdog' size='7' maxlength='5' value='");
+      data += settings.Get("lgwWatchdog", "0");
+      data += F("'> <span class='info'>0 = deaktiviert</span></td></tr>"
+                 "</table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: Sende-Verhalten ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128228; Sende-Verhalten</h2><table>");
-      data += F("<tr><td><label>SendMode:</label></td><td>");
-      data += F("<select name='SendMode'>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128228; Sende-Verhalten</h2><table>"
+                 "<tr><td><label>SendMode:</label></td><td><select name='SendMode'>");
       String sendMode = settings.Get("SendMode", "0");
       data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
-      data += F("</select> <span class='info'>0=kein Senden, 1=alle, 2=nur neue IDs</span></td></tr>");
-      data += F("<tr><td><label>SendRetries:</label></td><td>");
-      data += F("<input name='SendRetries' size='5' maxlength='3' value='"); data += settings.Get("SendRetries", "3"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Optionen:</label></td><td>");
-      data += F("<input name='SendHumidity' type='checkbox' value='true' "); data += settings.Get("SendHumidity", "true") == "true" ? "checked" : ""; data += F("> Luftfeuchte&nbsp;&nbsp;");
-      data += F("<input name='SendBatteryBeep' type='checkbox' value='true' "); data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : ""; data += F("> Batterie-Warnung&nbsp;&nbsp;");
-      data += F("<input name='AsDataFull' type='checkbox' value='true' "); data += settings.Get("AsDataFull", "false") == "true" ? "checked" : ""; data += F("> Vollst. Daten&nbsp;&nbsp;");
-      data += F("<input name='ToggleLed' type='checkbox' value='true' "); data += settings.Get("ToggleLed", "true") == "true" ? "checked" : ""; data += F("> LED blinken</td></tr>");
-      data += F("</table></div>");
+      data += F("</select> <span class='info'>0=kein Senden, 1=alle, 2=nur neue IDs</span></td></tr>"
+                 "<tr><td><label>SendRetries:</label></td><td>"
+                 "<input name='SendRetries' size='5' maxlength='3' value='");
+      data += settings.Get("SendRetries", "3");
+      data += F("'></td></tr>"
+                 "<tr><td><label>Optionen:</label></td><td>"
+                 "<input name='SendHumidity' type='checkbox' value='true'");
+      data += Checked(settings.Get("SendHumidity", "true"));
+      data += F("> Luftfeuchte&nbsp;&nbsp;"
+                 "<input name='SendBatteryBeep' type='checkbox' value='true'");
+      data += Checked(settings.Get("SendBatteryBeep", "true"));
+      data += F("> Batterie-Warnung&nbsp;&nbsp;"
+                 "<input name='AsDataFull' type='checkbox' value='true'");
+      data += Checked(settings.Get("AsDataFull", "false"));
+      data += F("> Vollst. Daten&nbsp;&nbsp;"
+                 "<input name='ToggleLed' type='checkbox' value='true'");
+      data += Checked(settings.Get("ToggleLed", "true"));
+      data += F("> LED blinken</td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: Optionen/Flags ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#9881;&#65039; Optionen</h2><table>");
-      data += F("<tr><td><label>Flags:</label></td><td>");
-      data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
-      data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
-      data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog senden&nbsp;");
-      data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings.Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
-      data += F("<input name='PRD' type='checkbox' value='true' "); data += settings.Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
-      data += F("</td></tr></table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#9881;&#65039; Optionen</h2><table>"
+                 "<tr><td><label>Flags:</label></td><td>"
+                 "<input name='UseWiFi' type='checkbox' value='true'");
+      data += Checked(settings.Get("UseWiFi", "true"));
+      data += F("> WiFi&nbsp;"
+                 "<input name='UseMDNS' type='checkbox' value='true'");
+      data += Checked(settings.Get("UseMDNS", ""));
+      data += F("> MDNS&nbsp;"
+                 "<input name='SendAnalog' type='checkbox' value='true'");
+      data += Checked(settings.Get("SendAnalog", ""));
+      data += F("> Analog senden&nbsp;"
+                 "U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='");
+      data += settings.Get("UAnalog1023", "1000");
+      data += F("'> mV&nbsp;"
+                 "<input name='PRD' type='checkbox' value='true'");
+      data += Checked(settings.Get("PRD", "false"));
+      data += F("> Druck mit Dezimalen</td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
       // --- Card: MCP23008 ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; MCP23008</h2><table><tr><td><label>IO-Ports:</label></td><td>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128268; MCP23008</h2><table>"
+                 "<tr><td><label>IO-Ports:</label></td><td>");
       for (byte nbr = 0; nbr < 8; nbr++) {
-        data += F("IO "); data += String(nbr); data += F(": ");
+        data += "IO "; data += String(nbr); data += ": ";
         data += F("<select name='IO"); data += String(nbr); data += F("' style='width:130px'>");
-        String value = settings.Get("IO" + String(nbr), "Input");
-        data += GetOption("Input", value);   data += GetOption("Output", value);
-        data += GetOption("OLED Off", value); data += GetOption("OLED On", value);
-        data += GetOption("OLED mode=s",    value); data += GetOption("OLED mode=t",    value);
-        data += GetOption("OLED mode=h",    value); data += GetOption("OLED mode=th",   value);
-        data += GetOption("OLED mode=thp",  value); data += GetOption("OLED mode=thps", value);
+        String ioVal = settings.Get("IO" + String(nbr), "Input");
+        data += GetOption("Input",         ioVal); data += GetOption("Output",        ioVal);
+        data += GetOption("OLED Off",      ioVal); data += GetOption("OLED On",       ioVal);
+        data += GetOption("OLED mode=s",   ioVal); data += GetOption("OLED mode=t",   ioVal);
+        data += GetOption("OLED mode=h",   ioVal); data += GetOption("OLED mode=th",  ioVal);
+        data += GetOption("OLED mode=thp", ioVal); data += GetOption("OLED mode=thps",ioVal);
         data += F("</select>&nbsp;");
         if (nbr == 3) data += F("<br>");
         m_webserver.sendContent(data); data = "";
@@ -943,32 +1090,53 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       m_webserver.sendContent(data); data = "";
 
       // --- Card: OLED ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128250; OLED-Display</h2>");
-      data += F("<p class='info'>Werte: 'on', 'off' oder Sekunden bis 'off', 2. Parameter: Modus (th, thp, ...)</p><table>");
-      data += F("<tr><td><label>OLED Start:</label></td><td>");
-      data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings.Get("oledStart", "on"); data += F("'>");
-      data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings.Get("oledMode", ""); data += F("'>&nbsp;");
-      data += F("<input name='oled13' type='checkbox' value='true' "); data += settings.Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
-      data += F("</td></tr></table></div>");
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128250; OLED-Display</h2>"
+                 "<p class='info'>Werte: 'on', 'off' oder Sekunden bis 'off', 2. Parameter: Modus (th, thp, ...)</p>"
+                 "<table><tr><td><label>OLED Start:</label></td><td>"
+                 "On/Off: <input name='oledStart' size='8' maxlength='6' value='");
+      data += settings.Get("oledStart", "on");
+      data += F("'> Modus: <input name='oledMode' size='12' maxlength='16' value='");
+      data += settings.Get("oledMode", "");
+      data += F("'>&nbsp;<input name='oled13' type='checkbox' value='true'");
+      data += Checked(settings.Get("oled13", "false"));
+      data += F("> 1.3\"</td></tr></table></div>");
       m_webserver.sendContent(data); data = "";
 
-      // --- Card: Weitere Einstellungen ---
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128196; Weitere Einstellungen</h2><table>");
-      data += F("<tr><td></td><td><p class='info'>KV-Interval: 'off' zum Deaktivieren</p></td></tr>");
-      data += F("<tr><td><label>KV-Interval:</label></td><td>");
-      data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings.Get("KVInterval", "10"); data += F("'>");
-      data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings.Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings.Get("otaServer", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings.Get("otaPort", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings.Get("otaURL", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
-      data += F("<tr><td></td><td><p class='info'>Nur fuer Entwicklung</p></td></tr>");
-      data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
-      data += F("</table>");
-      data += F("<br><input type='submit' value='Speichern und neu starten'></form>");
-      data += F("</div>");
+      // --- Card: Weitere Einstellungen + Submit ---
+      data  = F("<div class='card' style='margin-bottom:12px'>"
+                 "<h2>&#128196; Weitere Einstellungen</h2><table>"
+                 "<tr><td></td><td><p class='info'>KV-Interval: 'off' zum Deaktivieren</p></td></tr>"
+                 "<tr><td><label>KV-Interval:</label></td><td>"
+                 "<input name='KVInterval' size='10' maxlength='3' value='");
+      data += settings.Get("KVInterval", "10");
+      data += F("'> <label style='display:inline'>KV-Identity:</label>"
+                 " <input name='KVIdentity' size='24' maxlength='20' value='");
+      data += settings.Get("KVIdentity", String(ESP.getChipId()));
+      data += F("'></td></tr>"
+                 "<tr><td><label>OTA-Server:</label></td><td>"
+                 "<input name='otaServer' size='50' maxlength='40' value='");
+      data += settings.Get("otaServer", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>OTA-Port:</label></td><td>"
+                 "<input name='otaPort' size='10' maxlength='5' value='");
+      data += settings.Get("otaPort", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>OTA-URL:</label></td><td>"
+                 "<input name='otaURL' size='50' maxlength='80' value='");
+      data += settings.Get("otaURL", "");
+      data += F("'></td></tr>"
+                 "<tr><td><label>PCA301:</label></td><td>"
+                 "<input name='PCA301Plugs' size='50' maxlength='160' value='");
+      data += settings.Get("PCA301Plugs", "");
+      data += F("'></td></tr>"
+                 "<tr><td></td><td><p class='info'>Nur fuer Entwicklung</p></td></tr>"
+                 "<tr><td><label>Flags:</label></td><td>"
+                 "<input name='Flags' size='50' maxlength='80' value='");
+      data += settings.Get("Flags", "");
+      data += F("'></td></tr></table>"
+                 "<br><input type='submit' value='Speichern und neu starten'>"
+                 "</form></div>");
       m_webserver.sendContent(data); data = "";
 
       m_webserver.sendContent(GetBottom());
@@ -978,12 +1146,12 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 
   // ── /getLogData ──────────────────────────────────
   m_webserver.on("/getLogData", [this]() {
-    String data = "";
+    String data;
     if (m_logger->IsEnabled()) {
       while (m_logger->Available())
         data += m_logger->Pop() + "\n";
     } else {
-      data += F("SYS: ***CLEARLOG***\n");
+      data  = F("SYS: ***CLEARLOG***\n");
       data += F("DATA:Logger is disabled\n");
       data += F("SYS:Logger is disabled\n");
     }
@@ -994,7 +1162,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/log", [this]() {
     if (IsAuthentified()) {
       String result;
-      result += GetTop();
+      result  = GetTop();
       result += GetNavigation();
       result += FPSTR(on_log);
       result += GetBottom();
@@ -1017,22 +1185,22 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       msg = "Login fehlgeschlagen";
     }
     String content;
-    content += F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>");
-    content += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
+    content  = F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>"
+                  "<meta name='viewport' content='width=device-width,initial-scale=1'>");
     content += FPSTR(LGWMQTT_FAVICON);
     content += F("<style>");
     content += FPSTR(LGWMQTT_CSS);
-    content += F("</style></head><body>");
-    content += F("<div style='display:flex;justify-content:center;align-items:center;min-height:80vh'>");
-    content += F("<div class='card' style='min-width:320px;text-align:center'>");
-    content += F("<h2>&#127921; LaCrosseGateway V");
+    content += F("</style></head><body>"
+                  "<div style='display:flex;justify-content:center;align-items:center;min-height:80vh'>"
+                  "<div class='card' style='min-width:320px;text-align:center'>"
+                  "<h2>&#127921; LaCrosseGateway V");
     content += m_stateManager->GetVersion();
-    content += F("</h2>");
-    content += F("<form action='/login' method='POST' style='box-shadow:none;padding:0'>");
-    content += F("<label>Passwort:</label>");
-    content += F("<input type='password' name='PASSWORD' placeholder='Passwort eingeben'>");
-    content += F("<input type='submit' value='Anmelden' style='width:100%;margin-top:8px'>");
-    content += F("</form>");
+    content += F("</h2>"
+                  "<form action='/login' method='POST' style='box-shadow:none;padding:0'>"
+                  "<label>Passwort:</label>"
+                  "<input type='password' name='PASSWORD' placeholder='Passwort eingeben'>"
+                  "<input type='submit' value='Anmelden' style='width:100%;margin-top:8px'>"
+                  "</form>");
     if (msg.length() > 0) {
       content += F("<p style='color:var(--err);margin-top:12px'>&#10060; ");
       content += msg;
@@ -1046,16 +1214,24 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/update", HTTP_GET, [this]() {
     if (IsAuthentified()) {
       String result;
-      result += GetTop();
+      result  = GetTop();
       result += GetNavigation();
-      result += F("<div class='card'>");
-      result += F("<h2>&#128190; Firmware Update (BIN-Upload)</h2>");
-      result += F("<p class='info'>Lade eine <code>.bin</code>-Datei von deinem Computer hoch, um die Firmware zu aktualisieren.</p>");
-      result += F("<form method='POST' action='/update_do' enctype='multipart/form-data'>");
-      result += F("<label>Firmware-Datei (.bin):</label>");
-      result += F("<input type='file' name='firmware' accept='.bin' required style='margin-bottom:12px'>");
-      result += F("<br><input type='submit' value='&#128190; Firmware flashen'>");
-      result += F("</form></div>");
+      result += F("<div class='card'>"
+                   "<h2>&#128190; Firmware Update (BIN-Upload)</h2>"
+                   "<p class='info'>Lade eine <code>.bin</code>-Datei von deinem Computer hoch, "
+                   "um die Firmware zu aktualisieren.</p>"
+                   "<div id='progressWrap' style='display:none'>"
+                   "  <p class='info'>Upload l&auml;uft...</p>"
+                   "  <div class='progress-wrap'>"
+                   "    <div id='progressBar' class='progress-bar' style='width:0%'>0%</div>"
+                   "  </div>"
+                   "</div>"
+                   "<form method='POST' action='/update_do' enctype='multipart/form-data' "
+                   "onsubmit='document.getElementById(\"progressWrap\").style.display=\"block\"'>"
+                   "<label>Firmware-Datei (.bin):</label>"
+                   "<input type='file' name='firmware' accept='.bin' required style='margin-bottom:12px'>"
+                   "<br><input type='submit' value='&#128190; Firmware flashen'>"
+                   "</form></div>");
       result += GetBottom();
       m_webserver.send(200, "text/html", result);
     }
@@ -1065,18 +1241,19 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/update_do", HTTP_POST,
     [this]() {
       String result;
-      result += GetTop();
+      result  = GetTop();
       result += GetNavigation();
       if (Update.hasError()) {
-        result += F("<div class='card' style='border-left:4px solid var(--err)'>");
-        result += F("<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3>");
-        result += F("<p>"); result += Update.getErrorString(); result += F("</p></div>");
+        result += F("<div class='card' style='border-left:4px solid var(--err)'>"
+                     "<h3 style='color:var(--err)'>&#10060; Update fehlgeschlagen!</h3><p>");
+        result += Update.getErrorString();
+        result += F("</p></div>");
         result += GetBottom();
         m_webserver.send(200, "text/html", result);
       } else {
-        result += F("<div class='card' style='border-left:4px solid var(--ok)'>");
-        result += F("<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>");
-        result += F("<p>Das Ger&auml;t wird jetzt neu gestartet...</p></div>");
+        result += F("<div class='card' style='border-left:4px solid var(--ok)'>"
+                     "<h3 style='color:var(--ok)'>&#9989; Update erfolgreich!</h3>"
+                     "<p>Das Ger&auml;t wird jetzt neu gestartet...</p></div>");
         result += GetBottom();
         m_webserver.send(200, "text/html", result);
         delay(1000);
@@ -1091,9 +1268,18 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
         if (!Update.begin(maxSketchSpace, U_FLASH))
           m_logger->println("Update.begin fehlgeschlagen: " + String(Update.getErrorString()));
       } else if (upload.status == UPLOAD_FILE_WRITE) {
+        // Fortschrittsbalken im Serial-Log
+        if (upload.totalSize > 0) {
+          int pct = (upload.currentSize * 100) / upload.totalSize;
+          int filled = pct / 2;
+          Serial.print(F("\r["));
+          for (int i = 0; i < 50; i++) Serial.print(i < filled ? '=' : ' ');
+          Serial.print(F("] ")); Serial.print(pct); Serial.print(F("%"));
+        }
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
           m_logger->println("Update.write fehlgeschlagen: " + String(Update.getErrorString()));
       } else if (upload.status == UPLOAD_FILE_END) {
+        Serial.println(F("\n[BIN] Upload abgeschlossen."));
         if (Update.end(true))
           m_logger->println("Firmware-Update abgeschlossen. Groesse: " + String(upload.totalSize));
         else
