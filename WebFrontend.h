@@ -1,44 +1,51 @@
 #ifndef _WEBFRONTEND_h
 #define _WEBFRONTEND_h
 
-#include "Arduino.h"
-#include "ESP8266WiFi.h"
-#include "WiFiClient.h"
-#include "ESP8266WebServer.h"
+#pragma once
+#include <Arduino.h>
+#include <ESP8266WebServer.h>
 #include "StateManager.h"
 #include "Logger.h"
 #include "Settings.h"
+#include <functional>
+
+typedef std::function<void(String)>   CommandCallbackType;
+typedef std::function<String(void)>   HardwareCallbackType;
 
 class WebFrontend {
- public:
-   WebFrontend(int port);
-   void Handle();
-   void Begin(StateManager *stateManager, Logger *logger);
-   ESP8266WebServer *WebServer();
-   typedef void CommandCallbackType(String);
-   typedef String HardwareCallbackType();
-   void SetCommandCallback(CommandCallbackType callback);
-   void SetHardwareCallback(HardwareCallbackType callback);
-   void SetPassword(String password);
+public:
+  WebFrontend(int port);
+
+  void Begin(StateManager *stateManager, Logger *logger);
+  void Handle();
+
+  ESP8266WebServer *WebServer();
+  void SetCommandCallback(CommandCallbackType callback);
+  void SetHardwareCallback(HardwareCallbackType callback);
+  void SetPassword(String password);
 
 private:
-  int m_port;
-  ESP8266WebServer m_webserver;
-  Logger *m_logger;
-  StateManager *m_stateManager;
-  CommandCallbackType *m_commandCallback;
-  HardwareCallbackType *m_hardwareCallback;
-  String m_password;
-  String GetNavigation();
+  ESP8266WebServer    m_webserver;
+  int                 m_port;
+  String              m_password;
+  StateManager       *m_stateManager = nullptr;
+  Logger             *m_logger       = nullptr;
+  CommandCallbackType  m_commandCallback  = nullptr;
+  HardwareCallbackType m_hardwareCallback = nullptr;
+
+  // ── NEU: Fortschritts-State für OTA ──────────────
+  volatile int    m_otaPct  = 0;
+  volatile bool   m_otaDone = false;
+  String          m_otaMsg  = "";
+
+  bool   IsAuthentified();
   String GetTop();
+  String GetNavigation();
   String GetBottom();
-  String BuildRadioCard(Settings &settings, byte radioNbr);
-  String GetIOCombo(byte nbr, String defaultValue);
-  String GetMCPCombos(Settings *settings, byte part);
-  String GetRedirectToRoot(String message = "");
-  bool IsAuthentified();
   String GetDisplayName();
+  String GetRedirectToRoot(String message = "");
   String BuildHardwareRow(String text1, String text2, String text3);
+  String BuildRadioCard(Settings &settings, byte radioNbr);
 };
 
 #endif

@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.44"
+#define PROGVERS         "1.36.49"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
