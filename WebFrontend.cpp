@@ -1,3 +1,4 @@
+//attr myLaCrosseGateway1 initCommands 1,868950,17241#r1 9579#2r 8842#3r v
 #include "WebFrontend.h"
 #include <EEPROM.h>
 #include "Settings.h"
@@ -489,33 +490,75 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   });
 
   m_webserver.on("/hardware", [this]() {
-    if (IsAuthentified()) {
-      uint32_t freeHeap = ESP.getFreeHeap();
-      m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
-      m_webserver.send(200);
-      m_webserver.sendContent(GetTop() + GetNavigation());
-      String result = F("<div class='card'><h2>&#128296; Hardware Info</h2><table>");
-      m_webserver.sendContent(result);
-      m_webserver.sendContent(BuildHardwareRow("ESP8266", "present :-)",
-        "Core:&nbsp;" + String(ESP.getCoreVersion()) +
-        "&nbsp;SDK:&nbsp;" + String(ESP.getSdkVersion()) +
-        "&nbsp;Heap:&nbsp;" + String(freeHeap) +
-        "&nbsp;Reset:&nbsp;" + ESP.getResetReason()));
-      m_webserver.sendContent(BuildHardwareRow("WiFi", String(WiFi.RSSI()) + " dBm",
-        "Mode: " + WifiModeToString(WiFi.getMode()) +
-        "&nbsp;&nbsp;Connect-Time: " + String(m_stateManager->GetWiFiConnectTime(), 1) + " s"));
-      if (m_hardwareCallback != nullptr) {
-        String rawData = m_hardwareCallback();
-        String hw = "<tr><td>";
-        rawData.replace("\t", "</td><td>"); rawData.replace("\n", "</td></tr><tr><td>"); rawData.replace(" ", "&nbsp;");
-        hw += rawData; hw += "</td></tr>";
-        m_webserver.sendContent(hw);
-      }
-      m_webserver.sendContent(F("</table></div>"));
-      m_webserver.sendContent(GetBottom());
-      m_webserver.sendContent("");
+  if (!IsAuthentified()) return;
+
+  uint32_t freeHeap = ESP.getFreeHeap();
+
+  m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  m_webserver.send(200, "text/html", "");
+  m_webserver.sendContent(GetTop() + GetNavigation());
+
+  // Tabelle mit Kopfzeile
+  String result = F("<div class='card'>"
+                    "<h2>&#128296; Hardware Info</h2>"
+                    "<table>"
+                    "<thead><tr>"
+                    "<th>Komponente</th>"
+                    "<th>Info</th>"
+                    "<th>Details</th>"
+                    "</tr></thead>"
+                    "<tbody>");
+  m_webserver.sendContent(result);
+
+  // Zeile 1: ESP8266
+  m_webserver.sendContent(BuildHardwareRow(
+    "ESP8266",
+    "Core:&nbsp;" + String(ESP.getCoreVersion()) +
+    "&nbsp;SDK:&nbsp;" + String(ESP.getSdkVersion()),
+    "Heap:&nbsp;" + String(freeHeap) +
+    "&nbsp;Reset:&nbsp;" + ESP.getResetReason()
+  ));
+
+  // Zeile 2: WiFi
+  m_webserver.sendContent(BuildHardwareRow(
+    "WiFi",
+    String(WiFi.RSSI()) + "&nbsp;dBm&nbsp;" +
+    "Mode:&nbsp;" + WifiModeToString(WiFi.getMode()),
+    "Connect-Time:&nbsp;" +
+    String(m_stateManager->GetWiFiConnectTime(), 1) + "&nbsp;s"
+  ));
+
+  // Zeile 3..N: Callback-Daten (FIX: kein rawData.replace() mehr)
+  if (m_hardwareCallback != nullptr) {
+    String rawData = m_hardwareCallback();
+    // rawData Format erwartet: "Label,Info,Details|Label2,Info2,Details2|..."
+    // Zeilen sind durch '|' getrennt, Spalten durch ','
+    int start = 0;
+    while (start < (int)rawData.length()) {
+      int pipePos = rawData.indexOf('|', start);
+      String row = (pipePos < 0)
+                   ? rawData.substring(start)
+                   : rawData.substring(start, pipePos);
+
+      int c1 = row.indexOf(',');
+      int c2 = (c1 >= 0) ? row.indexOf(',', c1 + 1) : -1;
+
+      String col1 = (c1 >= 0) ? row.substring(0, c1) : row;
+      String col2 = (c1 >= 0 && c2 >= 0) ? row.substring(c1 + 1, c2) : 
+                    (c1 >= 0) ? row.substring(c1 + 1) : "";
+      String col3 = (c2 >= 0) ? row.substring(c2 + 1) : "";
+
+      m_webserver.sendContent(BuildHardwareRow(col1, col2, col3));
+
+      if (pipePos < 0) break;
+      start = pipePos + 1;
     }
-  });
+  }
+
+  m_webserver.sendContent(F("</tbody></table></div>"));
+  m_webserver.sendContent(GetBottom());
+  m_webserver.sendContent("");
+});
 
   m_webserver.on("/ota", [this]() {
     if (IsAuthentified()) {
@@ -601,91 +644,136 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     if (IsAuthentified()) m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
   });
 
-  // ── /save ───────────────────────────────────────────────────────────────
+    // ── /save ───────────────────────────────────────────────────────────────
   m_webserver.on("/save", HTTP_POST, [this]() {
-    if (IsAuthentified()) {
-      Settings settings;
-      bool gotUseWiFi = false;
+    if (!IsAuthentified()) return;
 
-      // Radio-RateN-Felder herausfiltern, alle anderen normal übernehmen
-      for (byte i = 0; i < m_webserver.args(); i++) {
-        String argName = m_webserver.argName(i);
-        // RadioNRateB-Felder überspringen → werden unten als ToggleMask gespeichert
-        bool isRateCb = false;
-        for (byte rn = 1; rn <= 5 && !isRateCb; rn++) {
-          String prefix = "Radio" + String(rn) + "Rate";
-          if (argName.startsWith(prefix)) isRateCb = true;
+    // Schritt 0: Bestehende Settings laden für Passwort-Fallback
+    Settings existing;
+    existing.Read(m_logger);
+
+    Settings settings;
+    bool gotUseWiFi = false;
+
+    // Schritt 1: Radio-Masken berechnen
+    const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
+    for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+      String p = "Radio" + String(radioNbr);
+
+      int mask = 0;
+      for (int b = 0; b < 5; b++) {
+        if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
+      }
+      settings.Add(p + "ToggleMask", String(mask));
+
+      String fixedRate = "17.241";
+      for (int b = 0; b < 5; b++) {
+        if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
+      }
+      settings.Add(p + "DataRate", fixedRate);
+
+      int activeBits = __builtin_popcount(mask);
+      if (activeBits <= 1) {
+        settings.Add(p + "ToggleInterval", "0");
+      } else {
+        String iv = m_webserver.arg(p + "ToggleInterval");
+        if (iv.length() == 0 || iv == "0") iv = "30";
+        settings.Add(p + "ToggleInterval", iv);
+      }
+    }
+
+    // Schritt 2: Passwort-Felder gesondert behandeln
+    // Sicherheitsregel: Leeres Feld = bestehenden Wert beibehalten.
+    // Nur wenn der Benutzer explizit etwas einträgt, wird das Passwort aktualisiert.
+
+    String ctPASS     = m_webserver.arg("ctPASS");
+    String ctPASS2    = m_webserver.arg("ctPASS2");
+    String mqttPass   = m_webserver.arg("mqttPass");
+    String frontPass  = m_webserver.arg("frontPass");
+    String frontPass2 = m_webserver.arg("frontPass2");
+
+    settings.Add("ctPASS",   ctPASS.length()   > 0 ? ctPASS   : existing.Get("ctPASS",   ""));
+    settings.Add("ctPASS2",  ctPASS2.length()  > 0 ? ctPASS2  : existing.Get("ctPASS2",  ""));
+    settings.Add("mqttPass", mqttPass.length() > 0 ? mqttPass : existing.Get("mqttPass", ""));
+
+    if (frontPass.length() > 0) {
+      // Neues Frontend-Passwort: beide Felder befüllt → Validierung folgt unten
+      settings.Add("frontPass",  frontPass);
+      settings.Add("frontPass2", frontPass2);
+    } else {
+      // Leer gelassen: altes Passwort unverändert übernehmen
+      settings.Add("frontPass",  existing.Get("frontPass",  ""));
+      settings.Add("frontPass2", existing.Get("frontPass2", ""));
+    }
+
+    // Schritt 3: Alle anderen Form-Args hinzufügen
+    // (Passwort-Keys & Radio-Keys überspringen, da bereits verarbeitet)
+    const char* passwordKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass","frontPass2"};
+    const byte  nPasswordKeys  = 5;
+
+    for (byte i = 0; i < m_webserver.args(); i++) {
+      String argName = m_webserver.argName(i);
+      bool skip = false;
+
+      // Passwort-Keys überspringen
+      for (byte pk = 0; pk < nPasswordKeys && !skip; pk++) {
+        if (argName == passwordKeys[pk]) skip = true;
+      }
+      // Radio-Keys überspringen
+      for (byte rn = 1; rn <= 5 && !skip; rn++) {
+        String p = "Radio" + String(rn);
+        if (argName == p + "ToggleMask"    ||
+            argName == p + "DataRate"      ||
+            argName == p + "ToggleInterval") {
+          skip = true;
         }
-        if (!isRateCb) {
-          settings.Add(argName, m_webserver.arg(i));
-          if (argName == "UseWiFi") gotUseWiFi = true;
+        for (int b = 0; b < 5 && !skip; b++) {
+          if (argName == p + "Rate" + String(b)) skip = true;
         }
       }
-      if (!gotUseWiFi) settings.Add("UseWiFi", "false");
 
-      // Radio-Einstellungen: Bitmaske + abgeleitete Werte explizit setzen
-      const char* rateNames[] = {
-        "17.241", "9.579", "8.842", "6.631", "4.800"
-      };
-      for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-        String p = "Radio" + String(radioNbr);
-
-        // Bitmaske aus Rate0..Rate4 berechnen
-        // Checkbox sendet "1" wenn checked, fehlt komplett wenn nicht checked
-        int mask = 0;
-        for (int b = 0; b < 5; b++) {
-          if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
-        }
-        settings.Add(p + "ToggleMask", String(mask));
-
-        // Fixe DataRate = erstes gesetztes Bit (wird genutzt wenn kein Toggle)
-        String fixedRate = "17.241";
-        for (int b = 0; b < 5; b++) {
-          if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
-        }
-        settings.Add(p + "DataRate", fixedRate);
-
-        // Toggle-Intervall: 0 wenn ≤1 Datenrate, sonst Wert aus Formular
-        int activeBits = 0;
-        for (int b = 0; b < 5; b++) if (mask & (1 << b)) activeBits++;
-        if (activeBits <= 1) {
-          settings.Add(p + "ToggleInterval", "0");
-        } else {
-          String iv = m_webserver.arg(p + "ToggleInterval");
-          if (iv.length() == 0 || iv == "0") iv = "30";
-          settings.Add(p + "ToggleInterval", iv);
-        }
+      if (!skip) {
+        settings.Add(argName, m_webserver.arg(i));
+        if (argName == "UseWiFi") gotUseWiFi = true;
       }
+    }
 
-      bool saveIt = true;
-      if (m_webserver.hasArg("frontPass") && m_webserver.hasArg("frontPass2")) {
-        if (!m_webserver.arg("frontPass").equals(m_webserver.arg("frontPass2"))) {
+    if (!gotUseWiFi) settings.Add("UseWiFi", "false");
+
+    // Schritt 4: Validierung
+    bool saveIt = true;
+
+    // Frontend-Passwort nur prüfen wenn ein neues eingegeben wurde
+    if (frontPass.length() > 0 && !frontPass.equals(frontPass2)) {
+      String c = GetTop();
+      c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+             "<p>Passw&ouml;rter stimmen nicht &uuml;berein</p></div>");
+      c += GetBottom();
+      m_webserver.send(200, "text/html", c);
+      saveIt = false;
+    }
+
+    if (saveIt && m_webserver.hasArg("HostName")) {
+      String hostname = m_webserver.arg("HostName");
+      for (byte i = 0; i < hostname.length(); i++) {
+        char ch = (char)hostname[i];
+        if (!((ch>='0'&&ch<='9')||(ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch=='-'||ch=='_')) {
+          saveIt = false;
           String c = GetTop();
-          c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3><p>Passwords do not match</p></div>");
+          c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+                 "<p>Erlaubte Zeichen: 0-9, a-z, A-Z, - und _</p></div>");
           c += GetBottom();
           m_webserver.send(200, "text/html", c);
-          saveIt = false;
+          break;
         }
       }
-      if (saveIt && m_webserver.hasArg("HostName")) {
-        String hostname = m_webserver.arg("HostName");
-        for (byte i = 0; i < hostname.length(); i++) {
-          char ch = (char)hostname[i];
-          if (!((ch>='0'&&ch<='9')||(ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch=='-'||ch=='_')) {
-            saveIt = false;
-            String c = GetTop();
-            c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3><p>Allowed characters: 0-9, a-z, A-Z, - and _</p></div>");
-            c += GetBottom();
-            m_webserver.send(200, "text/html", c);
-            break;
-          }
-        }
-      }
-      if (saveIt) {
-        String info = settings.Write();
-        m_webserver.send(200, "text/html", GetRedirectToRoot("Settings saved<br>" + info));
-        delay(1000); ESP.restart();
-      }
+    }
+
+    // Schritt 5: Speichern
+    if (saveIt) {
+      String info = settings.Write();
+      m_webserver.send(200, "text/html", GetRedirectToRoot("Einstellungen gespeichert<br>" + info));
+      delay(1000); ESP.restart();
     }
   });
 
