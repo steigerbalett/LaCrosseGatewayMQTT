@@ -33,7 +33,6 @@ private:
   WFCommandCallbackType  m_commandCallback  = nullptr;
   WFHardwareCallbackType m_hardwareCallback = nullptr;
 
-  // ── NEU: Fortschritts-State für OTA ──────────────
   volatile int    m_otaPct  = 0;
   volatile bool   m_otaDone = false;
   String          m_otaMsg  = "";
@@ -46,6 +45,7 @@ private:
   String GetRedirectToRoot(String message = "");
   String BuildHardwareRow(String text1, String text2, String text3);
   String BuildRadioCard(Settings &settings, byte radioNbr);
+  String _resolveDirectURL(const String &url);
 };
 
 #endif
