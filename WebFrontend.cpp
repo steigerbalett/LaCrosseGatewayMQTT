@@ -245,8 +245,12 @@ WebFrontend::WebFrontend(int port) : m_webserver(port) {
 }
 
 ESP8266WebServer *WebFrontend::WebServer() { return &m_webserver; }
-void WebFrontend::SetCommandCallback(CommandCallbackType callback) { m_commandCallback = callback; }
-void WebFrontend::SetHardwareCallback(HardwareCallbackType callback) { m_hardwareCallback = callback; }
+void WebFrontend::SetCommandCallback(WFCommandCallbackType callback) {
+  m_commandCallback = callback;
+}
+void WebFrontend::SetHardwareCallback(WFHardwareCallbackType callback) {
+  m_hardwareCallback = callback;
+}
 void WebFrontend::SetPassword(String password) { m_password = password; }
 
 bool WebFrontend::IsAuthentified() {

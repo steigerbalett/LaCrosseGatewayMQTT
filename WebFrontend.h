@@ -9,8 +9,8 @@
 #include "Settings.h"
 #include <functional>
 
-typedef std::function<void(String)>   CommandCallbackType;
-typedef std::function<String(void)>   HardwareCallbackType;
+typedef std::function<void(String)>   WFCommandCallbackType;
+typedef std::function<String(void)>   WFHardwareCallbackType;
 
 class WebFrontend {
 public:
@@ -20,8 +20,8 @@ public:
   void Handle();
 
   ESP8266WebServer *WebServer();
-  void SetCommandCallback(CommandCallbackType callback);
-  void SetHardwareCallback(HardwareCallbackType callback);
+  void SetCommandCallback(WFCommandCallbackType callback);
+  void SetHardwareCallback(WFHardwareCallbackType callback);
   void SetPassword(String password);
 
 private:
@@ -30,8 +30,8 @@ private:
   String              m_password;
   StateManager       *m_stateManager = nullptr;
   Logger             *m_logger       = nullptr;
-  CommandCallbackType  m_commandCallback  = nullptr;
-  HardwareCallbackType m_hardwareCallback = nullptr;
+  WFCommandCallbackType  m_commandCallback  = nullptr;
+  WFHardwareCallbackType m_hardwareCallback = nullptr;
 
   // ── NEU: Fortschritts-State für OTA ──────────────
   volatile int    m_otaPct  = 0;
