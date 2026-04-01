@@ -670,7 +670,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   });
 
   // ── /save ───────────────────────────────────────
-  m_webserver.on("/save", [this]() {
+  m_webserver.on("/save", HTTP_POST, [this]() {
     if (IsAuthentified()) {
       Settings settings;
       bool gotUseWiFi = false;
@@ -747,7 +747,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       // --- Card: WLAN ---
       data += F("<div class='card' style='margin-bottom:12px'>");
       data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
-      data += F("<form method='get' action='save'><table>");
+      data += F("<form method='post' action='save'><table>");
       data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
       data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
       data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");

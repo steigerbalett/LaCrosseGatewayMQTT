@@ -5,12 +5,19 @@
 #include <Arduino.h>
 #include <ESP8266httpUpdate.h>
 #include <WiFiClientSecure.h>
+#include <functional>
 
-class Logger; 
+class Logger;
+
+using OTAProgressCallback = std::function<void(int percent)>;
+using OTAStatusCallback   = std::function<void(const String &msg)>;
 
 class OTAUpdate {
 public:
   void SetDebugMode(boolean mode);
+  void SetProgressCallback(OTAProgressCallback cb) { _progressCb = cb; }
+  void SetStatusCallback(OTAStatusCallback cb)     { _statusCb   = cb; }
+
   static String Start(Logger *logger);
   String StartFromGitHub(const String &owner,
                          const String &repo,
@@ -18,9 +25,14 @@ public:
 
 private:
   boolean m_debug = false;
-  String  _resolveGitHubAssetUrl(const String &owner,
-                                  const String &repo,
-                                  const String &assetName);
+  OTAProgressCallback _progressCb = nullptr;
+  OTAStatusCallback   _statusCb   = nullptr;
+
+  void _registerCallbacks();
+  String _resolveGitHubAssetUrl(const String &owner,
+                                const String &repo,
+                                const String &assetName);
+  String _followRedirect(const String &url);
 };
 
 #endif
