@@ -8,6 +8,7 @@
 #include "Logger.h"
 #include "Settings.h"
 #include <functional>
+#include <initializer_list>
 
 typedef std::function<void(String)>   WFCommandCallbackType;
 typedef std::function<String(void)>   WFHardwareCallbackType;
@@ -46,6 +47,7 @@ private:
   String BuildHardwareRow(String text1, String text2, String text3);
   String BuildRadioCard(Settings &settings, byte radioNbr);
   String _resolveDirectURL(const String &url);
+  String SavePartial(std::initializer_list<String> keys);
   String SaveSelectedKeys(const char** keys, byte count, bool reboot);
 };
 
