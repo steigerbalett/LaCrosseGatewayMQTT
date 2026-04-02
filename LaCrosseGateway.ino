@@ -26,10 +26,7 @@
 
 #include <PubSubClient.h>         //MQTT server library
 
-//#include <NTPClient.h>
-//#include <TimeLib.h>
 #include <time.h>
-//#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 
 // Other libs
 #include "ArrayList.h"
@@ -1413,6 +1410,53 @@ static bool StartWifi(Settings settings) {
 
   espconn_tcp_set_max_con(10);
 
+  // ── Erst-Setup: Kein WLAN konfiguriert → Captive Portal sofort starten ─
+  {
+    String ctSSID = settings.Get("ctSSID", "---");
+    ctSSID.trim();
+    bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
+    if (isFirstSetup) {
+      logger.println(F("*** FIRST SETUP: Kein WLAN konfiguriert ***"));
+      logger.println(F("*** Starte sofort Captive Portal (AP-Modus) ***"));
+
+      WiFi.disconnect(true);
+      WiFi.persistent(false);
+      WiFi.mode(WiFiMode::WIFI_OFF);
+
+      String hostName = settings.Get("HostName", "LaCrosseGateway");
+      WiFi.hostname(hostName);
+
+      accessPoint.Begin(0); // 0 = kein Auto-Close, Portal bleibt bis Neustart
+      esp.SwitchLed(true, true);
+
+      logger.println("AP gestartet - verbinde dich mit dem WLAN 'LaCrosseGateway_XXXXXX'");
+      logger.println("Oeffne dann http://192.168.222.1/setup im Browser");
+
+      frontend.SetPassword(settings.Get("frontPass", ""));
+      frontend.SetCommandCallback([](String command) { CommandHandler(command); });
+      frontend.SetHardwareCallback([]() {
+        HardwarePageBuilder builder;
+        return builder.Build(
+          &rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
+          &ownSensors, &sc16is750, &sc16is750_2, &digitalPorts,
+          &display, &dataPort1, &dataPort2, &dataPort3,
+          &serialBridge, &serialBridge2, &softSerialBridge, &analogPort, &nextion
+        );
+      });
+
+      ota.Begin(frontend.WebServer());
+
+      if (display.IsConnected()) {
+        display.Print("FIRST SETUP", DisplayArea_Line1, OLED::Alignments::Center);
+        display.Print("192.168.222.1", DisplayArea_Line2, OLED::Alignments::Center);
+      }
+
+      USE_WIFI = 1;
+      return false;
+    }
+  }
+  // ── Ende Erst-Setup ────────────────────────────────────────────────────
+
   logger.println("Start WIFI_STA");
   WiFi.disconnect(true);
   WiFi.persistent(false); //Avoid to store Wifi configuration in Flash
@@ -2123,7 +2167,10 @@ void loop(void) {
     serialPortFlasher.Handle();
   }
   else {
-    stateManager.SetLoopStart();
+    // Captive Portal DNS + Auto-Close pflegen
+  accessPoint.Handle();
+
+  stateManager.SetLoopStart();
 #ifdef USE_MQTT_Pubsub
   if (mqttEnabled) {
     if ((WiFi.status() == WL_CONNECTED) && !client.connected() && (((millis() - timetry) > 2000) || !timetry)) {

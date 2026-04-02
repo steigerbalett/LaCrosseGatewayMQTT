@@ -1,4 +1,7 @@
 #include "AccessPoint.h"
+#include <DNSServer.h>
+
+static DNSServer dnsServer;
 
 AccessPoint::AccessPoint(IPAddress ip, IPAddress gateway, IPAddress subnet, String ssidPrefix) {
   m_ip = ip;
@@ -15,12 +18,16 @@ void AccessPoint::Begin(int autoClose) {
   if (m_logItemCallback != NULL) {
     m_logItemCallback("Starting ...");
   }
- 
+
   WiFi.mode(WiFiMode::WIFI_AP);
   WiFi.softAPConfig(m_ip, m_ip, m_subnet);
   String ssid = m_ssidPrefix + "_" + String((unsigned int)ESP.getChipId());
   WiFi.softAP(ssid.c_str());
-  
+
+  // DNS Catch-All: alle Domains auf AP-IP umleiten (Captive Portal)
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(53, "*", m_ip);
+
   if (m_logItemCallback != NULL) {
     m_logItemCallback("running, SSID=" + ssid);
   }
@@ -34,19 +41,23 @@ void AccessPoint::End() {
   if (m_logItemCallback != NULL) {
     m_logItemCallback("Closing  ...");
   }
+  dnsServer.stop();
   m_running = false;
   m_autoClose = 0;
   WiFi.mode(WiFiMode::WIFI_STA);
-  
+
   if (m_logItemCallback != NULL) {
     m_logItemCallback("closed");
   }
 }
 
 void AccessPoint::Handle() {
-  if(m_autoClose > 0 && m_running) {
-    if(millis() - m_startMillis > (uint)m_autoClose * 1000) {
-      End();
+  if (m_running) {
+    dnsServer.processNextRequest();
+    if (m_autoClose > 0) {
+      if (millis() - m_startMillis > (uint)m_autoClose * 1000) {
+        End();
+      }
     }
-  } 
+  }
 }

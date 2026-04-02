@@ -1426,6 +1426,33 @@ m_webserver.on("/setup", [this]() {
     }
   );
 
-  m_webserver.onNotFound([this]() { m_webserver.send(404, "text/plain", "Not Found"); });
+
+  // ── Captive Portal Detection (Android, iOS, Windows) ─────────────────
+  auto captiveRedirect = [this]() {
+    String ip = WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA
+                ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+    m_webserver.sendHeader("Location", "http://" + ip + "/setup", true);
+    m_webserver.send(302, "text/plain", "");
+  };
+  m_webserver.on("/generate_204",              captiveRedirect); // Android
+  m_webserver.on("/gen_204",                   captiveRedirect); // Android alt
+  m_webserver.on("/hotspot-detect.html",       captiveRedirect); // Apple
+  m_webserver.on("/library/test/success.html", captiveRedirect); // Apple alt
+  m_webserver.on("/connecttest.txt",           captiveRedirect); // Windows
+  m_webserver.on("/redirect",                  captiveRedirect); // Windows
+  m_webserver.on("/fwlink",                    captiveRedirect); // Windows
+  m_webserver.on("/wpad.dat",                  captiveRedirect); // Windows
+  // ── Ende Captive Portal Detection ─────────────────────────────────────
+
+  m_webserver.onNotFound([this]() {
+    // Im AP-Modus alle unbekannten URLs auf /setup weiterleiten (Captive Portal)
+    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
+      m_webserver.sendHeader("Location",
+        "http://" + WiFi.softAPIP().toString() + "/setup", true);
+      m_webserver.send(302, "text/plain", "");
+    } else {
+      m_webserver.send(404, "text/plain", "Not Found");
+    }
+  });
   m_webserver.begin();
 }
