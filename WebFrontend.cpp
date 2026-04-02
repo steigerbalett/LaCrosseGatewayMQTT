@@ -500,28 +500,19 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   Settings merged;
   merged.FromString(existing.ToString().substring(6));
 
-        static const char* checkboxKeys[] = {
-          "UseWiFi", "RadioLock", "SendHumidity", "SendBatteryBeep", "UseMDNS",
-          "SendAnalog", "AsDataFull", "ToggleLed", "PRD",
-          "IsNextion", "AddUnits", "oled13"
-        };
-        static const byte checkboxCount = sizeof(checkboxKeys) / sizeof(checkboxKeys[0]);
-
-        for (byte i = 0; i < count; i++) {
-        String key = String(keys[i]);
-        if (m_webserver.hasArg(key)) {
-          merged.Add(key, m_webserver.arg(key));
-        } else {
-          bool isCheckbox = (key == "UseWiFi"   || key == "RadioLock"      ||
-                             key == "SendHumidity" || key == "SendBatteryBeep" ||
-                             key == "UseMDNS"   || key == "SendAnalog"     ||
-                             key == "PRD"       || key == "IsNextion"      ||
-                             key == "AddUnits"  || key == "AsDataFull"     ||
-                             key == "ToggleLed" || key == "oled13");
-          if (isCheckbox) {
-            merged.Add(key, "false");
-          }
-        }
+  for (byte i = 0; i < count; i++) {
+    String key = String(keys[i]);
+    if (m_webserver.hasArg(key)) {
+      merged.Add(key, m_webserver.arg(key));
+    } else {
+      bool isCheckbox = (key == "UseWiFi"          || key == "RadioLock"       ||
+                         key == "SendHumidity"      || key == "SendBatteryBeep" ||
+                         key == "UseMDNS"           || key == "SendAnalog"      ||
+                         key == "PRD"               || key == "IsNextion"       ||
+                         key == "AddUnits"          || key == "AsDataFull"      ||
+                         key == "ToggleLed"         || key == "oled13");
+      if (isCheckbox) {
+        merged.Add(key, "false");
       }
     }
   }
