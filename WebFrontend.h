@@ -46,6 +46,7 @@ private:
   String BuildHardwareRow(String text1, String text2, String text3);
   String BuildRadioCard(Settings &settings, byte radioNbr);
   String _resolveDirectURL(const String &url);
+  String SaveSelectedKeys(const char** keys, byte count, bool reboot);
 };
 
 #endif

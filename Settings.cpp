@@ -48,7 +48,7 @@ void Settings::Read(Logger *logger) {
       if (keyDone && valueDone) {
         keyDone = false;
         valueDone = false;
-        if(key.length() > 0 && value.length() > 0) {
+        if(key.length() > 0) {
           m_data.Put(key, value);
         }
         key = "";
@@ -121,7 +121,7 @@ void Settings::Add(String key, String value) {
   if (m_data.ContainsKey(key)) {
     m_data.Remove(key);
   }
-  if(value.length() > 0) {
+  if (key.length() > 0) {
     m_data.Put(key, value);
   }
 }

@@ -409,39 +409,109 @@ String WebFrontend::GetDisplayName() {
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
 String WebFrontend::_resolveDirectURL(const String &url) {
-  String u = url;
-  bool isHttps = u.startsWith("https://");
-  if (isHttps) u = u.substring(8);
-  else if (u.startsWith("http://")) u = u.substring(7);
-  int slash = u.indexOf('/');
-  if (slash < 0) return url;
-  String host = u.substring(0, slash);
-  String path = u.substring(slash);
+  String current = url;
 
-  BearSSL::WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(15);
-  if (!client.connect(host.c_str(), isHttps ? 443 : 80)) return url;
+  for (int hop = 0; hop < 4; hop++) {
+    String u = current;
+    bool isHttps = u.startsWith("https://");
+    if (isHttps)            u = u.substring(8);
+    else if (u.startsWith("http://")) u = u.substring(7);
 
-  client.print("HEAD " + path + " HTTP/1.1\r\n");
-  client.print("Host: " + host + "\r\n");
-  client.print("User-Agent: ESP8266\r\n");
-  client.print("Connection: close\r\n\r\n");
+    int slash = u.indexOf('/');
+    if (slash < 0) return current;
+    String host = u.substring(0, slash);
+    String path = u.substring(slash);
 
-  String location = "";
-  unsigned long deadline = millis() + 8000;
-  while (client.connected() && millis() < deadline) {
-    if (client.available()) {
-      String line = client.readStringUntil('\n');
-      line.trim();
-      String lower = line; lower.toLowerCase();
-      if (lower.startsWith("location:")) { location = line.substring(9); location.trim(); }
-      if (line.isEmpty()) break;
+    BearSSL::WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(15);
+    int port = isHttps ? 443 : 80;
+
+    m_logger->println("OTA Hop " + String(hop) + ": " + host + path);
+
+    if (!client.connect(host.c_str(), port)) {
+      m_logger->println("OTA connect failed: " + host);
+      return current;
     }
-    yield();
+
+    client.print("HEAD " + path + " HTTP/1.1\r\n");
+    client.print("Host: " + host + "\r\n");
+    client.print("User-Agent: ESP8266\r\n");
+    client.print("Connection: close\r\n\r\n");
+
+    String location = "";
+    int statusCode  = 0;
+    unsigned long deadline = millis() + 8000;
+
+    while (client.connected() && millis() < deadline) {
+      if (client.available()) {
+        String line = client.readStringUntil('\n');
+        line.trim();
+        if (statusCode == 0 && line.startsWith("HTTP/")) {
+          int sp1 = line.indexOf(' ');
+          int sp2 = line.indexOf(' ', sp1 + 1);
+          if (sp1 > 0) statusCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
+        }
+        String lower = line; lower.toLowerCase();
+        if (lower.startsWith("location:")) {
+          location = line.substring(9); location.trim();
+        }
+        if (line.isEmpty()) break;
+      }
+      yield();
+    }
+    client.stop();
+
+    m_logger->println("OTA Hop " + String(hop) + " status=" + String(statusCode) + " loc=" + location);
+
+    // 301/302/303/307/308 → weiter folgen
+    if ((statusCode == 301 || statusCode == 302 || statusCode == 303 ||
+         statusCode == 307 || statusCode == 308) && location.length() > 0) {
+      // Relative Location → absolut machen
+      if (location.startsWith("/")) {
+        String proto = isHttps ? "https://" : "http://";
+        location = proto + host + location;
+      }
+      current = location;
+      continue;
+    }
+    return current;
   }
-  client.stop();
-  return location.length() > 0 ? location : url;
+  return current;  // Maximale Hops erreicht
+}
+
+String WebFrontend::SavePartial(std::initializer_list<String> keys) {
+  Settings existing;
+  existing.Read(m_logger);
+  // Alle bestehenden Werte übernehmen
+  Settings settings = existing;  // Kopie
+  // Nur die übergebenen Keys aus dem Request überschreiben
+  for (const String& key : keys) {
+    if (m_webserver.hasArg(key)) {
+      settings.Add(key, m_webserver.arg(key));
+    }
+  }
+  return settings.Write();
+}
+
+String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot) {
+  Settings existing;
+  existing.Read(m_logger);
+  Settings merged;
+  merged.FromString(existing.ToString().substring(6));
+
+  for (byte i = 0; i < count; i++) {
+    String key = String(keys[i]);
+    if (m_webserver.hasArg(key)) {
+      merged.Add(key, m_webserver.arg(key));
+    } else {
+      if (key == "UseWiFi" || key == "RadioLock" || 
+          key == "SendHumidity" || key == "SendBatteryBeep" || key == "UseMDNS") {
+        merged.Add(key, "false");
+      }
+    }
+  }
+  return merged.Write();
 }
 
 // ═══════════════════════════════════════════════════
@@ -682,16 +752,22 @@ m_webserver.on("/save", HTTP_POST, [this]() {
     }
   }
 
-  // SCHRITT 1b: RadioNType + RadioNFreq mit Fallback auf existing
-  for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-    String p = "Radio" + String(radioNbr);
-    String typeVal = m_webserver.arg(p + "Type");
-    if (typeVal.length() == 0) typeVal = existing.Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
-    settings.Add(p + "Type", typeVal);
-    String freqVal = m_webserver.arg(p + "Freq");
-    if (freqVal.length() == 0) freqVal = existing.Get(p + "Freq", radioNbr == 1 ? "868310" : "868300");
-    settings.Add(p + "Freq", freqVal);
+// SCHRITT 1b: RadioNType + RadioNFreq
+for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+  String p = "Radio" + String(radioNbr);
+  
+  String typeVal = m_webserver.arg(p + "Type");
+  if (typeVal.length() == 0 && !m_webserver.hasArg(p + "Type")) {
+    typeVal = existing.Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
   }
+  settings.Add(p + "Type", typeVal);
+
+  String freqVal = m_webserver.arg(p + "Freq");
+  if (freqVal.length() == 0 && !m_webserver.hasArg(p + "Freq")) {
+    freqVal = existing.Get(p + "Freq", "");
+  }
+  settings.Add(p + "Freq", freqVal);
+}
 
   // SCHRITT 2: Passwörter mit Fallback
   const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass"};
@@ -770,238 +846,484 @@ m_webserver.on("/save", HTTP_POST, [this]() {
   }
 });
 
-  // ── /setup ──────────────────────────────────────────────────────────────
-  m_webserver.on("/setup", [this]() {
-    if (IsAuthentified()) {
-      Settings settings; settings.Read(m_logger);
-      m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
-      m_webserver.send(200, "text/html", "");
-      m_webserver.sendContent(GetTop() + GetNavigation());
-      String data;
+// ── /save_wlan ──────────────────────────────────────────────────────────
+m_webserver.on("/save_wlan", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
 
-      data += F("<form method='post' action='/save'>");
-      m_webserver.sendContent(data); data = "";
+  // Passwort-Validierung
+  String fp  = m_webserver.arg("frontPass");
+  String fp2 = m_webserver.arg("frontPass2");
+  if (fp.length() > 0 && !fp.equals(fp2)) {
+    m_webserver.send(200, "text/html", GetTop() +
+      F("<div class='card'><h3 style='color:var(--err)'>&#10060; Passwörter stimmen nicht überein</h3></div>") +
+      GetBottom());
+    return;
+  }
 
-      // WLAN
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
-      data += F("<table>");
-      data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
-      data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
-      data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
-      data += settings.Get("ctPASS", "");
-      data += F("'>");
-      data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
-      data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
-      data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
-      data += settings.Get("ctPASS2", "");
-      data += F("'>");
-      data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
-      data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='");
-      data += settings.Get("frontPass", "");
-      data += F("'>");
-      data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
-      data += settings.Get("frontPass2", "");
-      data += F("'>");
-      data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
+  const char* keys[] = {"ctSSID","ctPASS","ctSSID2","ctPASS2",
+                         "Timeout1","Timeout2","frontPass","UseWiFi","UseMDNS","HostName","StartupDelay",
+                         "staticIP","staticMask","staticGW"};
+  String info = SaveSelectedKeys(keys, 14, true);
+  m_webserver.send(200, "text/html", GetRedirectToRoot("WLAN gespeichert<br>" + info));
+  delay(1000); ESP.restart();
+});
 
-      // MQTT
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; MQTT-Einstellungen</h2><table>");
-      data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-      data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings.Get("serverIpMqtt", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings.Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Benutzername:</label></td><td>");
-      data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings.Get("mqttUser", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
-      data += settings.Get("mqttPass", "");
-      data += F("'>");
-      data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
-      data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
-      data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", ""); data += F("'>");
-      data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings.Get("ext1", "0"); data += F("'>");
-      data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings.Get("ext2", "0"); data += F("'>");
-      data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
+// ── /save_mqtt ──────────────────────────────────────────────────────────
+m_webserver.on("/save_mqtt", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"serverIpMqtt","serverPortMqtt","mqttUser","mqttPass",
+                         "topic","pubInt","ext1","ext2","ext3"};
+  String info = SaveSelectedKeys(keys, 9, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; MQTT gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zurück</a></p></div>") + GetBottom());
+});
 
-      // Netzwerk
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
-      data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
-      data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-      data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Hostname:</label></td><td>");
-      data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
-      data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
+// ── /save_radios ─────────────────────────────────────────────────────────
+m_webserver.on("/save_radios", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
 
-      // Interne Sensoren
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#127909; Interne Sensoren</h2><table>");
-      data += F("<tr><td><label>Sensoren:</label></td><td>");
-      data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings.Get("ISID", "0"); data += F("'>");
-      data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings.Get("ISIV", "10"); data += F("'>");
-      data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings.Get("Altitude", "0"); data += F("'>");
-      data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings.Get("CorrT", "0"); data += F("'>");
-      data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings.Get("CorrH", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
+  Settings existing;
+  existing.Read(m_logger);
+  // FromString/ToString zum Kopieren
+  Settings merged;
+  merged.FromString(existing.ToString().substring(6));
 
-      // Ports & Serial Bridges
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; Ports &amp; Serial Bridges</h2><table>");
-      data += F("<tr><td><label>Daten-Ports:</label></td><td>");
-      data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings.Get("DataPort1", "81"); data += F("'>&nbsp;");
-      data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings.Get("DataPort2", ""); data += F("'>&nbsp;");
-      data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings.Get("DataPort3", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Serial Bridge 1:</label></td><td>");
-      data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SerialBridgePort", ""); data += F("'>");
-      data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Serial Bridge 2:</label></td><td>");
-      data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings.Get("SerialBridge2Port", ""); data += F("'>");
-      data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Soft Serial Bridge:</label></td><td>");
-      data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SSBridgePort", ""); data += F("'>");
-      data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
-      data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings.Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion&nbsp;");
-      data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings.Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten");
-      data += F("</td></tr></table></div>");
-      m_webserver.sendContent(data); data = "";
+  // RadioLock
+  String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
+  merged.Add("RadioLock", radioLockVal);
 
-      // RFM95
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128225; RFM95</h2><table><tr><td><label>RFM95:</label></td><td>");
-      data += F("SF: <select name='SF95' style='width:70px'>");
-      String sfValue = settings.Get("SF95", "SF7");
-      data += GetOption("SF6",  sfValue); data += GetOption("SF7",  sfValue); data += GetOption("SF8",  sfValue);
-      data += GetOption("SF9",  sfValue); data += GetOption("SF10", sfValue); data += GetOption("SF11", sfValue);
-      data += GetOption("SF12", sfValue);
-      data += F("</select>&nbsp;BW: <select name='BW95' style='width:70px'>");
-      String bwValue = settings.Get("BW95", "125");
-      data += GetOption("7.8",   bwValue); data += GetOption("10.4",  bwValue); data += GetOption("15.6",  bwValue);
-      data += GetOption("20.8",  bwValue); data += GetOption("31.25", bwValue); data += GetOption("41.7",  bwValue);
-      data += GetOption("62.6",  bwValue); data += GetOption("125",   bwValue); data += GetOption("250",   bwValue);
-      data += GetOption("500",   bwValue);
-      data += F("</select></td></tr></table></div>");
-      m_webserver.sendContent(data); data = "";
+  const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
+  for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+    String p = "Radio" + String(radioNbr);
 
-      // Radio #1 ... #5
-      for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-        data += BuildRadioCard(settings, radioNbr);
-        m_webserver.sendContent(data); data = "";
-      }
+    // Typ – was auch immer das Formular schickt (inkl. "---")
+    String typeVal = m_webserver.arg(p + "Type");
+    merged.Add(p + "Type", typeVal);  // leer oder "---" → wird gespeichert
 
-      // LGW-Betrieb
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
-      data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p><table>");
-      data += F("<tr><td><label>Modus:</label></td><td><select name='lgwMode'>");
-      String lgwMode = settings.Get("lgwMode", "0");
-      data += GetOption("0", lgwMode); data += GetOption("1", lgwMode); data += GetOption("2", lgwMode);
-      data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
-      data += F("<tr><td><label>Kanal:</label></td><td><input name='lgwChannel' size='5' maxlength='3' value='"); data += settings.Get("lgwChannel", "0"); data += F("'></td></tr>");
-      data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td><input name='lgwFreq' size='12' maxlength='10' value='"); data += settings.Get("lgwFreq", "868300"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td><select name='lgwPower'>");
-      String lgwPwr = settings.Get("lgwPower", "10");
-      for (int p = 0; p <= 20; p += 2) data += GetOption(String(p), lgwPwr);
-      data += F("</select></td></tr>");
-      data += F("<tr><td><label>Datenrate (Baud):</label></td><td><select name='lgwDataRate'>");
-      String lgwDR = settings.Get("lgwDataRate", "17241");
-      data += GetOption("4800",  lgwDR); data += GetOption("9600",  lgwDR); data += GetOption("17241", lgwDR);
-      data += GetOption("19200", lgwDR); data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
-      data += F("</select></td></tr>");
-      data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td><input name='lgwRssiThreshold' size='7' maxlength='5' value='"); data += settings.Get("lgwRssiThreshold", "-200"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td><input name='lgwEncryptKey' size='40' maxlength='32' value='"); data += settings.Get("lgwEncryptKey", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td><input name='lgwWatchdog' size='7' maxlength='5' value='"); data += settings.Get("lgwWatchdog", "0"); data += F("'></td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
+    // Freq
+    String freqVal = m_webserver.arg(p + "Freq");
+    merged.Add(p + "Freq", freqVal);
 
-      // Sende-Verhalten
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128228; Sende-Verhalten</h2><table>");
-      data += F("<tr><td><label>SendMode:</label></td><td><select name='SendMode'>");
-      String sendMode = settings.Get("SendMode", "0");
-      data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
-      data += F("</select></td></tr>");
-      data += F("<tr><td><label>SendRetries:</label></td><td><input name='SendRetries' size='5' maxlength='3' value='"); data += settings.Get("SendRetries", "3"); data += F("'></td></tr>");
-      data += F("<tr><td><label>Optionen:</label></td><td>");
-      data += F("<input name='SendHumidity' type='checkbox' value='true' "); data += settings.Get("SendHumidity", "true") == "true" ? "checked" : ""; data += F("> Luftfeuchte&nbsp;&nbsp;");
-      data += F("<input name='SendBatteryBeep' type='checkbox' value='true' "); data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : ""; data += F("> Batterie-Warnung&nbsp;&nbsp;");
-      data += F("<input name='AsDataFull' type='checkbox' value='true' "); data += settings.Get("AsDataFull", "false") == "true" ? "checked" : ""; data += F("> Vollst. Daten&nbsp;&nbsp;");
-      data += F("<input name='ToggleLed' type='checkbox' value='true' "); data += settings.Get("ToggleLed", "true") == "true" ? "checked" : ""; data += F("> LED blinken</td></tr>");
-      data += F("</table></div>");
-      m_webserver.sendContent(data); data = "";
-
-      // Optionen
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#9881;&#65039; Optionen</h2><table><tr><td><label>Flags:</label></td><td>");
-      data += F("<input name='RadioLock' type='checkbox' value='true' ");
-      data += settings.Get("RadioLock", "false") == "true" ? "checked" : "";
-      data += F("> &#128274; Radio-Einstellungen vor FHEM sch&uuml;tzen&nbsp;");
-      data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
-      data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
-      data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
-      data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings.Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
-      data += F("<input name='PRD' type='checkbox' value='true' "); data += settings.Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
-      data += F("</td></tr></table></div>");
-      m_webserver.sendContent(data); data = "";
-
-      // MCP23008
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128268; MCP23008</h2><table><tr><td><label>IO-Ports:</label></td><td>");
-      for (byte nbr = 0; nbr < 8; nbr++) {
-        data += F("IO "); data += String(nbr); data += F(": ");
-        data += F("<select name='IO"); data += String(nbr); data += F("' style='width:130px'>");
-        String value = settings.Get("IO" + String(nbr), "Input");
-        data += GetOption("Input", value);        data += GetOption("Output", value);
-        data += GetOption("OLED Off", value);     data += GetOption("OLED On", value);
-        data += GetOption("OLED mode=s",    value); data += GetOption("OLED mode=t",    value);
-        data += GetOption("OLED mode=h",    value); data += GetOption("OLED mode=th",   value);
-        data += GetOption("OLED mode=thp",  value); data += GetOption("OLED mode=thps", value);
-        data += F("</select>&nbsp;");
-        if (nbr == 3) data += F("<br>");
-        m_webserver.sendContent(data); data = "";
-      }
-      data += F("</td></tr></table></div>");
-      m_webserver.sendContent(data); data = "";
-
-      // OLED
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128250; OLED-Display</h2><table>");
-      data += F("<tr><td><label>OLED Start:</label></td><td>");
-      data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings.Get("oledStart", "on"); data += F("'>");
-      data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings.Get("oledMode", ""); data += F("'>&nbsp;");
-      data += F("<input name='oled13' type='checkbox' value='true' "); data += settings.Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
-      data += F("</td></tr></table></div>");
-      m_webserver.sendContent(data); data = "";
-
-      // Weitere Einstellungen
-      data += F("<div class='card' style='margin-bottom:12px'>");
-      data += F("<h2>&#128196; Weitere Einstellungen</h2><table>");
-      data += F("<tr><td><label>KV-Interval:</label></td><td>");
-      data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings.Get("KVInterval", "10"); data += F("'>");
-      data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings.Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings.Get("otaServer", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings.Get("otaPort", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings.Get("otaURL", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
-      data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
-      data += F("</table>");
-      data += F("<br><input type='submit' value='Speichern und neu starten'></div></form>");
-      m_webserver.sendContent(data); data = "";
-      m_webserver.sendContent(GetBottom());
-      m_webserver.sendContent("");
+    // Datenraten-Maske
+    int mask = 0;
+    for (int b = 0; b < 5; b++) {
+      if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
     }
-  });
+    merged.Add(p + "ToggleMask", String(mask));
+
+    String fixedRate = "17.241";
+    for (int b = 0; b < 5; b++) {
+      if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
+    }
+    merged.Add(p + "DataRate", fixedRate);
+
+    int activeBits = __builtin_popcount(mask);
+    if (activeBits <= 1) {
+      merged.Add(p + "ToggleInterval", "0");
+    } else {
+      String iv = m_webserver.arg(p + "ToggleInterval");
+      if (iv.length() == 0 || iv == "0") iv = "30";
+      merged.Add(p + "ToggleInterval", iv);
+    }
+  }
+
+  String info = merged.Write();
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Radio-Einstellungen gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zurück</a></p></div>") + GetBottom());
+  // Kein Reboot nötig – Radios werden über FHEM neu initialisiert
+  // Optional: delay(1000); ESP.restart();
+});
+
+// ── /save_net ───────────────────────────────────────────────────────────
+m_webserver.on("/save_net", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  String hn = m_webserver.arg("HostName");
+  for (byte i = 0; i < hn.length(); i++) {
+    char ch = (char)hn[i];
+    if (!((ch>='0'&&ch<='9')||(ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch=='-'||ch=='_')) {
+      m_webserver.send(200, "text/html", GetTop() +
+        F("<div class='card'><h3 style='color:var(--err)'>&#10060; Hostname ungueltig</h3>"
+          "<p>Erlaubte Zeichen: 0-9, a-z, A-Z, - und _</p>"
+          "<p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+      return;
+    }
+  }
+  const char* keys[] = {"staticIP","staticMask","staticGW","HostName","StartupDelay"};
+  String info = SaveSelectedKeys(keys, 5, true);
+  m_webserver.send(200, "text/html", GetRedirectToRoot("Netzwerk gespeichert<br>" + info));
+  delay(1000); ESP.restart();
+});
+
+// ── /save_sensors ────────────────────────────────────────────────────────
+m_webserver.on("/save_sensors", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"ISID","ISIV","Altitude","CorrT","CorrH"};
+  String info = SaveSelectedKeys(keys, 5, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Sensoren gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_ports ──────────────────────────────────────────────────────────
+m_webserver.on("/save_ports", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"DataPort1","DataPort2","DataPort3",
+                         "SerialBridgePort","SerialBridgeBaud",
+                         "SerialBridge2Port","SerialBridge2Baud",
+                         "SSBridgePort","SSBridgeBaud","IsNextion","AddUnits"};
+  String info = SaveSelectedKeys(keys, 11, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Ports gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_rfm95 ──────────────────────────────────────────────────────────
+m_webserver.on("/save_rfm95", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"SF95","BW95"};
+  String info = SaveSelectedKeys(keys, 2, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; RFM95 gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_lgw ────────────────────────────────────────────────────────────
+m_webserver.on("/save_lgw", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"lgwMode","lgwChannel","lgwFreq","lgwPower","lgwDataRate",
+                         "lgwRssiThreshold","lgwEncryptKey","lgwWatchdog"};
+  String info = SaveSelectedKeys(keys, 8, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; LGW-Betrieb gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_send ───────────────────────────────────────────────────────────
+m_webserver.on("/save_send", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"SendMode","SendRetries","SendHumidity","SendBatteryBeep",
+                         "AsDataFull","ToggleLed"};
+  String info = SaveSelectedKeys(keys, 6, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Sende-Verhalten gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_options ─────────────────────────────────────────────────────────
+m_webserver.on("/save_options", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"UseWiFi","UseMDNS","SendAnalog","UAnalog1023","PRD"};
+  String info = SaveSelectedKeys(keys, 5, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Optionen gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_mcp ─────────────────────────────────────────────────────────────
+m_webserver.on("/save_mcp", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"IO0","IO1","IO2","IO3","IO4","IO5","IO6","IO7"};
+  String info = SaveSelectedKeys(keys, 8, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; MCP23008 gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_oled ────────────────────────────────────────────────────────────
+m_webserver.on("/save_oled", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"oledStart","oledMode","oled13"};
+  String info = SaveSelectedKeys(keys, 3, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; OLED gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /save_misc ────────────────────────────────────────────────────────────
+m_webserver.on("/save_misc", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"KVInterval","KVIdentity","otaServer","otaPort","otaURL",
+                         "PCA301Plugs","Flags"};
+  String info = SaveSelectedKeys(keys, 7, false);
+  m_webserver.send(200, "text/html", GetTop() +
+    F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Weitere Einstellungen gespeichert</h3><p>") +
+    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
+});
+
+// ── /setup ──────────────────────────────────────────────────────────────
+m_webserver.on("/setup", [this]() {
+  if (IsAuthentified()) {
+    Settings settings; settings.Read(m_logger);
+    m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    m_webserver.send(200, "text/html", "");
+    m_webserver.sendContent(GetTop() + GetNavigation());
+    String data;
+
+    // ── WLAN ──
+    data += F("<form method='post' action='/save_wlan'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
+    data += F("<table>");
+    data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
+    data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
+    data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
+    data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
+    data += settings.Get("ctPASS", "");
+    data += F("'>");
+    data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
+    data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
+    data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
+    data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
+    data += settings.Get("ctPASS2", "");
+    data += F("'>");
+    data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
+    data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='");
+    data += settings.Get("frontPass", "");
+    data += F("'>");
+    data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
+    data += settings.Get("frontPass2", "");
+    data += F("'>");
+    data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── MQTT ──
+    data += F("<form method='post' action='/save_mqtt'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128225; MQTT-Einstellungen</h2><table>");
+    data += F("<tr><td><label>IP-Adresse:</label></td><td>");
+    data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings.Get("serverIpMqtt", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings.Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Benutzername:</label></td><td>");
+    data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings.Get("mqttUser", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
+    data += settings.Get("mqttPass", "");
+    data += F("'>");
+    data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
+    data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
+    data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", ""); data += F("'>");
+    data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings.Get("ext1", "0"); data += F("'>");
+    data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings.Get("ext2", "0"); data += F("'>");
+    data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data += F("'></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; MQTT speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Netzwerk (statisch) ──
+    data += F("<form method='post' action='/save_net'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
+    data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
+    data += F("<tr><td><label>IP-Adresse:</label></td><td>");
+    data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Hostname:</label></td><td>");
+    data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
+    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; Netzwerk speichern &amp; neu starten'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Interne Sensoren ──
+    data += F("<form method='post' action='/save_sensors'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#127909; Interne Sensoren</h2><table>");
+    data += F("<tr><td><label>Sensoren:</label></td><td>");
+    data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings.Get("ISID", "0"); data += F("'>");
+    data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings.Get("ISIV", "10"); data += F("'>");
+    data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings.Get("Altitude", "0"); data += F("'>");
+    data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings.Get("CorrT", "0"); data += F("'>");
+    data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings.Get("CorrH", "0"); data += F("'></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; Sensoren speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Ports & Serial Bridges ──
+    data += F("<form method='post' action='/save_ports'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128268; Ports &amp; Serial Bridges</h2><table>");
+    data += F("<tr><td><label>Daten-Ports:</label></td><td>");
+    data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings.Get("DataPort1", "81"); data += F("'>&nbsp;");
+    data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings.Get("DataPort2", ""); data += F("'>&nbsp;");
+    data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings.Get("DataPort3", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Serial Bridge 1:</label></td><td>");
+    data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SerialBridgePort", ""); data += F("'>");
+    data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Serial Bridge 2:</label></td><td>");
+    data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings.Get("SerialBridge2Port", ""); data += F("'>");
+    data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Soft Serial Bridge:</label></td><td>");
+    data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SSBridgePort", ""); data += F("'>");
+    data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
+    data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings.Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion&nbsp;");
+    data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings.Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten");
+    data += F("</td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; Ports speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── RFM95 ──
+    data += F("<form method='post' action='/save_rfm95'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128225; RFM95</h2><table><tr><td><label>RFM95:</label></td><td>");
+    data += F("SF: <select name='SF95' style='width:70px'>");
+    String sfValue = settings.Get("SF95", "SF7");
+    data += GetOption("SF6",  sfValue); data += GetOption("SF7",  sfValue); data += GetOption("SF8",  sfValue);
+    data += GetOption("SF9",  sfValue); data += GetOption("SF10", sfValue); data += GetOption("SF11", sfValue);
+    data += GetOption("SF12", sfValue);
+    data += F("</select>&nbsp;BW: <select name='BW95' style='width:70px'>");
+    String bwValue = settings.Get("BW95", "125");
+    data += GetOption("7.8",   bwValue); data += GetOption("10.4",  bwValue); data += GetOption("15.6",  bwValue);
+    data += GetOption("20.8",  bwValue); data += GetOption("31.25", bwValue); data += GetOption("41.7",  bwValue);
+    data += GetOption("62.6",  bwValue); data += GetOption("125",   bwValue); data += GetOption("250",   bwValue);
+    data += GetOption("500",   bwValue);
+    data += F("</select></td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; RFM95 speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Radio #1 ... #5 ──
+    data += F("<form method='post' action='/save_radios'>");
+    m_webserver.sendContent(data); data = "";
+    for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+      data += BuildRadioCard(settings, radioNbr);
+      m_webserver.sendContent(data); data = "";
+    }
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128274; Radio-Schutz</h2><table><tr><td>");
+    data += F("<input name='RadioLock' type='checkbox' value='true' ");
+    data += settings.GetBool("RadioLock") ? "checked" : "";
+    data += F("> RadioLock (FHEM darf Radio-Einstellungen nicht überschreiben)</td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; Radios speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── LGW-Betrieb ──
+    data += F("<form method='post' action='/save_lgw'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
+    data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p><table>");
+    data += F("<tr><td><label>Modus:</label></td><td><select name='lgwMode'>");
+    String lgwMode = settings.Get("lgwMode", "0");
+    data += GetOption("0", lgwMode); data += GetOption("1", lgwMode); data += GetOption("2", lgwMode);
+    data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
+    data += F("<tr><td><label>Kanal:</label></td><td><input name='lgwChannel' size='5' maxlength='3' value='"); data += settings.Get("lgwChannel", "0"); data += F("'></td></tr>");
+    data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td><input name='lgwFreq' size='12' maxlength='10' value='"); data += settings.Get("lgwFreq", "868300"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td><select name='lgwPower'>");
+    String lgwPwr = settings.Get("lgwPower", "10");
+    for (int p = 0; p <= 20; p += 2) data += GetOption(String(p), lgwPwr);
+    data += F("</select></td></tr>");
+    data += F("<tr><td><label>Datenrate (Baud):</label></td><td><select name='lgwDataRate'>");
+    String lgwDR = settings.Get("lgwDataRate", "17241");
+    data += GetOption("4800",  lgwDR); data += GetOption("9600",  lgwDR); data += GetOption("17241", lgwDR);
+    data += GetOption("19200", lgwDR); data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
+    data += F("</select></td></tr>");
+    data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td><input name='lgwRssiThreshold' size='7' maxlength='5' value='"); data += settings.Get("lgwRssiThreshold", "-200"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td><input name='lgwEncryptKey' size='40' maxlength='32' value='"); data += settings.Get("lgwEncryptKey", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td><input name='lgwWatchdog' size='7' maxlength='5' value='"); data += settings.Get("lgwWatchdog", "0"); data += F("'></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; LGW speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Sende-Verhalten ──
+    data += F("<form method='post' action='/save_send'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128228; Sende-Verhalten</h2><table>");
+    data += F("<tr><td><label>SendMode:</label></td><td><select name='SendMode'>");
+    String sendMode = settings.Get("SendMode", "0");
+    data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
+    data += F("</select></td></tr>");
+    data += F("<tr><td><label>SendRetries:</label></td><td><input name='SendRetries' size='5' maxlength='3' value='"); data += settings.Get("SendRetries", "3"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Optionen:</label></td><td>");
+    data += F("<input name='SendHumidity' type='checkbox' value='true' "); data += settings.Get("SendHumidity", "true") == "true" ? "checked" : ""; data += F("> Luftfeuchte&nbsp;&nbsp;");
+    data += F("<input name='SendBatteryBeep' type='checkbox' value='true' "); data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : ""; data += F("> Batterie-Warnung&nbsp;&nbsp;");
+    data += F("<input name='AsDataFull' type='checkbox' value='true' "); data += settings.Get("AsDataFull", "false") == "true" ? "checked" : ""; data += F("> Vollst. Daten&nbsp;&nbsp;");
+    data += F("<input name='ToggleLed' type='checkbox' value='true' "); data += settings.Get("ToggleLed", "true") == "true" ? "checked" : ""; data += F("> LED blinken</td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; Sende-Verhalten speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Optionen ──
+    data += F("<form method='post' action='/save_options'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#9881;&#65039; Optionen</h2><table><tr><td><label>Flags:</label></td><td>");
+    data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
+    data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
+    data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
+    data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings.Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
+    data += F("<input name='PRD' type='checkbox' value='true' "); data += settings.Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
+    data += F("</td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; Optionen speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── MCP23008 ──
+    data += F("<form method='post' action='/save_mcp'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128268; MCP23008</h2><table><tr><td><label>IO-Ports:</label></td><td>");
+    for (byte nbr = 0; nbr < 8; nbr++) {
+      data += F("IO "); data += String(nbr); data += F(": ");
+      data += F("<select name='IO"); data += String(nbr); data += F("' style='width:130px'>");
+      String value = settings.Get("IO" + String(nbr), "Input");
+      data += GetOption("Input", value);        data += GetOption("Output", value);
+      data += GetOption("OLED Off", value);     data += GetOption("OLED On", value);
+      data += GetOption("OLED mode=s",    value); data += GetOption("OLED mode=t",    value);
+      data += GetOption("OLED mode=h",    value); data += GetOption("OLED mode=th",   value);
+      data += GetOption("OLED mode=thp",  value); data += GetOption("OLED mode=thps", value);
+      data += F("</select>&nbsp;");
+      if (nbr == 3) data += F("<br>");
+      m_webserver.sendContent(data); data = "";
+    }
+    data += F("</td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; MCP23008 speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── OLED ──
+    data += F("<form method='post' action='/save_oled'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128250; OLED-Display</h2><table>");
+    data += F("<tr><td><label>OLED Start:</label></td><td>");
+    data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings.Get("oledStart", "on"); data += F("'>");
+    data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings.Get("oledMode", ""); data += F("'>&nbsp;");
+    data += F("<input name='oled13' type='checkbox' value='true' "); data += settings.Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
+    data += F("</td></tr></table>");
+    data += F("<br><input type='submit' value='&#128190; OLED speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // ── Weitere Einstellungen ──
+    data += F("<form method='post' action='/save_misc'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128196; Weitere Einstellungen</h2><table>");
+    data += F("<tr><td><label>KV-Interval:</label></td><td>");
+    data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings.Get("KVInterval", "10"); data += F("'>");
+    data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings.Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings.Get("otaServer", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings.Get("otaPort", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings.Get("otaURL", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; Weitere Einstellungen speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    m_webserver.sendContent(GetBottom());
+    m_webserver.sendContent("");
+  }
+});
 
   m_webserver.on("/getLogData", [this]() {
     String data = "";
