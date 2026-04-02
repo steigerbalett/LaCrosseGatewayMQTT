@@ -681,19 +681,20 @@ void LoadRadioSettings(Settings &settings) {
 void HandleCommandString(String command) {
   String upperCommand = command;
   upperCommand.toUpperCase();
-  if (upperCommand.startsWith("OLED ") && display.IsConnected()){
+
+  if (upperCommand.startsWith("OLED ") && display.IsConnected()) {
     display.Command(command.substring(5));
   }
-  else if (upperCommand.startsWith("MCP ") && digitalPorts.IsConnected()){
+  else if (upperCommand.startsWith("MCP ") && digitalPorts.IsConnected()) {
     digitalPorts.Command(command.substring(4));
   }
-  else if (upperCommand.startsWith("SETUP ")){
+  else if (upperCommand.startsWith("SETUP ")) {
     Settings settings;
     settings.Read(&logger);
 
     bool radioLock = settings.GetBool("RadioLock", false);
-    String savedRadio[5][5]; // [radioNbr][keyIndex]
-    const char* radioKeys[] = {"Type","Freq","DataRate","ToggleMask","ToggleInterval"};
+    String savedRadio[5][5];
+    const char* radioKeys[] = {"Type", "Freq", "DataRate", "ToggleMask", "ToggleInterval"};
     if (radioLock) {
       for (byte i = 0; i < 5; i++) {
         String p = "Radio" + String(i + 1);
@@ -705,7 +706,6 @@ void HandleCommandString(String command) {
 
     settings.FromString(command.substring(6));
 
-    // Radio-Werte zurückschreiben, falls Lock aktiv
     if (radioLock) {
       for (byte i = 0; i < 5; i++) {
         String p = "Radio" + String(i + 1);
@@ -718,7 +718,6 @@ void HandleCommandString(String command) {
     }
 
     settings.Write();
-}
   }
   else if (upperCommand.startsWith("WATCHDOG ")) {
     watchdog.Command(command.substring(9));
