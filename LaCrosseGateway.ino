@@ -1430,7 +1430,7 @@ static bool StartWifi(Settings settings) {
       esp.SwitchLed(true, true);
 
       logger.println("AP gestartet - verbinde dich mit dem WLAN 'LaCrosseGateway_XXXXXX'");
-      logger.println("Oeffne dann http://192.168.4.1/setup im Browser");
+      logger.println("Oeffne dann http://" + AP_IP.toString() + "/setup im Browser");
 
       frontend.SetPassword(settings.Get("frontPass", ""));
       frontend.SetCommandCallback([](String command) { CommandHandler(command); });
@@ -1448,7 +1448,7 @@ static bool StartWifi(Settings settings) {
 
       if (display.IsConnected()) {
         display.Print("FIRST SETUP", DisplayArea_Line1, OLED::Alignments::Center);
-        display.Print("192.168.222.1", DisplayArea_Line2, OLED::Alignments::Center);
+        display.Print(AP_IP.toString(), DisplayArea_Line2, OLED::Alignments::Center);
       }
 
       USE_WIFI = 1;
@@ -1458,11 +1458,10 @@ static bool StartWifi(Settings settings) {
   // ── Ende Erst-Setup ────────────────────────────────────────────────────
 
   logger.println("Start WIFI_STA");
-  WiFi.disconnect(true);
-  WiFi.persistent(false); //Avoid to store Wifi configuration in Flash
+  WiFi.persistent(false); // Avoid storing WiFi config in Flash
   WiFi.mode(WiFiMode::WIFI_OFF);
   WiFi.mode(WiFiMode::WIFI_STA);
-  WiFi.disconnect(true); // delete old config
+  WiFi.disconnect(false); // Trennen ohne Credentials zu loeschen
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   logger.print("HostName is: ");
@@ -1563,6 +1562,7 @@ static bool StartWifi(Settings settings) {
     );
   });
 
+  frontend.Begin(&stateManager, &logger); // Routen registrieren + Webserver starten
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
 
