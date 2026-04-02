@@ -500,14 +500,28 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   Settings merged;
   merged.FromString(existing.ToString().substring(6));
 
-  for (byte i = 0; i < count; i++) {
-    String key = String(keys[i]);
-    if (m_webserver.hasArg(key)) {
-      merged.Add(key, m_webserver.arg(key));
-    } else {
-      if (key == "UseWiFi" || key == "RadioLock" || 
-          key == "SendHumidity" || key == "SendBatteryBeep" || key == "UseMDNS") {
-        merged.Add(key, "false");
+        static const char* checkboxKeys[] = {
+          "UseWiFi", "RadioLock", "SendHumidity", "SendBatteryBeep", "UseMDNS",
+          "SendAnalog", "AsDataFull", "ToggleLed", "PRD",
+          "IsNextion", "AddUnits", "oled13"
+        };
+        static const byte checkboxCount = sizeof(checkboxKeys) / sizeof(checkboxKeys[0]);
+
+        for (byte i = 0; i < count; i++) {
+        String key = String(keys[i]);
+        if (m_webserver.hasArg(key)) {
+          merged.Add(key, m_webserver.arg(key));
+        } else {
+          bool isCheckbox = (key == "UseWiFi"   || key == "RadioLock"      ||
+                             key == "SendHumidity" || key == "SendBatteryBeep" ||
+                             key == "UseMDNS"   || key == "SendAnalog"     ||
+                             key == "PRD"       || key == "IsNextion"      ||
+                             key == "AddUnits"  || key == "AsDataFull"     ||
+                             key == "ToggleLed" || key == "oled13");
+          if (isCheckbox) {
+            merged.Add(key, "false");
+          }
+        }
       }
     }
   }
@@ -899,7 +913,8 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
 
     // Typ – was auch immer das Formular schickt (inkl. "---")
     String typeVal = m_webserver.arg(p + "Type");
-    merged.Add(p + "Type", typeVal);  // leer oder "---" → wird gespeichert
+    if (typeVal.length() == 0) typeVal = "---";
+    merged.Add(p + "Type", typeVal);
 
     // Freq
     String freqVal = m_webserver.arg(p + "Freq");
@@ -909,6 +924,10 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
     int mask = 0;
     for (int b = 0; b < 5; b++) {
       if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
+    }
+
+    if (mask == 0) {
+      mask = existing.GetInt(p + "ToggleMask", radioNbr == 1 ? 1 : 0);
     }
     merged.Add(p + "ToggleMask", String(mask));
 

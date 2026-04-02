@@ -2,8 +2,10 @@ name: Build & Release (ESP8266)
 
 on:
   push:
+    branches:
+      - dev                    # Dev-Commits → Draft-Release
     tags:
-      - 'v*.*.*'
+      - 'v*.*.*'               # Tags NUR wenn auf main gepusht (Schutz via Job-Condition)
   workflow_dispatch:
 
 permissions:
@@ -61,7 +63,7 @@ jobs:
           else
             echo "Skipping push: triggered by tag, not a branch"
           fi
-          
+
   build:
     name: Build ESP8266 Firmware
     needs: update-version
@@ -88,9 +90,7 @@ jobs:
 
       - name: Patch deprecated code for ESP8266 framework 4.x
         run: |
-          # Fix 1: espconn.h Include entfernen
           sed -i '/#include.*espconn\.h/d' LaCrosseGateway.ino
-
           sed -i '/espconn_tcp_set_max_con/d' LaCrosseGateway.ino
 
           for f in AddOnSerialBase.cpp Nextion.cpp; do
@@ -103,7 +103,6 @@ jobs:
           done
 
           sed -i 's/ICACHE_RAM_ATTR/IRAM_ATTR/g' ESP8266SoftSerial.cpp
-
           sed -i 's/m_server\.available()/m_server.accept()/g' DataPort.cpp
 
           echo "=== Verifikation ==="
@@ -111,7 +110,6 @@ jobs:
             --include="*.ino" --include="*.cpp" --include="*.h" \
             && echo "⚠️ Noch veralteter Code vorhanden!" \
             || echo "✅ Alle Patches erfolgreich"
-
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -155,11 +153,106 @@ jobs:
           path: ${{ matrix.artifact }}
           retention-days: 7
 
-  release:
-    name: Create GitHub Release
+  # ──────────────────────────────────────────────────────────────────────────
+  # Draft-Release bei jedem dev-Commit
+  # ──────────────────────────────────────────────────────────────────────────
+  release-dev:
+    name: Create Draft Release (dev)
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Nur bei Commits auf dev (nicht bei Tags, nicht bei main)
+    if: github.ref == 'refs/heads/dev'
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version lesen
+        id: ver
+        run: |
+          VERSION=$(cat version.txt | tr -d '[:space:]')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "tag_name=dev-${VERSION}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets/
+
+      - name: Commit-Log seit letztem Tag/Release
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -n1)
+          if [ -z "$PREV_TAG" ]; then
+            LOG=$(git log --pretty=format:"- %s (%h)" | head -20)
+          else
+            LOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)")
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Altes dev-Draft-Release löschen (falls vorhanden)
+        run: |
+          # Alle Draft-Releases mit "dev-" im Namen löschen
+          RELEASE_IDS=$(gh release list --limit 50 --json tagName,isDraft \
+            | jq -r '.[] | select(.isDraft==true and (.tagName | startswith("dev-"))) | .tagName')
+          for TAG in $RELEASE_IDS; do
+            echo "Lösche altes Draft-Release: $TAG"
+            gh release delete "$TAG" --yes --cleanup-tag || true
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag_name }}
+          name: "🚧 Dev Build ${{ steps.ver.outputs.version }} (${{ steps.ver.outputs.short_sha }})"
+          body: |
+            ## 🚧 Entwicklungs-Build (Draft)
+
+            > **Achtung:** Dies ist ein automatischer Build vom `dev`-Branch.
+            > Nicht für den Produktiveinsatz empfohlen.
+
+            **Commit:** `${{ github.sha }}`
+            **Branch:** `dev`
+            **Version:** `${{ steps.ver.outputs.version }}`
+
+            ### 📦 Binaries (ESP8266)
+            | Datei | Board |
+            |---|---|
+            | `LaCrosseGatewayMQTT_NodeMCUv2.bin` | NodeMCU v2 (ESP-12E) |
+            | `LaCrosseGatewayMQTT_D1-Mini.bin` | Wemos D1 Mini |
+            | `LaCrosseGatewayMQTT_ESP8266-generic.bin` | ESP-12E/F generisch |
+
+            ### 📝 Änderungen seit letztem Release
+            ${{ steps.changelog.outputs.CHANGELOG }}
+          files: release-assets/*.bin
+          draft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Finales Release nur bei Tags AUF main
+  # ──────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release (main tag)
+    needs: build
+    runs-on: ubuntu-latest
+    # Tag-Push UND der Commit, auf den der Tag zeigt, muss auf main liegen
+    if: startsWith(github.ref, 'refs/tags/v') && github.event.base_ref == 'refs/heads/main'
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -182,7 +275,9 @@ jobs:
         id: changelog
         run: |
           PREV_TAG=$(git tag --sort=-version:refname \
-            | grep -v "^${{ github.ref_name }}$" | head -n1)
+            | grep -v "^${{ github.ref_name }}$" \
+            | grep -v "^dev-" \
+            | head -n1)
           if [ -z "$PREV_TAG" ]; then
             LOG=$(git log --pretty=format:"- %s (%h)" | head -30)
           else
@@ -222,7 +317,7 @@ jobs:
             esptool.py --chip esp8266 --baud 921600 \
               write_flash 0x0 LaCrosseGatewayMQTT_NodeMCUv2.bin
             ```
-            
+
             ### 📝 Änderungen
             ${{ steps.changelog.outputs.CHANGELOG }}
           files: release-assets/*.bin
