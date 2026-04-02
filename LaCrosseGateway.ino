@@ -690,8 +690,35 @@ void HandleCommandString(String command) {
   else if (upperCommand.startsWith("SETUP ")){
     Settings settings;
     settings.Read(&logger);
+
+    bool radioLock = settings.GetBool("RadioLock", false);
+    String savedRadio[5][5]; // [radioNbr][keyIndex]
+    const char* radioKeys[] = {"Type","Freq","DataRate","ToggleMask","ToggleInterval"};
+    if (radioLock) {
+      for (byte i = 0; i < 5; i++) {
+        String p = "Radio" + String(i + 1);
+        for (byte k = 0; k < 5; k++) {
+          savedRadio[i][k] = settings.Get(p + radioKeys[k], "");
+        }
+      }
+    }
+
     settings.FromString(command.substring(6));
+
+    // Radio-Werte zurückschreiben, falls Lock aktiv
+    if (radioLock) {
+      for (byte i = 0; i < 5; i++) {
+        String p = "Radio" + String(i + 1);
+        for (byte k = 0; k < 5; k++) {
+          if (savedRadio[i][k].length() > 0) {
+            settings.Add(p + radioKeys[k], savedRadio[i][k]);
+          }
+        }
+      }
+    }
+
     settings.Write();
+}
   }
   else if (upperCommand.startsWith("WATCHDOG ")) {
     watchdog.Command(command.substring(9));

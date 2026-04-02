@@ -626,14 +626,14 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 m_webserver.on("/save", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
 
-  // NEU: Bestehende Werte laden – Passwörter ohne Eingabe werden beibehalten
   Settings existing;
   existing.Read(m_logger);
 
   Settings settings;
-  bool gotUseWiFi = false;
+  bool gotUseWiFi   = false;
+  bool gotRadioLock = false;
 
-  // SCHRITT 1: Radio-Masken berechnen (unverändert)
+  // SCHRITT 1: Radio-Masken, DataRate, ToggleInterval
   const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
   for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
     String p = "Radio" + String(radioNbr);
@@ -657,41 +657,58 @@ m_webserver.on("/save", HTTP_POST, [this]() {
     }
   }
 
-  // NEU SCHRITT 2: Passwort-Felder gesondert mit Fallback auf existierende Werte
-  // Regel: Leeres Feld im Formular → alten gespeicherten Wert beibehalten
-  const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass","frontPass2"};
-  for (byte pk = 0; pk < 5; pk++) {
+  // SCHRITT 1b: RadioNType + RadioNFreq mit Fallback auf existing
+  for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+    String p = "Radio" + String(radioNbr);
+    String typeVal = m_webserver.arg(p + "Type");
+    if (typeVal.length() == 0) typeVal = existing.Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
+    settings.Add(p + "Type", typeVal);
+    String freqVal = m_webserver.arg(p + "Freq");
+    if (freqVal.length() == 0) freqVal = existing.Get(p + "Freq", radioNbr == 1 ? "868310" : "868300");
+    settings.Add(p + "Freq", freqVal);
+  }
+
+  // SCHRITT 2: Passwörter mit Fallback
+  const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass"};
+  for (byte pk = 0; pk < 4; pk++) {
     String val = m_webserver.arg(pwKeys[pk]);
     settings.Add(pwKeys[pk], val.length() > 0 ? val : existing.Get(pwKeys[pk], ""));
   }
 
-  // SCHRITT 3: Alle anderen Form-Args – Passwort- und Radio-Keys überspringen
+  // SCHRITT 3: Alle anderen Form-Args
   for (byte i = 0; i < m_webserver.args(); i++) {
     String argName = m_webserver.argName(i);
     bool skip = false;
 
-    // Passwort-Keys überspringen (bereits in Schritt 2 gesetzt)
-    for (byte pk = 0; pk < 5 && !skip; pk++) {
+    // Passwort-Keys überspringen
+    for (byte pk = 0; pk < 4 && !skip; pk++) {
       if (argName == pwKeys[pk]) skip = true;
     }
-    // Radio-Keys überspringen (bereits in Schritt 1 gesetzt)
+    if (argName == "frontPass2") skip = true;
+
+    // Radio-Keys überspringen
     for (byte rn = 1; rn <= 5 && !skip; rn++) {
       String p = "Radio" + String(rn);
       if (argName == p + "ToggleMask" ||
           argName == p + "DataRate"   ||
-          argName == p + "ToggleInterval") { skip = true; }
+          argName == p + "ToggleInterval" ||
+          argName == p + "Type"       ||
+          argName == p + "Freq") { skip = true; }
       for (int b = 0; b < 5 && !skip; b++) {
         if (argName == p + "Rate" + String(b)) skip = true;
       }
     }
+
     if (!skip) {
       settings.Add(argName, m_webserver.arg(i));
-      if (argName == "UseWiFi") gotUseWiFi = true;
+      if (argName == "UseWiFi")   gotUseWiFi   = true;
+      if (argName == "RadioLock") gotRadioLock = true;
     }
   }
-  if (!gotUseWiFi) settings.Add("UseWiFi", "false");
+  if (!gotUseWiFi)   settings.Add("UseWiFi",   "false");
+  if (!gotRadioLock) settings.Add("RadioLock", "false");
 
-  // Validierung: Frontend-Passwort nur prüfen wenn neu eingegeben
+  // Validierung: frontPass2 aus HTTP-Request (nicht EEPROM)
   bool saveIt = true;
   String frontPass  = m_webserver.arg("frontPass");
   String frontPass2 = m_webserver.arg("frontPass2");
@@ -761,7 +778,6 @@ m_webserver.on("/save", HTTP_POST, [this]() {
       data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
       data += settings.Get("frontPass2", "");
       data += F("'>");
-      data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='"); data += settings.Get("frontPass2", ""); data += F("'>");
       data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
       data += F("</table></div>");
       m_webserver.sendContent(data); data = "";
@@ -900,6 +916,9 @@ m_webserver.on("/save", HTTP_POST, [this]() {
       // Optionen
       data += F("<div class='card' style='margin-bottom:12px'>");
       data += F("<h2>&#9881;&#65039; Optionen</h2><table><tr><td><label>Flags:</label></td><td>");
+      data += F("<input name='RadioLock' type='checkbox' value='true' ");
+      data += settings.Get("RadioLock", "false") == "true" ? "checked" : "";
+      data += F("> &#128274; Radio-Einstellungen vor FHEM sch&uuml;tzen&nbsp;");
       data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
       data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
       data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
