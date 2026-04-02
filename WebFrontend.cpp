@@ -528,9 +528,34 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     String(m_stateManager->GetWiFiConnectTime(), 1) + "&nbsp;s"
   ));
 
-  // Zeile 3..N: Callback-Daten (FIX: kein rawData.replace() mehr)
+  // Zeile 3..N: Callback-Daten
   if (m_hardwareCallback != nullptr) {
-  m_webserver.sendContent(m_hardwareCallback());
+  String cbData = m_hardwareCallback();
+  int start = 0;
+  while (start < (int)cbData.length()) {
+    int nl = cbData.indexOf('\n', start);
+    if (nl < 0) nl = cbData.length();
+    String line = cbData.substring(start, nl);
+    line.trim();
+    if (line.length() > 0) {
+      String col1 = "", col2 = "", col3 = "";
+      int t1 = line.indexOf('\t');
+      if (t1 < 0) {
+        col1 = line;
+      } else {
+        col1 = line.substring(0, t1);
+        int t2 = line.indexOf('\t', t1 + 1);
+        if (t2 < 0) {
+          col2 = line.substring(t1 + 1);
+        } else {
+          col2 = line.substring(t1 + 1, t2);
+          col3 = line.substring(t2 + 1);
+        }
+      }
+      m_webserver.sendContent(BuildHardwareRow(col1, col2, col3));
+    }
+    start = nl + 1;
+  }
 }
 
   m_webserver.sendContent(F("</tbody></table></div>"));
@@ -754,10 +779,13 @@ m_webserver.on("/save", HTTP_POST, [this]() {
       m_webserver.sendContent(GetTop() + GetNavigation());
       String data;
 
+      data += F("<form method='post' action='save'>");
+      m_webserver.sendContent(data); data = "";
+
       // WLAN
       data += F("<div class='card' style='margin-bottom:12px'>");
       data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
-      data += F("<form method='post' action='save'><table>");
+      data += F("<table>");
       data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
       data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
       data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
@@ -968,7 +996,7 @@ m_webserver.on("/save", HTTP_POST, [this]() {
       data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
       data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
       data += F("</table>");
-      data += F("<br><input type='submit' value='Speichern und neu starten'></form></div>");
+      data += F("<br><input type='submit' value='Speichern und neu starten'></div></form>");
       m_webserver.sendContent(data); data = "";
       m_webserver.sendContent(GetBottom());
       m_webserver.sendContent("");
