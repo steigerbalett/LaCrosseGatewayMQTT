@@ -530,30 +530,8 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 
   // Zeile 3..N: Callback-Daten (FIX: kein rawData.replace() mehr)
   if (m_hardwareCallback != nullptr) {
-    String rawData = m_hardwareCallback();
-    // rawData Format erwartet: "Label,Info,Details|Label2,Info2,Details2|..."
-    // Zeilen sind durch '|' getrennt, Spalten durch ','
-    int start = 0;
-    while (start < (int)rawData.length()) {
-      int pipePos = rawData.indexOf('|', start);
-      String row = (pipePos < 0)
-                   ? rawData.substring(start)
-                   : rawData.substring(start, pipePos);
-
-      int c1 = row.indexOf(',');
-      int c2 = (c1 >= 0) ? row.indexOf(',', c1 + 1) : -1;
-
-      String col1 = (c1 >= 0) ? row.substring(0, c1) : row;
-      String col2 = (c1 >= 0 && c2 >= 0) ? row.substring(c1 + 1, c2) : 
-                    (c1 >= 0) ? row.substring(c1 + 1) : "";
-      String col3 = (c2 >= 0) ? row.substring(c2 + 1) : "";
-
-      m_webserver.sendContent(BuildHardwareRow(col1, col2, col3));
-
-      if (pipePos < 0) break;
-      start = pipePos + 1;
-    }
-  }
+  m_webserver.sendContent(m_hardwareCallback());
+}
 
   m_webserver.sendContent(F("</tbody></table></div>"));
   m_webserver.sendContent(GetBottom());
@@ -644,138 +622,111 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     if (IsAuthentified()) m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
   });
 
-    // ── /save ───────────────────────────────────────────────────────────────
-  m_webserver.on("/save", HTTP_POST, [this]() {
-    if (!IsAuthentified()) return;
+// ── /save ───────────────────────────────────────────────────────────────
+m_webserver.on("/save", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
 
-    // Schritt 0: Bestehende Settings laden für Passwort-Fallback
-    Settings existing;
-    existing.Read(m_logger);
+  // NEU: Bestehende Werte laden – Passwörter ohne Eingabe werden beibehalten
+  Settings existing;
+  existing.Read(m_logger);
 
-    Settings settings;
-    bool gotUseWiFi = false;
+  Settings settings;
+  bool gotUseWiFi = false;
 
-    // Schritt 1: Radio-Masken berechnen
-    const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
-    for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
-      String p = "Radio" + String(radioNbr);
-
-      int mask = 0;
-      for (int b = 0; b < 5; b++) {
-        if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
-      }
-      settings.Add(p + "ToggleMask", String(mask));
-
-      String fixedRate = "17.241";
-      for (int b = 0; b < 5; b++) {
-        if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
-      }
-      settings.Add(p + "DataRate", fixedRate);
-
-      int activeBits = __builtin_popcount(mask);
-      if (activeBits <= 1) {
-        settings.Add(p + "ToggleInterval", "0");
-      } else {
-        String iv = m_webserver.arg(p + "ToggleInterval");
-        if (iv.length() == 0 || iv == "0") iv = "30";
-        settings.Add(p + "ToggleInterval", iv);
-      }
+  // SCHRITT 1: Radio-Masken berechnen (unverändert)
+  const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
+  for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
+    String p = "Radio" + String(radioNbr);
+    int mask = 0;
+    for (int b = 0; b < 5; b++) {
+      if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
     }
-
-    // Schritt 2: Passwort-Felder gesondert behandeln
-    // Sicherheitsregel: Leeres Feld = bestehenden Wert beibehalten.
-    // Nur wenn der Benutzer explizit etwas einträgt, wird das Passwort aktualisiert.
-
-    String ctPASS     = m_webserver.arg("ctPASS");
-    String ctPASS2    = m_webserver.arg("ctPASS2");
-    String mqttPass   = m_webserver.arg("mqttPass");
-    String frontPass  = m_webserver.arg("frontPass");
-    String frontPass2 = m_webserver.arg("frontPass2");
-
-    settings.Add("ctPASS",   ctPASS.length()   > 0 ? ctPASS   : existing.Get("ctPASS",   ""));
-    settings.Add("ctPASS2",  ctPASS2.length()  > 0 ? ctPASS2  : existing.Get("ctPASS2",  ""));
-    settings.Add("mqttPass", mqttPass.length() > 0 ? mqttPass : existing.Get("mqttPass", ""));
-
-    if (frontPass.length() > 0) {
-      // Neues Frontend-Passwort: beide Felder befüllt → Validierung folgt unten
-      settings.Add("frontPass",  frontPass);
-      settings.Add("frontPass2", frontPass2);
+    settings.Add(p + "ToggleMask", String(mask));
+    String fixedRate = "17.241";
+    for (int b = 0; b < 5; b++) {
+      if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
+    }
+    settings.Add(p + "DataRate", fixedRate);
+    int activeBits = __builtin_popcount(mask);
+    if (activeBits <= 1) {
+      settings.Add(p + "ToggleInterval", "0");
     } else {
-      // Leer gelassen: altes Passwort unverändert übernehmen
-      settings.Add("frontPass",  existing.Get("frontPass",  ""));
-      settings.Add("frontPass2", existing.Get("frontPass2", ""));
+      String iv = m_webserver.arg(p + "ToggleInterval");
+      if (iv.length() == 0 || iv == "0") iv = "30";
+      settings.Add(p + "ToggleInterval", iv);
     }
+  }
 
-    // Schritt 3: Alle anderen Form-Args hinzufügen
-    // (Passwort-Keys & Radio-Keys überspringen, da bereits verarbeitet)
-    const char* passwordKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass","frontPass2"};
-    const byte  nPasswordKeys  = 5;
+  // NEU SCHRITT 2: Passwort-Felder gesondert mit Fallback auf existierende Werte
+  // Regel: Leeres Feld im Formular → alten gespeicherten Wert beibehalten
+  const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass","frontPass2"};
+  for (byte pk = 0; pk < 5; pk++) {
+    String val = m_webserver.arg(pwKeys[pk]);
+    settings.Add(pwKeys[pk], val.length() > 0 ? val : existing.Get(pwKeys[pk], ""));
+  }
 
-    for (byte i = 0; i < m_webserver.args(); i++) {
-      String argName = m_webserver.argName(i);
-      bool skip = false;
+  // SCHRITT 3: Alle anderen Form-Args – Passwort- und Radio-Keys überspringen
+  for (byte i = 0; i < m_webserver.args(); i++) {
+    String argName = m_webserver.argName(i);
+    bool skip = false;
 
-      // Passwort-Keys überspringen
-      for (byte pk = 0; pk < nPasswordKeys && !skip; pk++) {
-        if (argName == passwordKeys[pk]) skip = true;
-      }
-      // Radio-Keys überspringen
-      for (byte rn = 1; rn <= 5 && !skip; rn++) {
-        String p = "Radio" + String(rn);
-        if (argName == p + "ToggleMask"    ||
-            argName == p + "DataRate"      ||
-            argName == p + "ToggleInterval") {
-          skip = true;
-        }
-        for (int b = 0; b < 5 && !skip; b++) {
-          if (argName == p + "Rate" + String(b)) skip = true;
-        }
-      }
-
-      if (!skip) {
-        settings.Add(argName, m_webserver.arg(i));
-        if (argName == "UseWiFi") gotUseWiFi = true;
+    // Passwort-Keys überspringen (bereits in Schritt 2 gesetzt)
+    for (byte pk = 0; pk < 5 && !skip; pk++) {
+      if (argName == pwKeys[pk]) skip = true;
+    }
+    // Radio-Keys überspringen (bereits in Schritt 1 gesetzt)
+    for (byte rn = 1; rn <= 5 && !skip; rn++) {
+      String p = "Radio" + String(rn);
+      if (argName == p + "ToggleMask" ||
+          argName == p + "DataRate"   ||
+          argName == p + "ToggleInterval") { skip = true; }
+      for (int b = 0; b < 5 && !skip; b++) {
+        if (argName == p + "Rate" + String(b)) skip = true;
       }
     }
-
-    if (!gotUseWiFi) settings.Add("UseWiFi", "false");
-
-    // Schritt 4: Validierung
-    bool saveIt = true;
-
-    // Frontend-Passwort nur prüfen wenn ein neues eingegeben wurde
-    if (frontPass.length() > 0 && !frontPass.equals(frontPass2)) {
-      String c = GetTop();
-      c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
-             "<p>Passw&ouml;rter stimmen nicht &uuml;berein</p></div>");
-      c += GetBottom();
-      m_webserver.send(200, "text/html", c);
-      saveIt = false;
+    if (!skip) {
+      settings.Add(argName, m_webserver.arg(i));
+      if (argName == "UseWiFi") gotUseWiFi = true;
     }
+  }
+  if (!gotUseWiFi) settings.Add("UseWiFi", "false");
 
-    if (saveIt && m_webserver.hasArg("HostName")) {
-      String hostname = m_webserver.arg("HostName");
-      for (byte i = 0; i < hostname.length(); i++) {
-        char ch = (char)hostname[i];
-        if (!((ch>='0'&&ch<='9')||(ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch=='-'||ch=='_')) {
-          saveIt = false;
-          String c = GetTop();
-          c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
-                 "<p>Erlaubte Zeichen: 0-9, a-z, A-Z, - und _</p></div>");
-          c += GetBottom();
-          m_webserver.send(200, "text/html", c);
-          break;
-        }
+  // Validierung: Frontend-Passwort nur prüfen wenn neu eingegeben
+  bool saveIt = true;
+  String frontPass  = m_webserver.arg("frontPass");
+  String frontPass2 = m_webserver.arg("frontPass2");
+  if (frontPass.length() > 0 && !frontPass.equals(frontPass2)) {
+    String c = GetTop();
+    c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+           "<p>Passw&ouml;rter stimmen nicht &uuml;berein</p></div>");
+    c += GetBottom();
+    m_webserver.send(200, "text/html", c);
+    saveIt = false;
+  }
+
+  // Validierung: Hostname
+  if (saveIt && m_webserver.hasArg("HostName")) {
+    String hostname = m_webserver.arg("HostName");
+    for (byte i = 0; i < hostname.length(); i++) {
+      char ch = (char)hostname[i];
+      if (!((ch>='0'&&ch<='9')||(ch>='a'&&ch<='z')||(ch>='A'&&ch<='Z')||ch=='-'||ch=='_')) {
+        saveIt = false;
+        String c = GetTop();
+        c += F("<div class='card'><h3 style='color:var(--err)'>&#10060; Fehler</h3>"
+               "<p>Erlaubte Zeichen: 0-9, a-z, A-Z, - und _</p></div>");
+        c += GetBottom();
+        m_webserver.send(200, "text/html", c);
+        break;
       }
     }
+  }
 
-    // Schritt 5: Speichern
-    if (saveIt) {
-      String info = settings.Write();
-      m_webserver.send(200, "text/html", GetRedirectToRoot("Einstellungen gespeichert<br>" + info));
-      delay(1000); ESP.restart();
-    }
-  });
+  if (saveIt) {
+    String info = settings.Write();
+    m_webserver.send(200, "text/html", GetRedirectToRoot("Einstellungen gespeichert<br>" + info));
+    delay(1000); ESP.restart();
+  }
+});
 
   // ── /setup ──────────────────────────────────────────────────────────────
   m_webserver.on("/setup", [this]() {
@@ -793,14 +744,23 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
       data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
       data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='"); data += settings.Get("ctPASS", ""); data += F("'>");
+      data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
+      data += settings.Get("ctPASS", "");
+      data += F("'>");
       data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
       data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
       data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
-      data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='"); data += settings.Get("ctPASS2", ""); data += F("'>");
+      data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
+      data += settings.Get("ctPASS2", "");
+      data += F("'>");
       data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
       data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
-      data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='"); data += settings.Get("frontPass", ""); data += F("'>");
+      data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='");
+      data += settings.Get("frontPass", "");
+      data += F("'>");
+      data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
+      data += settings.Get("frontPass2", "");
+      data += F("'>");
       data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='"); data += settings.Get("frontPass2", ""); data += F("'>");
       data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
       data += F("</table></div>");
@@ -814,7 +774,9 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
       data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings.Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
       data += F("<tr><td><label>Benutzername:</label></td><td>");
       data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings.Get("mqttUser", ""); data += F("'>");
-      data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='"); data += settings.Get("mqttPass", ""); data += F("'></td></tr>");
+      data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
+      data += settings.Get("mqttPass", "");
+      data += F("'>");
       data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
       data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
       data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", ""); data += F("'>");
