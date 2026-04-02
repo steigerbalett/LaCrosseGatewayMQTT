@@ -19,10 +19,17 @@ void AccessPoint::Begin(int autoClose) {
     m_logItemCallback("Starting ...");
   }
 
+  WiFi.persistent(false);
+  WiFi.disconnect(true);
   WiFi.mode(WiFiMode::WIFI_AP);
-  WiFi.softAPConfig(m_ip, m_ip, m_subnet);
+
+  wifi_softap_dhcps_stop();           // DHCP stoppen
+  WiFi.softAPConfig(m_ip, m_ip, m_subnet);  // IP konfigurieren
+  wifi_softap_dhcps_start();          // DHCP mit neuer Konfiguration starten
+
   String ssid = m_ssidPrefix + "_" + String((unsigned int)ESP.getChipId());
   WiFi.softAP(ssid.c_str());
+  delay(500);
 
   // DNS Catch-All: alle Domains auf AP-IP umleiten (Captive Portal)
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);

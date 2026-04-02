@@ -154,8 +154,8 @@ bool DEBUG_PCA301            = 0;        //            debug PCA301
 #define DATA_PORT2             82        // Port for data
 #define DATA_PORT3             83        // Port for data
 #define OTA_PORT               8266
-IPAddress AP_IP              = IPAddress(192, 168, 222, 1);
-IPAddress AP_SUBNET          = IPAddress (255, 255, 225, 0);
+IPAddress AP_IP              = IPAddress(192, 168, 4, 1);
+IPAddress AP_SUBNET          = IPAddress (255, 255, 255, 0);
 
 byte AddOnPinHandler(byte command, byte pin, byte value);
 
