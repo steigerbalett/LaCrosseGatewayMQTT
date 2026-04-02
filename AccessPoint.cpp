@@ -20,7 +20,7 @@ void AccessPoint::Begin(int autoClose) {
   }
 
   WiFi.persistent(false);
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);
   WiFi.mode(WiFiMode::WIFI_AP);
 
   wifi_softap_dhcps_stop();           // DHCP stoppen

@@ -1540,8 +1540,7 @@ static bool StartWifi(Settings settings) {
   else {
     logger.println();
     logger.println("We got no connection :-( ... Open access point for 15 minutes");
-    // Open access point for 15 minutes
-    accessPoint.Begin(900);
+    accessPoint.Begin(0);
     esp.SwitchLed(true, true);
   }
 
