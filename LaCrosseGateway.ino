@@ -1430,7 +1430,7 @@ static bool StartWifi(Settings settings) {
       esp.SwitchLed(true, true);
 
       logger.println("AP gestartet - verbinde dich mit dem WLAN 'LaCrosseGateway_XXXXXX'");
-      logger.println("Oeffne dann http://192.168.222.1/setup im Browser");
+      logger.println("Oeffne dann http://192.168.4.1/setup im Browser");
 
       frontend.SetPassword(settings.Get("frontPass", ""));
       frontend.SetCommandCallback([](String command) { CommandHandler(command); });
@@ -1443,7 +1443,7 @@ static bool StartWifi(Settings settings) {
           &serialBridge, &serialBridge2, &softSerialBridge, &analogPort, &nextion
         );
       });
-
+      frontend.Begin(&stateManager, &logger);
       ota.Begin(frontend.WebServer());
 
       if (display.IsConnected()) {

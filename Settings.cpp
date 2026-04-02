@@ -88,6 +88,7 @@ String Settings::Write() {
   for (int i = 0; i < EEPROM_SIZE; i++) {
     EEPROM.write(i, rawData[i]);
   }
+  EEPROM.commit();
   EEPROM.end();
   
   return result;
