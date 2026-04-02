@@ -775,11 +775,11 @@ m_webserver.on("/save", HTTP_POST, [this]() {
     if (IsAuthentified()) {
       Settings settings; settings.Read(m_logger);
       m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
-      m_webserver.send(200);
+      m_webserver.send(200, "text/html", "");
       m_webserver.sendContent(GetTop() + GetNavigation());
       String data;
 
-      data += F("<form method='post' action='save'>");
+      data += F("<form method='post' action='/save'>");
       m_webserver.sendContent(data); data = "";
 
       // WLAN
