@@ -219,13 +219,13 @@ struct RadioToggleState {
 RadioToggleState g_radio[5];
 
 byte scanWifi(String ctSSID) {
+  memset(bssid, 0, 6);
+  rssi = -999;
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
   uint8_t *thisBssid;
   
   logger.println("Number of all SSIDs: " + String(numSsid));
-
-  rssi = -999;
   for (int thisNet = 0; thisNet<numSsid; thisNet++) {
     logger.println("SSID found: " + WiFi.SSID(thisNet));
     if (!strcmp(WiFi.SSID(thisNet).c_str(), ctSSID.c_str())) {
@@ -1346,7 +1346,6 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     WiFi.setAutoReconnect(true);
     // WiFi.persistent(true);
 
-    timeout = 30;
     numSsid = scanWifi(ctSSID);
 
     logger.println("");
@@ -2049,7 +2048,6 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
 
   // Start wifi
   if (USE_WIFI) {
-    WiFi.disconnect();
     int startupDelay = settings.GetInt("StartupDelay", 0);
     if (startupDelay > 0) {
       logger.println("Startup delay: " + String(startupDelay) + " seconds");
