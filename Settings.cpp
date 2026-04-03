@@ -77,12 +77,11 @@ String Settings::Write() {
   result += m_data.GetCapacity();
   result += ")";
 
-  while (rawData.length() < EEPROM_SIZE) {
-    rawData += (char)0;
-  }
   EEPROM.begin(EEPROM_SIZE);
+  int dataLen = (int)rawData.length();
   for (int i = 0; i < EEPROM_SIZE; i++) {
-    EEPROM.write(i, rawData[i]);
+      EEPROM.write(i, i < dataLen ? (uint8_t)rawData[i] : 0);
+      if (i % 256 == 0) yield();
   }
   EEPROM.commit();
   EEPROM.end();

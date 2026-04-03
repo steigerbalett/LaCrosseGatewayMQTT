@@ -1404,7 +1404,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
-static bool StartWifi(Settings settings) {
+static bool StartWifi(Settings &settings) {
   bool result = false;
 
   espconn_tcp_set_max_con(10);
