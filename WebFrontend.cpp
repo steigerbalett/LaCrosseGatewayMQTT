@@ -112,7 +112,7 @@ const char LGWMQTT_JS_THEME[] PROGMEM =
       "localStorage.setItem('theme','dark');"
     "}else{"
       "b.setAttribute('data-theme','light');"
-      "i.textContent='\\u2600\';t.textContent='Light Mode';"
+      "i.textContent='\\u2600\\uFE0F';t.textContent='Light Mode';"
       "localStorage.setItem('theme','light');"
     "}"
   "}"
@@ -120,7 +120,7 @@ const char LGWMQTT_JS_THEME[] PROGMEM =
     "var s=localStorage.getItem('theme')||'dark';"
     "var i=document.getElementById('ti'),t=document.getElementById('tt');"
     "document.body.setAttribute('data-theme',s);"
-    "if(s==='light'){i.textContent='\\u2600\';t.textContent='Light Mode';}"
+    "if(s==='light'){i.textContent='\\u2600\\uFE0F';t.textContent='Light Mode';}"
     "else{i.textContent='\\uD83C\\uDF19';t.textContent='Dark Mode';}"
   "});"
   "</script>";
@@ -358,7 +358,7 @@ String WebFrontend::GetTop() {
   result += FPSTR(LGWMQTT_JS_THEME);
   result += F("</head><body>");
   result += F("<div class='hdr'>");
-  result += F("<h1>&#127777;&#65039; LaCrosseGateway");
+  result += F("<h1>&#127921; LaCrosseGateway");
   result += F("<span style='font-size:14px;font-weight:400;margin-left:12px;color:var(--txt2)'>V");
   result += m_stateManager->GetVersion();
   result += F(" &mdash; "); result += GetDisplayName(); result += F("</span></h1>");
@@ -408,6 +408,78 @@ String WebFrontend::GetDisplayName() {
 
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
+String WebFrontend::_resolveDirectURL(const String &url) {
+  String current = url;
+
+  for (int hop = 0; hop < 4; hop++) {
+    String u = current;
+    bool isHttps = u.startsWith("https://");
+    if (isHttps)            u = u.substring(8);
+    else if (u.startsWith("http://")) u = u.substring(7);
+
+    int slash = u.indexOf('/');
+    if (slash < 0) return current;
+    String host = u.substring(0, slash);
+    String path = u.substring(slash);
+
+    BearSSL::WiFiClientSecure client;
+    client.setInsecure();
+    client.setTimeout(15);
+    int port = isHttps ? 443 : 80;
+
+    m_logger->println("OTA Hop " + String(hop) + ": " + host + path);
+
+    if (!client.connect(host.c_str(), port)) {
+      m_logger->println("OTA connect failed: " + host);
+      return current;
+    }
+
+    client.print("HEAD " + path + " HTTP/1.1\r\n");
+    client.print("Host: " + host + "\r\n");
+    client.print("User-Agent: ESP8266\r\n");
+    client.print("Connection: close\r\n\r\n");
+
+    String location = "";
+    int statusCode  = 0;
+    unsigned long deadline = millis() + 8000;
+
+    while (client.connected() && millis() < deadline) {
+      if (client.available()) {
+        String line = client.readStringUntil('\n');
+        line.trim();
+        if (statusCode == 0 && line.startsWith("HTTP/")) {
+          int sp1 = line.indexOf(' ');
+          int sp2 = line.indexOf(' ', sp1 + 1);
+          if (sp1 > 0) statusCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
+        }
+        String lower = line; lower.toLowerCase();
+        if (lower.startsWith("location:")) {
+          location = line.substring(9); location.trim();
+        }
+        if (line.isEmpty()) break;
+      }
+      yield();
+    }
+    client.stop();
+
+    m_logger->println("OTA Hop " + String(hop) + " status=" + String(statusCode) + " loc=" + location);
+
+    // 301/302/303/307/308 -> weiter folgen
+    if ((statusCode == 301 || statusCode == 302 || statusCode == 303 ||
+         statusCode == 307 || statusCode == 308) && location.length() > 0) {
+      // Relative Location -> absolut machen
+      if (location.startsWith("/")) {
+        String proto = isHttps ? "https://" : "http://";
+        location = proto + host + location;
+      }
+      current = location;
+      continue;
+    }
+    return current;
+  }
+  return current;  // Maximale Hops erreicht
+}
+
 String WebFrontend::SavePartial(std::initializer_list<String> keys) {
   Settings existing;
   existing.Read(m_logger);
@@ -428,19 +500,28 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   Settings merged;
   merged.FromString(existing.ToString().substring(6));
 
-  for (byte i = 0; i < count; i++) {
-    String key = String(keys[i]);
-    if (m_webserver.hasArg(key)) {
-      merged.Add(key, m_webserver.arg(key));
-    } else {
-      bool isCheckbox = (key == "UseWiFi"          || key == "RadioLock"       ||
-                         key == "SendHumidity"      || key == "SendBatteryBeep" ||
-                         key == "UseMDNS"           || key == "SendAnalog"      ||
-                         key == "PRD"               || key == "IsNextion"       ||
-                         key == "AddUnits"          || key == "AsDataFull"      ||
-                         key == "ToggleLed"         || key == "oled13");
-      if (isCheckbox) {
-        merged.Add(key, "false");
+        static const char* checkboxKeys[] = {
+          "UseWiFi", "RadioLock", "SendHumidity", "SendBatteryBeep", "UseMDNS",
+          "SendAnalog", "AsDataFull", "ToggleLed", "PRD",
+          "IsNextion", "AddUnits", "oled13"
+        };
+        static const byte checkboxCount = sizeof(checkboxKeys) / sizeof(checkboxKeys[0]);
+
+        for (byte i = 0; i < count; i++) {
+        String key = String(keys[i]);
+        if (m_webserver.hasArg(key)) {
+          merged.Add(key, m_webserver.arg(key));
+        } else {
+          bool isCheckbox = (key == "UseWiFi"   || key == "RadioLock"      ||
+                             key == "SendHumidity" || key == "SendBatteryBeep" ||
+                             key == "UseMDNS"   || key == "SendAnalog"     ||
+                             key == "PRD"       || key == "IsNextion"      ||
+                             key == "AddUnits"  || key == "AsDataFull"     ||
+                             key == "ToggleLed" || key == "oled13");
+          if (isCheckbox) {
+            merged.Add(key, "false");
+          }
+        }
       }
     }
   }
@@ -566,68 +647,89 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.sendContent("");
 });
 
-m_webserver.on("/ota", [this]() {
-  if (IsAuthentified()) {
+  m_webserver.on("/ota", [this]() {
+    if (IsAuthentified()) {
+      Settings settings; settings.Read(m_logger);
+      String result; result += GetTop(); result += GetNavigation();
+      result += F("<div class='card' style='margin-bottom:12px'>");
+      result += F("<h2>&#127381; Firmware-Info</h2><table>");
+      result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
+      result += m_stateManager->GetVersion(); result += F("</span></td></tr></table></div>");
+      result += F("<div class='card' style='margin-bottom:12px'>");
+      result += F("<h2>&#128190; GitHub Release installieren</h2>");
+      result += F("<p class='info'>Die Liste wird direkt von der GitHub-API geladen.</p>");
+      result += F("<script>");
+      result += F("function loadReleases(){var out=document.getElementById('relDiv');out.innerHTML='<p class=\\'info\\'>Lade Releases...</p>';");
+      result += F("fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')");
+      result += F(".then(function(r){return r.json();}).then(function(data){");
+      result += F("var html='<table><thead><tr><th>Version</th><th>Typ</th><th>Datum</th><th>Flashen</th></tr></thead><tbody>';");
+      result += F("data.forEach(function(rel){");
+      result += F("var badge=rel.prerelease?'<span class=\\'badge warn\\'>Vorab</span>':'<span class=\\'badge ok\\'>Stabil</span>';");
+      result += F("var date=rel.published_at?rel.published_at.substring(0,10):'';");
+      result += F("var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});");
+      result += F("var links='';if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}");
+      result += F("else{assets.forEach(function(a){links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'");
+      result += F("+'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>'");
+      result += F("+'<button type=\\'submit\\'>&#8595; '+a.name+'</button></form>';});}");
+      result += F("html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';});");
+      result += F("html+='</tbody></table>';document.getElementById('relDiv').innerHTML=html;");
+      result += F("}).catch(function(e){document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';});}");
+      result += F("window.addEventListener('DOMContentLoaded', loadReleases);</script>");
+      result += F("<div id='relDiv'><p class='info'>JavaScript wird benoetigt.</p></div></div>");
+      result += F("<div class='card' style='margin-bottom:12px'>");
+      result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
+      result += F("<form method='get' action='ota_start'>");
+      result += F("<p class='info'>Server: "); result += settings.Get("otaServer", ""); result += F("</p>");
+      result += F("<p class='info'>Port: ");   result += settings.Get("otaPort",   ""); result += F("</p>");
+      result += F("<p class='info'>URL: ");    result += settings.Get("otaURL",    ""); result += F("</p>");
+      result += F("<br><input type='submit' value='OTA-Update starten'></form></div>");
+      result += GetBottom();
+      m_webserver.send(200, "text/html", result);
+    }
+  });
+
+  m_webserver.on("/ota_gh", HTTP_POST, [this]() {
+    if (!IsAuthentified()) return;
+    String url = m_webserver.arg("url");
+    if (url.length() == 0) { m_webserver.send(400, "text/plain", "Keine URL"); return; }
+    m_otaPct = 0; m_otaMsg = "Lade direkte Download-URL..."; m_otaDone = false;
     String result; result += GetTop(); result += GetNavigation();
-
-    // Firmware-Info
-    result += F("<div class='card' style='margin-bottom:12px'>");
-    result += F("<h2>&#127381; Firmware-Info</h2><table>");
-    result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
-    result += m_stateManager->GetVersion();
-    result += F("</span></td></tr></table></div>");
-
-    // GitHub-Release Download-Links
-    result += F("<div class='card' style='margin-bottom:12px'>");
-    result += F("<h2>&#128190; Firmware herunterladen</h2>");
-    result += F("<p class='info'>Lade die gewuenschte .bin-Datei herunter und "
-                "flashe sie anschliessend unter <a href='/update'>BIN-Update</a>.</p>");
-    result += F("<script>");
-    result += F("function loadReleases(){"
-                "var out=document.getElementById('relDiv');"
-                "out.innerHTML='<p class=\\'info\\'>Lade Releases...</p>';"
-                "fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')"
-                ".then(function(r){return r.json();})"
-                ".then(function(data){"
-                "var html='<table><thead><tr>"
-                "<th>Version</th><th>Typ</th><th>Datum</th><th>Download</th>"
-                "</tr></thead><tbody>';"
-                "data.forEach(function(rel){"
-                "var badge=rel.prerelease"
-                "?'<span class=\\'badge warn\\'>Vorab</span>'"
-                ":'<span class=\\'badge ok\\'>Stabil</span>';"
-                "var date=rel.published_at?rel.published_at.substring(0,10):'';"
-                "var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});"
-                "var links='';"
-                "if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}"
-                "else{assets.forEach(function(a){"
-                "links+='<a href=\\''+a.browser_download_url+'\\' download=\\''+a.name+'\\' "
-                "class=\\'btn-dl\\'>&#8595; '+a.name+'</a> ';});}"
-                "html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td>"
-                "<td>'+date+'</td><td>'+links+'</td></tr>';"
-                "});"
-                "html+='</tbody></table>';"
-                "document.getElementById('relDiv').innerHTML=html;"
-                "}).catch(function(e){"
-                "document.getElementById('relDiv').innerHTML="
-                "'<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';});"
-                "}"
-                "window.addEventListener('DOMContentLoaded', loadReleases);");
-    result += F("</script>");
-    result += F("<div id='relDiv'><p class='info'>JavaScript wird benoetigt.</p></div></div>");
-
-    // Hinweis auf BIN-Update
-    result += F("<div class='card'>");
-    result += F("<h2>&#8593;&#65039; Firmware einspielen</h2>");
-    result += F("<p class='info'>Nach dem Download die .bin-Datei unter "
-                "<a href='/update'><strong>BIN-Update</strong></a> hochladen und flashen.</p>");
-    result += F("<a href='/update' class='btn-dl' style='display:inline-block;margin-top:8px'>"
-                "&#8594; Zum BIN-Update</a></div>");
-
+    result += F("<div class='card'><h2>&#8593; OTA Update...</h2>");
+    result += F("<div class='progress-wrap'><div class='progress-bar-bg'><div id='pb' class='progress-bar' style='width:2%'>0%</div></div></div>");
+    result += F("<p id='pstat' class='info'>Verbinde...</p>");
+    result += F("<script>var t=setInterval(function(){fetch('/ota_progress').then(function(r){return r.json();}).then(function(d){document.getElementById('pb').style.width=d.pct+'%';document.getElementById('pb').textContent=d.pct+'%';document.getElementById('pstat').textContent=d.msg;if(d.done){clearInterval(t);setTimeout(function(){location.href='/';},3000);}}).catch(function(){});},500);</script></div>");
     result += GetBottom();
     m_webserver.send(200, "text/html", result);
-  }
-});
+    m_logger->println("OTA GitHub: " + url);
+    String directUrl = _resolveDirectURL(url);
+    m_logger->println("OTA direkter URL: " + directUrl);
+    m_otaMsg = "URL aufgeloest, starte Update...";
+    yield();
+    ESPhttpUpdate.onStart([this]()           { m_otaPct = 2; m_otaMsg = "Update gestartet..."; });
+    ESPhttpUpdate.onProgress([this](int c, int t) { if(t>0){ m_otaPct=(c*100)/t; m_otaMsg=String(c/1024)+" / "+String(t/1024)+" KB"; } });
+    ESPhttpUpdate.onEnd([this]()             { m_otaPct = 100; m_otaMsg = "Abgeschlossen - Neustart..."; m_otaDone = true; });
+    ESPhttpUpdate.onError([this](int)        { m_otaMsg = "Fehler: " + ESPhttpUpdate.getLastErrorString(); m_otaDone = true; });
+    BearSSL::WiFiClientSecure sc;
+    sc.setInsecure(); sc.setBufferSizes(1024, 1024); sc.setTimeout(60);
+    ESPhttpUpdate.rebootOnUpdate(false);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(sc, directUrl);
+    switch (ret) {
+      case HTTP_UPDATE_OK:      m_otaPct=100; m_otaMsg="Erfolgreich! Neustart..."; m_otaDone=true; delay(1500); ESP.restart(); break;
+      case HTTP_UPDATE_FAILED:  m_otaMsg="Fehler: "+ESPhttpUpdate.getLastErrorString(); m_otaDone=true; break;
+      case HTTP_UPDATE_NO_UPDATES: m_otaMsg="Kein Update noetig"; m_otaDone=true; break;
+    }
+  });
+
+  m_webserver.on("/ota_progress", [this]() {
+    String json = "{\"pct\":"; json += String(m_otaPct);
+    json += ",\"msg\":\""; json += m_otaMsg;
+    json += "\",\"done\":"; json += m_otaDone ? "true" : "false"; json += "}";
+    m_webserver.send(200, "application/json", json);
+  });
+
+  m_webserver.on("/ota_start", [this]() {
+    if (IsAuthentified()) m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
+  });
 
 // -- /save ---------------------------------------------------------------
 m_webserver.on("/save", HTTP_POST, [this]() {
@@ -867,7 +969,7 @@ m_webserver.on("/save_net", HTTP_POST, [this]() {
       return;
     }
   }
-  const char* keys[] = {"staticIP","staticMask","staticGW","staticDNS","HostName","StartupDelay"};
+  const char* keys[] = {"staticIP","staticMask","staticGW","HostName","StartupDelay"};
   String info = SaveSelectedKeys(keys, 5, true);
   m_webserver.send(200, "text/html", GetRedirectToRoot("Netzwerk gespeichert<br>" + info));
   delay(1000); ESP.restart();
@@ -969,18 +1071,6 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
 });
 
-m_webserver.on("/wifiscan", [this]() {
-  int n = WiFi.scanNetworks();
-  String json = "[";
-  for (int i = 0; i < n; i++) {
-    if (i > 0) json += ",";
-    json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + WiFi.RSSI(i) 
-         + ",\"enc\":" + (WiFi.encryptionType(i) != ENC_TYPE_NONE ? "true" : "false") + "}";
-  }
-  json += "]";
-  m_webserver.send(200, "application/json", json);
-});
-
 // -- /setup --------------------------------------------------------------
 m_webserver.on("/setup", [this]() {
   if (IsAuthentified()) {
@@ -991,81 +1081,31 @@ m_webserver.on("/setup", [this]() {
     String data;
 
     // -- WLAN --
-    // JS: togglePW(id) - Passwort sichtbar/verborgen per ID
-    //     pickSSID(tgt,ssid) - Klick in Scan-Tabelle -> SSID-Feld fuellen
-    //     doScan(tgt,btn)    - /wifiscan aufrufen, Tabelle aufbauen
-    data += F("<script>");
-    data += F("function togglePW(id){");
-    data += F("var f=document.getElementById(id);");
-    data += F("f.type=(f.type==='password')?'text':'password';");
-    data += F("var b=document.getElementById('eye_'+id);");
-    data += F("b.textContent=(f.type==='text')?'(o)':'(lock)';}");
-    data += F("function pickSSID(tgt,ssid){");
-    data += F("document.getElementById(tgt).value=ssid;");
-    data += F("document.getElementById('scan_'+tgt).style.display='none';}");
-    data += F("function doScan(tgt,btn){");
-    data += F("btn.disabled=true;btn.textContent='...';");
-    data += F("var div=document.getElementById('scan_'+tgt);");
-    data += F("div.style.display='block';div.innerHTML='<i>Scan lauft...</i>';");
-    data += F("fetch('/wifiscan').then(function(r){return r.json();})");
-    data += F(".then(function(nets){");
-    data += F("nets.sort(function(a,b){return b.rssi-a.rssi;});");
-    data += F("var h='<table style="border-collapse:collapse;margin-top:4px;cursor:pointer">';");
-    data += F("h+='<tr style="background:var(--div,#ddd)"><th style="padding:3px 8px">SSID</th><th style="padding:3px 8px">dBm</th><th style="padding:3px 8px">Typ</th></tr>';");
-    data += F("nets.forEach(function(n){");
-    data += F("var se=n.ssid.replace(/&/g,'&amp;').replace(/</g,'&lt;');");
-    data += F("var sv=n.ssid.replace(/\\/g,'\\\\').replace(/'/g,"\\'");");
-    data += F("h+='<tr onclick="pickSSID(\'' +tgt+ '\',\''+sv+'\')"';");
-    data += F("h+=' onmouseover="this.style.background=\'#dce8f0\'"';");
-    data += F("h+=' onmouseout="this.style.background=\'\'\'">';");
-    data += F("h+='<td style="padding:3px 8px">'+se+'</td>';");
-    data += F("h+='<td style="padding:3px 8px;text-align:right">'+n.rssi+'</td>';");
-    data += F("h+='<td style="padding:3px 8px">'+(n.enc?'(lock)':'(open)')+'</td>';");
-    data += F("h+='</tr>';});");
-    data += F("h+='</table>';");
-    data += F("div.innerHTML=h;");
-    data += F("btn.disabled=false;btn.textContent='Scan';}");
-    data += F(").catch(function(e){");
-    data += F("div.innerHTML='<span style="color:red">Fehler: '+e+'</span>';");
-    data += F("btn.disabled=false;btn.textContent='Scan';});}</script>");
-
     data += F("<form method='post' action='/save_wlan'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
     data += F("<table>");
-    data += F("<tr><td colspan='2'><p class='info'>Timeout (s) = Wartezeit bis SSID2 versucht wird. Zeile anklicken um SSID zu uebernehmen.</p></td></tr>");
-    data += F("<tr><td><label>SSID&nbsp;1:</label></td><td>");
-    data += F("<input id='ctSSID' name='ctSSID' size='30' maxlength='32' value='");
-    data += settings.Get("ctSSID", "");
-    data += F("'>&nbsp;<button type='button' onclick='doScan("ctSSID",this)' style='padding:3px 8px'>&#128225; Scan</button></td></tr>");
-    data += F("<tr><td></td><td><div id='scan_ctSSID' style='display:none'></div></td></tr>");
-    data += F("<tr><td><label>Passwort&nbsp;1:</label></td><td>");
-    data += F("<input id='ctPASS' type='password' name='ctPASS' size='30' maxlength='63' value='");
+    data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
+    data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
+    data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
+    data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
     data += settings.Get("ctPASS", "");
-    data += F("'>&nbsp;<button type='button' id='eye_ctPASS' onclick='togglePW("ctPASS")' style='padding:3px 6px'>&#128274;</button>");
-    data += F("&nbsp;Timeout:&nbsp;<input name='Timeout1' size='4' maxlength='4' value='");
-    data += settings.Get("Timeout1", "15");
-    data += F("'>&nbsp;s</td></tr>");
-    data += F("<tr><td><label>SSID&nbsp;2:</label></td><td>");
-    data += F("<input id='ctSSID2' name='ctSSID2' size='30' maxlength='32' value='");
-    data += settings.Get("ctSSID2", "");
-    data += F("'>&nbsp;<button type='button' onclick='doScan("ctSSID2",this)' style='padding:3px 8px'>&#128225; Scan</button></td></tr>");
-    data += F("<tr><td></td><td><div id='scan_ctSSID2' style='display:none'></div></td></tr>");
-    data += F("<tr><td><label>Passwort&nbsp;2:</label></td><td>");
-    data += F("<input id='ctPASS2' type='password' name='ctPASS2' size='30' maxlength='63' value='");
+    data += F("'>");
+    data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
+    data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
+    data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
+    data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
     data += settings.Get("ctPASS2", "");
-    data += F("'>&nbsp;<button type='button' id='eye_ctPASS2' onclick='togglePW("ctPASS2")' style='padding:3px 6px'>&#128274;</button>");
-    data += F("&nbsp;Timeout:&nbsp;<input name='Timeout2' size='4' maxlength='4' value='");
-    data += settings.Get("Timeout2", "15");
-    data += F("'>&nbsp;s</td></tr>");
-    data += F("<tr><td><label>Frontend-PW:</label></td><td>");
-    data += F("<input id='frontPass' type='password' name='frontPass' size='24' maxlength='60' value='");
+    data += F("'>");
+    data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
+    data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='");
     data += settings.Get("frontPass", "");
-    data += F("'>&nbsp;<button type='button' id='eye_frontPass' onclick='togglePW("frontPass")' style='padding:3px 6px'>&#128274;</button>");
-    data += F("&nbsp;Wiederholen:&nbsp;<input id='frontPass2' type='password' name='frontPass2' size='24' maxlength='60' value='");
+    data += F("'>");
+    data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
     data += settings.Get("frontPass2", "");
-    data += F("'>&nbsp;<button type='button' id='eye_frontPass2' onclick='togglePW("frontPass2")' style='padding:3px 6px'>&#128274;</button>");
-    data += F("&nbsp;<span class='info'>(leer = kein Login)</span></td></tr>");
+    data += F("'>");
+    data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
     data += F("</div></form>");
@@ -1094,50 +1134,20 @@ m_webserver.on("/setup", [this]() {
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
-    // -- Netzwerk (statisch / DHCP) --
+    // -- Netzwerk (statisch) --
     data += F("<form method='post' action='/save_net'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
-    data += F("<h2>&#127760; Netzwerk</h2>");
-    data += F("<p class='info'>Aktuelle IP: <strong>");
-    data += (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("nicht verbunden"));
-    data += F("</strong> &nbsp;|&nbsp; RSSI: <strong>");
-    data += (WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) + " dBm" : String("--"));
-    data += F("</strong> &nbsp;|&nbsp; Hostname: <strong>");
-    data += WiFi.hostname();
-    data += F("</strong></p>");
-    data += F("<p class='info'>Alle drei Felder (IP, Maske, Gateway) ausf&uuml;llen f&uuml;r statische IP &mdash; leer lassen = DHCP.</p>");
-    data += F("<table>");
-    data += F("<tr><td><label>Statische IP:</label></td><td>");
-    data += F("<input name='staticIP' size='16' maxlength='15' placeholder='192.168.1.100' value='");
-    data += settings.Get("staticIP", "");
-    data += F("'>");
-    data += F(" <label style='display:inline'>Subnetz:</label> <input name='staticMask' size='16' maxlength='15' placeholder='255.255.255.0' value='");
-    data += settings.Get("staticMask", "");
-    data += F("'></td></tr>");
-    data += F("<tr><td><label>Gateway:</label></td><td>");
-    data += F("<input name='staticGW' size='16' maxlength='15' placeholder='192.168.1.1' value='");
-    data += settings.Get("staticGW", "");
-    data += F("'>");
-    data += F(" <label style='display:inline'>DNS:</label> <input name='staticDNS' size='16' maxlength='15' placeholder='optional, z.B. 8.8.8.8' value='");
-    data += settings.Get("staticDNS", "");
-    data += F("'></td></tr>");
+    data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
+    data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
+    data += F("<tr><td><label>IP-Adresse:</label></td><td>");
+    data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
     data += F("<tr><td><label>Hostname:</label></td><td>");
-    data += F("<input name='HostName' size='24' maxlength='63' value='");
-    data += settings.Get("HostName", "LaCrosseGateway");
-    data += F("'>");
-    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='");
-    data += settings.Get("StartupDelay", "0");
-    data += F("'></td></tr>");
+    data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
+    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
     data += F("</table>");
-    data += F("<br>");
-    data += F("<button type='submit' style='margin-right:8px'>&#128190; Netzwerk speichern &amp; neu starten</button>");
-    data += F("<button type='button' onclick='testConn()' style='background:#2196f3;color:#fff;border:none;padding:5px 12px;cursor:pointer;border-radius:4px'>&#128268; Verbindung testen</button>");
-    data += F("<span id='connResult' style='margin-left:10px;font-weight:bold'></span>");
-    data += F("<script>function testConn(){var el=document.getElementById('connResult');el.style.color='';el.textContent='... Teste...';");
-    data += F("fetch('/conntest').then(function(r){return r.json();}).then(function(d){");
-    data += F("el.style.color=d.ok?'green':'red';");
-    data += F("el.textContent=d.ok?'OK Verbunden: '+d.ip+' ('+d.rssi+' dBm)':'ERR Nicht verbunden (Status '+d.status+')';");
-    data += F("}).catch(function(e){el.style.color='red';el.textContent='ERR Fehler: '+e;});}</script>");
+    data += F("<br><input type='submit' value='&#128190; Netzwerk speichern &amp; neu starten'>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
@@ -1385,19 +1395,7 @@ m_webserver.on("/setup", [this]() {
     m_webserver.send(200, "text/html", content);
   });
 
-  
-m_webserver.on("/conntest", [this]() {
-  String json;
-  if (WiFi.status() == WL_CONNECTED) {
-    json = "{\"ok\":true,\"ip\":\"" + WiFi.localIP().toString()
-         + "\",\"rssi\":" + String(WiFi.RSSI()) + "}";
-  } else {
-    json = "{\"ok\":false,\"status\":" + String(WiFi.status()) + ",\"ip\":\"\"}";
-  }
-  m_webserver.sendHeader("Cache-Control", "no-cache");
-  m_webserver.send(200, "application/json", json);
-});
-m_webserver.on("/update", HTTP_GET, [this]() {
+  m_webserver.on("/update", HTTP_GET, [this]() {
     if (IsAuthentified()) {
       String result; result += GetTop(); result += GetNavigation();
       result += F("<div class='card'><h2>&#128190; Firmware Update (BIN-Upload)</h2>");
@@ -1437,33 +1435,6 @@ m_webserver.on("/update", HTTP_GET, [this]() {
     }
   );
 
-
-  // -- Captive Portal Detection (Android, iOS, Windows) -----------------
-  auto captiveRedirect = [this]() {
-    String ip = WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA
-                ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-    m_webserver.sendHeader("Location", "http://" + ip + "/setup", true);
-    m_webserver.send(302, "text/plain", "");
-  };
-  m_webserver.on("/generate_204",              captiveRedirect); // Android
-  m_webserver.on("/gen_204",                   captiveRedirect); // Android alt
-  m_webserver.on("/hotspot-detect.html",       captiveRedirect); // Apple
-  m_webserver.on("/library/test/success.html", captiveRedirect); // Apple alt
-  m_webserver.on("/connecttest.txt",           captiveRedirect); // Windows
-  m_webserver.on("/redirect",                  captiveRedirect); // Windows
-  m_webserver.on("/fwlink",                    captiveRedirect); // Windows
-  m_webserver.on("/wpad.dat",                  captiveRedirect); // Windows
-  // -- Ende Captive Portal Detection -------------------------------------
-
-  m_webserver.onNotFound([this]() {
-    // Im AP-Modus alle unbekannten URLs auf /setup weiterleiten (Captive Portal)
-    if (WiFi.getMode() == WIFI_AP || WiFi.getMode() == WIFI_AP_STA) {
-      m_webserver.sendHeader("Location",
-        "http://" + WiFi.softAPIP().toString() + "/setup", true);
-      m_webserver.send(302, "text/plain", "");
-    } else {
-      m_webserver.send(404, "text/plain", "Not Found");
-    }
-  });
+  m_webserver.onNotFound([this]() { m_webserver.send(404, "text/plain", "Not Found"); });
   m_webserver.begin();
 }
