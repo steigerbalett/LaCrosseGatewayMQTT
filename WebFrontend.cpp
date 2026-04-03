@@ -969,6 +969,18 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
 });
 
+m_webserver.on("/wifiscan", [this]() {
+  int n = WiFi.scanNetworks();
+  String json = "[";
+  for (int i = 0; i < n; i++) {
+    if (i > 0) json += ",";
+    json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + WiFi.RSSI(i) 
+         + ",\"enc\":" + (WiFi.encryptionType(i) != ENC_TYPE_NONE ? "true" : "false") + "}";
+  }
+  json += "]";
+  m_webserver.send(200, "application/json", json);
+});
+
 // ── /setup ──────────────────────────────────────────────────────────────
 m_webserver.on("/setup", [this]() {
   if (IsAuthentified()) {
@@ -989,6 +1001,18 @@ m_webserver.on("/setup", [this]() {
     data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
     data += settings.Get("ctPASS", "");
     data += F("'>");
+    data += F("<button type='button' onclick='scanWifi()'>&#128225; Netzwerke scannen</button>");
+    data += F("<div id='scanResult'></div>");
+    data += F("<script>");
+    data += F("function scanWifi(){");
+    data += F("document.getElementById('scanResult').innerHTML='<i>Suche...</i>';");
+    data += F("fetch('/wifiscan').then(r=>r.json()).then(nets=>{");
+    data += F("var h='<select onchange=\"document.querySelector(\\\\\"[name=ctSSID]\\\\\").value=this.value\">");
+    data += F("<option>-- Netz wählen --</option>';");
+    data += F("nets.forEach(n=>h+=`<option value=\"${n.ssid}\">${n.ssid} (${n.rssi} dBm) ${n.enc?'🔒':''}</option>`);");
+    data += F("document.getElementById('scanResult').innerHTML=h+'</select>';");
+    data += F("}).catch(e=>document.getElementById('scanResult').innerHTML='Fehler: '+e);}");
+    data += F("</script>");
     data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
     data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
     data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");

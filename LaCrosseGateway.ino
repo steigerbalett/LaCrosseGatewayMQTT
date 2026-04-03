@@ -1457,15 +1457,13 @@ static bool StartWifi(Settings &settings) {
   // ── Ende Erst-Setup ────────────────────────────────────────────────────
 
   logger.println("Start WIFI_STA");
-  WiFi.persistent(false); // Avoid storing WiFi config in Flash
-  WiFi.mode(WiFiMode::WIFI_OFF);
+  WiFi.persistent(false);
   WiFi.mode(WiFiMode::WIFI_STA);
-  WiFi.disconnect(false); // Trennen ohne Credentials zu loeschen
-
   String hostName = settings.Get("HostName", "LaCrosseGateway");
+  WiFi.hostname(hostName);
+  WiFi.disconnect(false);
   logger.print("HostName is: ");
   logger.println(hostName);
-  WiFi.hostname(hostName);
   stateManager.SetHostname(hostName);
 
   String staticIP = settings.Get("staticIP", "");
@@ -1485,14 +1483,11 @@ static bool StartWifi(Settings &settings) {
     logger.println(staticGW);
 
     if (staticGW.length() < 7) {
-      WiFi.config(HTML::IPAddressFromString(staticIP),
-      HTML::IPAddressFromString(staticGW),
-      (uint32_t)0);
-    }
-    else {
+      logger.println("Kein Gateway → DHCP");
+    } else {
       WiFi.config(HTML::IPAddressFromString(staticIP),
                   HTML::IPAddressFromString(staticGW),
-                  HTML::IPAddressFromString(staticMask));
+                  HTML::IPAddressFromString(staticMask.length() < 7 ? "255.255.255.0" : staticMask));
     }
   }
 
