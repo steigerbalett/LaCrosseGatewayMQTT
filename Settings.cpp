@@ -15,63 +15,58 @@ void Settings::Read(Logger *logger) {
     rawData += (char)EEPROM.read(i);
   }
   EEPROM.end();
-  
+
   logger->print("Read bytes from EEPROM: ");
-  logger->print(rawData);
   logger->println(i);
-  
-  if(rawData[0] == 1) {
+
+  if (rawData[0] == 1) {
     String key = "";
     String value = "";
     bool keyDone = false;
     bool valueDone = false;
-    for (uint i=1; i < rawData.length(); i++) {
+    for (uint j = 1; j < rawData.length(); j++) {
       if (!keyDone) {
-        if (rawData[i] != 2) {
-          key += (char)rawData[i];
-        }
-        else {
+        if (rawData[j] != 2) {
+          key += (char)rawData[j];
+        } else {
           keyDone = true;
           continue;
         }
       }
-      
+
       if (keyDone && !valueDone) {
-        if (rawData[i] != 1) {
-          value += (char)rawData[i];
-        }
-        else {
+        if (rawData[j] != 1) {
+          value += (char)rawData[j];
+        } else {
           valueDone = true;
         }
       }
-    
+
       if (keyDone && valueDone) {
         keyDone = false;
         valueDone = false;
-        if(key.length() > 0) {
+        if (key.length() > 0) {
           m_data.Put(key, value);
         }
         key = "";
         value = "";
       }
-      
     }
   }
-
 }
 
 String Settings::Write() {
   String result;
   String rawData;
-  
+
   rawData += (char)1;
-  for(uint i=0; i < m_data.Size(); i++) {
+  for (uint i = 0; i < m_data.Size(); i++) {
     rawData += m_data.GetKeyAt(i);
     rawData += (char)2;
     rawData += m_data.GetValueAt(i);
     rawData += (char)1;
   }
- 
+
   result += rawData.length();
   result += " Byte (max. ";
   result += EEPROM_SIZE;
@@ -90,7 +85,7 @@ String Settings::Write() {
   }
   EEPROM.commit();
   EEPROM.end();
-  
+
   return result;
 }
 
@@ -146,11 +141,9 @@ byte Settings::GetByte(String key, byte defaultValue) {
   strVal.toLowerCase();
   if (strVal.startsWith("0x")) {
     return (byte)strtol(strVal.substring(2).c_str(), NULL, HEX);
-  }
-  else {
+  } else {
     return (byte)strtol(strVal.c_str(), NULL, DEC);
   }
-  
 }
 
 String Settings::ToString() {
@@ -161,18 +154,17 @@ String Settings::ToString() {
     result += m_data.GetValueAt(i);
     result += "; ";
   }
-  
   return result;
 }
 
 bool Settings::FromString(String settings) {
   bool result = false;
-  
+
   settings.trim();
   if (!settings.endsWith(";")) {
     settings += ";";
   }
- 
+
   byte step = 0;
   String key = "";
   String value = "";
@@ -181,12 +173,10 @@ bool Settings::FromString(String settings) {
     if (step == 0) {
       if (cc == ' ' && key.length() > 0) {
         step = 1;
-      }
-      else {
+      } else {
         key += cc;
       }
-    }
-    else if (step == 1) {
+    } else if (step == 1) {
       if (cc == ';') {
         step = 0;
         key.trim();
@@ -196,13 +186,35 @@ bool Settings::FromString(String settings) {
           key = "";
           value = "";
         }
-      }
-      else {
+      } else {
         value += cc;
       }
     }
-
   }
-  
+
   return result;
+}
+
+// -----------------------------------------------------------------------
+// NEU: Radio-Einstellungen gezielt speichern
+// Key-Schema: "Radio<1..5>Freq", "Radio<1..5>DataRate", etc.
+// -----------------------------------------------------------------------
+void Settings::SaveRadioSettings(byte radioIndex, unsigned long freqKHz,
+                                  String dataRate, byte toggleMask,
+                                  uint16_t toggleInterval) {
+  String p = "Radio" + String(radioIndex + 1);
+  Add(p + "Freq",           String(freqKHz));
+  Add(p + "DataRate",       dataRate);
+  Add(p + "ToggleMask",     String(toggleMask));
+  Add(p + "ToggleInterval", String(toggleInterval));
+}
+
+void Settings::LoadRadioSettingsFrom(byte radioIndex, unsigned long &freqKHz,
+                                      String &dataRate, byte &toggleMask,
+                                      uint16_t &toggleInterval) {
+  String p = "Radio" + String(radioIndex + 1);
+  freqKHz        = (unsigned long)GetInt(p + "Freq",           freqKHz);
+  dataRate       = Get(p + "DataRate",                         dataRate);
+  toggleMask     = (byte)GetInt(p + "ToggleMask",              toggleMask);
+  toggleInterval = (uint16_t)GetInt(p + "ToggleInterval",      toggleInterval);
 }
