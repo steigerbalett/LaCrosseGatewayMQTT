@@ -1426,6 +1426,19 @@ static bool StartWifi(Settings &settings) {
       WiFi.hostname(hostName);
 
       accessPoint.Begin(0); // 0 = kein Auto-Close, Portal bleibt bis Neustart
+      frontend.WebServer()->on("/", HTTP_GET, []() {
+        frontend.WebServer()->sendHeader("Location", "/setup", true);
+        frontend.WebServer()->send(302, "text/plain", "");
+      });
+      frontend.WebServer()->on("/generate_204", HTTP_GET, []() {   // Android
+        frontend.WebServer()->sendHeader("Location", "http://192.168.4.1/setup", true);
+        frontend.WebServer()->send(302, "text/plain", "");
+      });
+      frontend.WebServer()->on("/hotspot-detect.html", HTTP_GET, []() { // iOS
+        frontend.WebServer()->sendHeader("Location", "http://192.168.4.1/setup", true);
+        frontend.WebServer()->send(302, "text/plain", "");
+      });
+
       esp.SwitchLed(true, true);
 
       logger.println("AP gestartet - verbinde dich mit dem WLAN 'LaCrosseGateway_XXXXXX'");
@@ -1560,22 +1573,6 @@ static bool StartWifi(Settings &settings) {
   frontend.Begin(&stateManager, &logger); // Routen registrieren + Webserver starten
   logger.println("Starting OTA");
   ota.Begin(frontend.WebServer());
-
-//  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
-//    OTAUpdate ghOta;
-//
-//  // Owner/Repo/Asset direkt aus den URL-Parametern lesen
-//    String owner = frontend.WebServer()->arg("ghOwner");
-//    String repo  = frontend.WebServer()->arg("ghRepo");
-//    String asset = frontend.WebServer()->arg("ghAsset");
-//
-//    if (owner.isEmpty()) owner = "steigerbalett";
-//    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
-//    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
-//
-//    String result = ghOta.StartFromGitHub(owner, repo, asset);
-//    frontend.WebServer()->send(200, "text/plain", result);
-//  });
 
   uint16_t p1 = settings.GetInt("DataPort1", 81);
   uint16_t p2 = settings.GetInt("DataPort2", 0);

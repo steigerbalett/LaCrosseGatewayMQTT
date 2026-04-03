@@ -15,54 +15,49 @@ void AccessPoint::SetLogItemCallback(LogItemCallbackType *callback) {
 }
 
 void AccessPoint::Begin(int autoClose) {
-  if (m_logItemCallback != NULL) {
-    m_logItemCallback("Starting ...");
-  }
+  if (m_logItemCallback != NULL) m_logItemCallback("Starting ...");
 
   WiFi.persistent(false);
-  WiFi.disconnect(false);
+  WiFi.disconnect(true);
+  delay(100);
   WiFi.mode(WiFiMode::WIFI_AP);
+  delay(100);
 
-  wifi_softap_dhcps_stop();           // DHCP stoppen
-  WiFi.softAPConfig(m_ip, m_ip, m_subnet);  // IP konfigurieren
-  wifi_softap_dhcps_start();          // DHCP mit neuer Konfiguration starten
+  // RICHTIGE Reihenfolge: erst Config, dann DHCP starten
+  wifi_softap_dhcps_stop();
+  WiFi.softAPConfig(m_ip, m_ip, m_subnet);
+  wifi_softap_dhcps_start();
 
   String ssid = m_ssidPrefix + "_" + String((unsigned int)ESP.getChipId());
   WiFi.softAP(ssid.c_str());
   delay(500);
 
-  // DNS Catch-All: alle Domains auf AP-IP umleiten (Captive Portal)
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(53, "*", m_ip);
 
-  if (m_logItemCallback != NULL) {
-    m_logItemCallback("running, SSID=" + ssid);
-  }
+  if (m_logItemCallback != NULL) m_logItemCallback("running, SSID=" + ssid);
 
-  m_autoClose = autoClose;
-  m_startMillis = millis();
-  m_running = true;
+  m_autoClose    = autoClose;
+  m_startMillis  = millis();
+  m_running      = true;
 }
 
 void AccessPoint::End() {
-  if (m_logItemCallback != NULL) {
-    m_logItemCallback("Closing  ...");
-  }
+  if (m_logItemCallback != NULL) m_logItemCallback("Closing ...");
   dnsServer.stop();
-  m_running = false;
+  WiFi.softAPdisconnect(true);
+  m_running  = false;
   m_autoClose = 0;
   WiFi.mode(WiFiMode::WIFI_STA);
-
-  if (m_logItemCallback != NULL) {
-    m_logItemCallback("closed");
-  }
+  delay(100);
+  if (m_logItemCallback != NULL) m_logItemCallback("closed");
 }
 
 void AccessPoint::Handle() {
   if (m_running) {
     dnsServer.processNextRequest();
     if (m_autoClose > 0) {
-      if (millis() - m_startMillis > (uint)m_autoClose * 1000) {
+      if (millis() - m_startMillis > (uint32_t)m_autoClose * 1000UL) {
         End();
       }
     }

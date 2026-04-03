@@ -973,45 +973,91 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
 });
 
-// -- /setup --------------------------------------------------------------
-m_webserver.on("/setup", [this]() {
-  if (IsAuthentified()) {
-    Settings settings; settings.Read(m_logger);
-    m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
-    m_webserver.send(200, "text/html", "");
-    m_webserver.sendContent(GetTop() + GetNavigation());
-    String data;
+// ── /wlan_scan  (AJAX – liefert HTML-Fragment) ──────────────────────────────
+m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
+  int n = WiFi.scanNetworks();
+  String html;
+  if (n == 0) {
+    html = F("<p class='info'>Keine Netzwerke gefunden.</p>");
+  } else {
+    html = F("<ul style='list-style:none;padding:0;margin:8px 0'>");
+    for (int i = 0; i < n; i++) {
+      int rssi = WiFi.RSSI(i);
+      int bars = (rssi >= -60) ? 4 : (rssi >= -70) ? 3 : (rssi >= -80) ? 2 : 1;
+      String barStr = "";
+      for (int b = 0; b < 4; b++)
+        barStr += (b < bars) ? "&#9608;" : "&#9617;";
+      bool sec = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
+      html += F("<li style='display:flex;justify-content:space-between;align-items:center;"
+                "padding:7px 10px;cursor:pointer;border-radius:5px;margin-bottom:3px;"
+                "background:var(--surface-2,#f5f5f5)' "
+                "onclick=\"document.querySelector('[name=ctSSID]').value='");
+      html += WiFi.SSID(i);
+      html += F("';this.style.background='#d0eaf5'\">");
+      html += F("<span>");
+      html += WiFi.SSID(i);
+      if (sec) html += F(" &#x1F512;");
+      html += F("</span><span style='font-size:.8rem;color:#888'>");
+      html += barStr;
+      html += " ";
+      html += String(rssi);
+      html += F(" dBm</span></li>");
+    }
+    html += F("</ul>");
+  }
+  m_webserver.send(200, "text/html", html);
+});
 
-    // -- WLAN --
-    data += F("<form method='post' action='/save_wlan'>");
-    data += F("<div class='card' style='margin-bottom:12px'>");
-    data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
-    data += F("<table>");
-    data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
-    data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
-    data += F("<input name='ctSSID' size='40' maxlength='32' value='"); data += settings.Get("ctSSID", ""); data += F("'>");
-    data += F(" <input type='password' name='ctPASS' size='40' maxlength='63' value='");
-    data += settings.Get("ctPASS", "");
-    data += F("'>");
-    data += F(" <input name='Timeout1' size='5' maxlength='4' value='"); data += settings.Get("Timeout1", "15"); data += F("'></td></tr>");
-    data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
-    data += F("<input name='ctSSID2' size='40' maxlength='32' value='"); data += settings.Get("ctSSID2", ""); data += F("'>");
-    data += F(" <input type='password' name='ctPASS2' size='40' maxlength='63' value='");
-    data += settings.Get("ctPASS2", "");
-    data += F("'>");
-    data += F(" <input name='Timeout2' size='5' maxlength='4' value='"); data += settings.Get("Timeout2", "15"); data += F("'></td></tr>");
-    data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
-    data += F("<input name='frontPass' type='password' size='28' maxlength='60' value='");
-    data += settings.Get("frontPass", "");
-    data += F("'>");
-    data += F(" Wiederholen: <input name='frontPass2' type='password' size='28' maxlength='60' value='");
-    data += settings.Get("frontPass2", "");
-    data += F("'>");
-    data += F(" <span class='info'>(leer = kein Login erforderlich)</span></td></tr>");
-    data += F("</table>");
-    data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
-    data += F("</div></form>");
-    m_webserver.sendContent(data); data = "";
+// ── /setup ──────────────────────────────────────────────────────────────────
+m_webserver.on("/setup", [this]() {
+  if (!IsAuthentified()) return;
+  Settings settings; settings.Read(m_logger);
+  m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  m_webserver.send(200, "text/html", "");
+  m_webserver.sendContent(GetTop() + GetNavigation());
+
+  // ── WLAN-Karte mit WiFi-Scan ────────────────────────────────────────────
+  String data;
+  data += F("<div class='card' style='margin-bottom:12px'>");
+  data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
+  data += F("<div style='display:flex;align-items:center;gap:10px;margin-bottom:8px'>");
+  data += F("<strong>Verf&uuml;gbare Netzwerke:</strong>");
+  data += F("<button type='button' style='font-size:.82rem;padding:5px 12px;background:#eee;"
+            "color:#333;border:none;border-radius:5px;cursor:pointer' "
+            "onclick=\"var d=document.getElementById('scanDiv');"
+            "d.innerHTML='<p class=\\'info\\'>Scan laeuft...</p>';"
+            "fetch('/wlan_scan').then(r=>r.text()).then(h=>{d.innerHTML=h})\">"
+            "&#x21BA; Netzwerke scannen</button></div>");
+  data += F("<div id='scanDiv'><p class='info'>Klicke auf 'Netzwerke scannen' um verf&uuml;gbare SSIDs zu laden.</p></div>");
+  data += F("<form method='post' action='/save_wlan'>");
+  data += F("<table>");
+  data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
+  data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
+  data += F("<input name='ctSSID' size='30' maxlength='32' value='");
+  data += settings.Get("ctSSID", "");
+  data += F("'> <input type='password' name='ctPASS' size='30' maxlength='63' value='");
+  data += settings.Get("ctPASS", "");
+  data += F("'> <input name='Timeout1' size='5' maxlength='4' value='");
+  data += settings.Get("Timeout1", "15");
+  data += F("'></td></tr>");
+  data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
+  data += F("<input name='ctSSID2' size='30' maxlength='32' value='");
+  data += settings.Get("ctSSID2", "");
+  data += F("'> <input type='password' name='ctPASS2' size='30' maxlength='63' value='");
+  data += settings.Get("ctPASS2", "");
+  data += F("'> <input name='Timeout2' size='5' maxlength='4' value='");
+  data += settings.Get("Timeout2", "15");
+  data += F("'></td></tr>");
+  data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
+  data += F("<input name='frontPass' type='password' size='24' maxlength='60' value='");
+  data += settings.Get("frontPass", "");
+  data += F("'> Wiederholen: <input name='frontPass2' type='password' size='24' maxlength='60' value='");
+  data += settings.Get("frontPass2", "");
+  data += F("'> <span class='info'>(leer = kein Login)</span></td></tr>");
+  data += F("</table>");
+  data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
+  data += F("</form></div>");
+  m_webserver.sendContent(data); data = "";
 
     // -- MQTT --
     data += F("<form method='post' action='/save_mqtt'>");
