@@ -2053,7 +2053,13 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       delay(startupDelay * 1000);
     }
     logger.println("Starting wifi");
-    StartWifi(settings);
+    bool wifiConnected = StartWifi(settings);
+
+    if (!wifiConnected) {
+      // First-Setup-Modus: frontend wurde bereits in StartWifi() gestartet.
+      // setup() hier abbrechen – loop() übernimmt (accessPoint.Handle() läuft dort).
+      return;
+    }
 
     configTime(MY_TZ, MY_NTP_SERVER);
     logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));

@@ -408,78 +408,6 @@ String WebFrontend::GetDisplayName() {
 
 void WebFrontend::Handle() { m_webserver.handleClient(); }
 
-String WebFrontend::_resolveDirectURL(const String &url) {
-  String current = url;
-
-  for (int hop = 0; hop < 4; hop++) {
-    String u = current;
-    bool isHttps = u.startsWith("https://");
-    if (isHttps)            u = u.substring(8);
-    else if (u.startsWith("http://")) u = u.substring(7);
-
-    int slash = u.indexOf('/');
-    if (slash < 0) return current;
-    String host = u.substring(0, slash);
-    String path = u.substring(slash);
-
-    BearSSL::WiFiClientSecure client;
-    client.setInsecure();
-    client.setTimeout(15);
-    int port = isHttps ? 443 : 80;
-
-    m_logger->println("OTA Hop " + String(hop) + ": " + host + path);
-
-    if (!client.connect(host.c_str(), port)) {
-      m_logger->println("OTA connect failed: " + host);
-      return current;
-    }
-
-    client.print("HEAD " + path + " HTTP/1.1\r\n");
-    client.print("Host: " + host + "\r\n");
-    client.print("User-Agent: ESP8266\r\n");
-    client.print("Connection: close\r\n\r\n");
-
-    String location = "";
-    int statusCode  = 0;
-    unsigned long deadline = millis() + 8000;
-
-    while (client.connected() && millis() < deadline) {
-      if (client.available()) {
-        String line = client.readStringUntil('\n');
-        line.trim();
-        if (statusCode == 0 && line.startsWith("HTTP/")) {
-          int sp1 = line.indexOf(' ');
-          int sp2 = line.indexOf(' ', sp1 + 1);
-          if (sp1 > 0) statusCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
-        }
-        String lower = line; lower.toLowerCase();
-        if (lower.startsWith("location:")) {
-          location = line.substring(9); location.trim();
-        }
-        if (line.isEmpty()) break;
-      }
-      yield();
-    }
-    client.stop();
-
-    m_logger->println("OTA Hop " + String(hop) + " status=" + String(statusCode) + " loc=" + location);
-
-    // 301/302/303/307/308 → weiter folgen
-    if ((statusCode == 301 || statusCode == 302 || statusCode == 303 ||
-         statusCode == 307 || statusCode == 308) && location.length() > 0) {
-      // Relative Location → absolut machen
-      if (location.startsWith("/")) {
-        String proto = isHttps ? "https://" : "http://";
-        location = proto + host + location;
-      }
-      current = location;
-      continue;
-    }
-    return current;
-  }
-  return current;  // Maximale Hops erreicht
-}
-
 String WebFrontend::SavePartial(std::initializer_list<String> keys) {
   Settings existing;
   existing.Read(m_logger);
@@ -638,89 +566,68 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.sendContent("");
 });
 
-  m_webserver.on("/ota", [this]() {
-    if (IsAuthentified()) {
-      Settings settings; settings.Read(m_logger);
-      String result; result += GetTop(); result += GetNavigation();
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#127381; Firmware-Info</h2><table>");
-      result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
-      result += m_stateManager->GetVersion(); result += F("</span></td></tr></table></div>");
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#128190; GitHub Release installieren</h2>");
-      result += F("<p class='info'>Die Liste wird direkt von der GitHub-API geladen.</p>");
-      result += F("<script>");
-      result += F("function loadReleases(){var out=document.getElementById('relDiv');out.innerHTML='<p class=\\'info\\'>Lade Releases...</p>';");
-      result += F("fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')");
-      result += F(".then(function(r){return r.json();}).then(function(data){");
-      result += F("var html='<table><thead><tr><th>Version</th><th>Typ</th><th>Datum</th><th>Flashen</th></tr></thead><tbody>';");
-      result += F("data.forEach(function(rel){");
-      result += F("var badge=rel.prerelease?'<span class=\\'badge warn\\'>Vorab</span>':'<span class=\\'badge ok\\'>Stabil</span>';");
-      result += F("var date=rel.published_at?rel.published_at.substring(0,10):'';");
-      result += F("var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});");
-      result += F("var links='';if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}");
-      result += F("else{assets.forEach(function(a){links+='<form method=\\'POST\\' action=\\'/ota_gh\\' style=\\'display:inline;margin:2px\\'>'");
-      result += F("+'<input type=\\'hidden\\' name=\\'url\\' value=\\''+a.browser_download_url+'\\'/>'");
-      result += F("+'<button type=\\'submit\\'>&#8595; '+a.name+'</button></form>';});}");
-      result += F("html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td><td>'+date+'</td><td>'+links+'</td></tr>';});");
-      result += F("html+='</tbody></table>';document.getElementById('relDiv').innerHTML=html;");
-      result += F("}).catch(function(e){document.getElementById('relDiv').innerHTML='<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';});}");
-      result += F("window.addEventListener('DOMContentLoaded', loadReleases);</script>");
-      result += F("<div id='relDiv'><p class='info'>JavaScript wird benoetigt.</p></div></div>");
-      result += F("<div class='card' style='margin-bottom:12px'>");
-      result += F("<h2>&#8593;&#65039; OTA-Server Update</h2>");
-      result += F("<form method='get' action='ota_start'>");
-      result += F("<p class='info'>Server: "); result += settings.Get("otaServer", ""); result += F("</p>");
-      result += F("<p class='info'>Port: ");   result += settings.Get("otaPort",   ""); result += F("</p>");
-      result += F("<p class='info'>URL: ");    result += settings.Get("otaURL",    ""); result += F("</p>");
-      result += F("<br><input type='submit' value='OTA-Update starten'></form></div>");
-      result += GetBottom();
-      m_webserver.send(200, "text/html", result);
-    }
-  });
-
-  m_webserver.on("/ota_gh", HTTP_POST, [this]() {
-    if (!IsAuthentified()) return;
-    String url = m_webserver.arg("url");
-    if (url.length() == 0) { m_webserver.send(400, "text/plain", "Keine URL"); return; }
-    m_otaPct = 0; m_otaMsg = "Lade direkte Download-URL..."; m_otaDone = false;
+m_webserver.on("/ota", [this]() {
+  if (IsAuthentified()) {
     String result; result += GetTop(); result += GetNavigation();
-    result += F("<div class='card'><h2>&#8593; OTA Update...</h2>");
-    result += F("<div class='progress-wrap'><div class='progress-bar-bg'><div id='pb' class='progress-bar' style='width:2%'>0%</div></div></div>");
-    result += F("<p id='pstat' class='info'>Verbinde...</p>");
-    result += F("<script>var t=setInterval(function(){fetch('/ota_progress').then(function(r){return r.json();}).then(function(d){document.getElementById('pb').style.width=d.pct+'%';document.getElementById('pb').textContent=d.pct+'%';document.getElementById('pstat').textContent=d.msg;if(d.done){clearInterval(t);setTimeout(function(){location.href='/';},3000);}}).catch(function(){});},500);</script></div>");
+
+    // Firmware-Info
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#127381; Firmware-Info</h2><table>");
+    result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
+    result += m_stateManager->GetVersion();
+    result += F("</span></td></tr></table></div>");
+
+    // GitHub-Release Download-Links
+    result += F("<div class='card' style='margin-bottom:12px'>");
+    result += F("<h2>&#128190; Firmware herunterladen</h2>");
+    result += F("<p class='info'>Lade die gewuenschte .bin-Datei herunter und "
+                "flashe sie anschliessend unter <a href='/update'>BIN-Update</a>.</p>");
+    result += F("<script>");
+    result += F("function loadReleases(){"
+                "var out=document.getElementById('relDiv');"
+                "out.innerHTML='<p class=\\'info\\'>Lade Releases...</p>';"
+                "fetch('https://api.github.com/repos/steigerbalett/LaCrosseGatewayMQTT/releases?per_page=20')"
+                ".then(function(r){return r.json();})"
+                ".then(function(data){"
+                "var html='<table><thead><tr>"
+                "<th>Version</th><th>Typ</th><th>Datum</th><th>Download</th>"
+                "</tr></thead><tbody>';"
+                "data.forEach(function(rel){"
+                "var badge=rel.prerelease"
+                "?'<span class=\\'badge warn\\'>Vorab</span>'"
+                ":'<span class=\\'badge ok\\'>Stabil</span>';"
+                "var date=rel.published_at?rel.published_at.substring(0,10):'';"
+                "var assets=rel.assets.filter(function(a){return a.name.endsWith('.bin');});"
+                "var links='';"
+                "if(assets.length===0){links='<span class=\\'info\\'>keine .bin</span>';}"
+                "else{assets.forEach(function(a){"
+                "links+='<a href=\\''+a.browser_download_url+'\\' download=\\''+a.name+'\\' "
+                "class=\\'btn-dl\\'>&#8595; '+a.name+'</a> ';});}"
+                "html+='<tr><td>'+rel.tag_name+'</td><td>'+badge+'</td>"
+                "<td>'+date+'</td><td>'+links+'</td></tr>';"
+                "});"
+                "html+='</tbody></table>';"
+                "document.getElementById('relDiv').innerHTML=html;"
+                "}).catch(function(e){"
+                "document.getElementById('relDiv').innerHTML="
+                "'<p style=\\'color:var(--err)\\'>Fehler: '+e+'</p>';});"
+                "}"
+                "window.addEventListener('DOMContentLoaded', loadReleases);");
+    result += F("</script>");
+    result += F("<div id='relDiv'><p class='info'>JavaScript wird benoetigt.</p></div></div>");
+
+    // Hinweis auf BIN-Update
+    result += F("<div class='card'>");
+    result += F("<h2>&#8593;&#65039; Firmware einspielen</h2>");
+    result += F("<p class='info'>Nach dem Download die .bin-Datei unter "
+                "<a href='/update'><strong>BIN-Update</strong></a> hochladen und flashen.</p>");
+    result += F("<a href='/update' class='btn-dl' style='display:inline-block;margin-top:8px'>"
+                "&#8594; Zum BIN-Update</a></div>");
+
     result += GetBottom();
     m_webserver.send(200, "text/html", result);
-    m_logger->println("OTA GitHub: " + url);
-    String directUrl = _resolveDirectURL(url);
-    m_logger->println("OTA direkter URL: " + directUrl);
-    m_otaMsg = "URL aufgeloest, starte Update...";
-    yield();
-    ESPhttpUpdate.onStart([this]()           { m_otaPct = 2; m_otaMsg = "Update gestartet..."; });
-    ESPhttpUpdate.onProgress([this](int c, int t) { if(t>0){ m_otaPct=(c*100)/t; m_otaMsg=String(c/1024)+" / "+String(t/1024)+" KB"; } });
-    ESPhttpUpdate.onEnd([this]()             { m_otaPct = 100; m_otaMsg = "Abgeschlossen - Neustart..."; m_otaDone = true; });
-    ESPhttpUpdate.onError([this](int)        { m_otaMsg = "Fehler: " + ESPhttpUpdate.getLastErrorString(); m_otaDone = true; });
-    BearSSL::WiFiClientSecure sc;
-    sc.setInsecure(); sc.setBufferSizes(1024, 1024); sc.setTimeout(60);
-    ESPhttpUpdate.rebootOnUpdate(false);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(sc, directUrl);
-    switch (ret) {
-      case HTTP_UPDATE_OK:      m_otaPct=100; m_otaMsg="Erfolgreich! Neustart..."; m_otaDone=true; delay(1500); ESP.restart(); break;
-      case HTTP_UPDATE_FAILED:  m_otaMsg="Fehler: "+ESPhttpUpdate.getLastErrorString(); m_otaDone=true; break;
-      case HTTP_UPDATE_NO_UPDATES: m_otaMsg="Kein Update noetig"; m_otaDone=true; break;
-    }
-  });
-
-  m_webserver.on("/ota_progress", [this]() {
-    String json = "{\"pct\":"; json += String(m_otaPct);
-    json += ",\"msg\":\""; json += m_otaMsg;
-    json += "\",\"done\":"; json += m_otaDone ? "true" : "false"; json += "}";
-    m_webserver.send(200, "application/json", json);
-  });
-
-  m_webserver.on("/ota_start", [this]() {
-    if (IsAuthentified()) m_webserver.send(200, "text/html", OTAUpdate::Start(m_logger));
-  });
+  }
+});
 
 // ── /save ───────────────────────────────────────────────────────────────
 m_webserver.on("/save", HTTP_POST, [this]() {
