@@ -5,9 +5,8 @@
 #include "HashMap.h"
 #include "Logger.h"
 
-// EEPROM auf 2048 vergrößert damit Radio-Settings Platz haben
-#define EEPROM_SIZE 2048
-#define CAPACITY    80
+#define EEPROM_SIZE 1024
+#define CAPACITY    50
 
 class Settings {
 public:

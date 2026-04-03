@@ -2,6 +2,8 @@
 #include "EEPROM.h"
 #include "Logger.h"
 
+bool Settings::m_debug = false;
+
 Settings::Settings() {
 }
 
