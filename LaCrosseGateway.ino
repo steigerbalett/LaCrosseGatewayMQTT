@@ -162,7 +162,7 @@ byte AddOnPinHandler(byte command, byte pin, byte value);
 IPAddress ipAddr;
 unsigned char macAddr[6];
 unsigned char bssid[6];
-int channel;
+int channel = 0;
 int rssi = -999;
 
 Logger logger;
@@ -1355,7 +1355,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
     if (rssi != -999) {
       logger.println("Connecting to bssid");
-      WiFi.begin(ctSSID.c_str(), ctPass.c_str(), channel, bssid, true);
+      WiFi.begin(ctSSID.c_str(), ctPass.c_str(), channel, bssid, false);
     }
     else {
       logger.println("Connecting to ssid");
@@ -1459,36 +1459,38 @@ static bool StartWifi(Settings &settings) {
   logger.println("Start WIFI_STA");
   WiFi.persistent(false);
   WiFi.mode(WiFiMode::WIFI_STA);
+  // disconnect(true) loescht SDK-interne Credentials, delay gibt SDK Zeit
+  WiFi.disconnect(true);
+  delay(200);
+
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   WiFi.hostname(hostName);
-  WiFi.disconnect(false);
   logger.print("HostName is: ");
   logger.println(hostName);
   stateManager.SetHostname(hostName);
 
-  String staticIP = settings.Get("staticIP", "");
-  String staticMask = settings.Get("staticMask", "");
-  String staticGW = settings.Get("staticGW", "");
+  String staticIP   = settings.Get("staticIP",   "");
+  String staticMask = settings.Get("staticMask",  "");
+  String staticGW   = settings.Get("staticGW",    "");
+  String staticDNS  = settings.Get("staticDNS",   "");
 
-  if (staticIP.length() < 7 || staticMask.length() < 7){
+  bool useStaticIP = (staticIP.length() >= 7 && staticMask.length() >= 7 && staticGW.length() >= 7);
+
+  if (!useStaticIP) {
+    // Explizit DHCP aktivieren - verhindert dass alte statische Config haengt
+    WiFi.config(0U, 0U, 0U);
     logger.println("Using DHCP");
-  }
-  else {
-    logger.println("Using static IP");
-    logger.print("IP: ");
-    logger.println(staticIP);
-    logger.print("Mask: ");
-    logger.println(staticMask);
-    logger.print("Gateway: ");
-    logger.println(staticGW);
-
-    if (staticGW.length() < 7) {
-      logger.println("Kein Gateway → DHCP");
-    } else {
-      WiFi.config(HTML::IPAddressFromString(staticIP),
-                  HTML::IPAddressFromString(staticGW),
-                  HTML::IPAddressFromString(staticMask.length() < 7 ? "255.255.255.0" : staticMask));
-    }
+  } else {
+    logger.println("Using static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
+    IPAddress dnsIP = staticDNS.length() >= 7
+      ? HTML::IPAddressFromString(staticDNS)
+      : HTML::IPAddressFromString(staticGW);
+    WiFi.config(
+      HTML::IPAddressFromString(staticIP),
+      HTML::IPAddressFromString(staticGW),
+      HTML::IPAddressFromString(staticMask),
+      dnsIP
+    );
   }
 
   logger.print("Try Connect to AP ");

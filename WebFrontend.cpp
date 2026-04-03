@@ -867,7 +867,7 @@ m_webserver.on("/save_net", HTTP_POST, [this]() {
       return;
     }
   }
-  const char* keys[] = {"staticIP","staticMask","staticGW","HostName","StartupDelay"};
+  const char* keys[] = {"staticIP","staticMask","staticGW","staticDNS","HostName","StartupDelay"};
   String info = SaveSelectedKeys(keys, 5, true);
   m_webserver.send(200, "text/html", GetRedirectToRoot("Netzwerk gespeichert<br>" + info));
   delay(1000); ESP.restart();
@@ -1056,20 +1056,50 @@ m_webserver.on("/setup", [this]() {
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
-    // ── Netzwerk (statisch) ──
+    // ── Netzwerk (statisch / DHCP) ──
     data += F("<form method='post' action='/save_net'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
-    data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
-    data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
-    data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-    data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
+    data += F("<h2>&#127760; Netzwerk</h2>");
+    data += F("<p class='info'>Aktuelle IP: <strong>");
+    data += (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String("nicht verbunden"));
+    data += F("</strong> &nbsp;|&nbsp; RSSI: <strong>");
+    data += (WiFi.status() == WL_CONNECTED ? String(WiFi.RSSI()) + " dBm" : String("--"));
+    data += F("</strong> &nbsp;|&nbsp; Hostname: <strong>");
+    data += WiFi.hostname();
+    data += F("</strong></p>");
+    data += F("<p class='info'>Alle drei Felder (IP, Maske, Gateway) ausf&uuml;llen f&uuml;r statische IP &mdash; leer lassen = DHCP.</p>");
+    data += F("<table>");
+    data += F("<tr><td><label>Statische IP:</label></td><td>");
+    data += F("<input name='staticIP' size='16' maxlength='15' placeholder='192.168.1.100' value='");
+    data += settings.Get("staticIP", "");
+    data += F("'>");
+    data += F(" <label style='display:inline'>Subnetz:</label> <input name='staticMask' size='16' maxlength='15' placeholder='255.255.255.0' value='");
+    data += settings.Get("staticMask", "");
+    data += F("'></td></tr>");
+    data += F("<tr><td><label>Gateway:</label></td><td>");
+    data += F("<input name='staticGW' size='16' maxlength='15' placeholder='192.168.1.1' value='");
+    data += settings.Get("staticGW", "");
+    data += F("'>");
+    data += F(" <label style='display:inline'>DNS:</label> <input name='staticDNS' size='16' maxlength='15' placeholder='optional, z.B. 8.8.8.8' value='");
+    data += settings.Get("staticDNS", "");
+    data += F("'></td></tr>");
     data += F("<tr><td><label>Hostname:</label></td><td>");
-    data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
-    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
+    data += F("<input name='HostName' size='24' maxlength='63' value='");
+    data += settings.Get("HostName", "LaCrosseGateway");
+    data += F("'>");
+    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='");
+    data += settings.Get("StartupDelay", "0");
+    data += F("'></td></tr>");
     data += F("</table>");
-    data += F("<br><input type='submit' value='&#128190; Netzwerk speichern &amp; neu starten'>");
+    data += F("<br>");
+    data += F("<button type='submit' style='margin-right:8px'>&#128190; Netzwerk speichern &amp; neu starten</button>");
+    data += F("<button type='button' onclick='testConn()' style='background:#2196f3;color:#fff;border:none;padding:5px 12px;cursor:pointer;border-radius:4px'>&#128268; Verbindung testen</button>");
+    data += F("<span id='connResult' style='margin-left:10px;font-weight:bold'></span>");
+    data += F("<script>function testConn(){var el=document.getElementById('connResult');el.style.color='';el.textContent='\u23F3 Teste...';");
+    data += F("fetch('/conntest').then(function(r){return r.json();}).then(function(d){");
+    data += F("el.style.color=d.ok?'green':'red';");
+    data += F("el.textContent=d.ok?'\u2714 Verbunden: '+d.ip+' ('+d.rssi+' dBm)':'\u2718 Nicht verbunden (Status '+d.status+')';");
+    data += F("}).catch(function(e){el.style.color='red';el.textContent='\u2718 Fehler: '+e;});}</script>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
@@ -1317,7 +1347,19 @@ m_webserver.on("/setup", [this]() {
     m_webserver.send(200, "text/html", content);
   });
 
-  m_webserver.on("/update", HTTP_GET, [this]() {
+  
+m_webserver.on("/conntest", [this]() {
+  String json;
+  if (WiFi.status() == WL_CONNECTED) {
+    json = "{\"ok\":true,\"ip\":\"" + WiFi.localIP().toString()
+         + "\",\"rssi\":" + String(WiFi.RSSI()) + "}";
+  } else {
+    json = "{\"ok\":false,\"status\":" + String(WiFi.status()) + ",\"ip\":\"\"}";
+  }
+  m_webserver.sendHeader("Cache-Control", "no-cache");
+  m_webserver.send(200, "application/json", json);
+});
+m_webserver.on("/update", HTTP_GET, [this]() {
     if (IsAuthentified()) {
       String result; result += GetTop(); result += GetNavigation();
       result += F("<div class='card'><h2>&#128190; Firmware Update (BIN-Upload)</h2>");
