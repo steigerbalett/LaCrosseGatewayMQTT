@@ -12,7 +12,8 @@ void Settings::Read(Logger *logger) {
   String rawData;
   int i;
   for (i = 0; i < EEPROM_SIZE; i++) {
-    rawData += (char)EEPROM.read(i);
+      rawData += (char)EEPROM.read(i);
+      if (i % 256 == 0) yield();
   }
   EEPROM.end();
 
@@ -195,10 +196,6 @@ bool Settings::FromString(String settings) {
   return result;
 }
 
-// -----------------------------------------------------------------------
-// NEU: Radio-Einstellungen gezielt speichern
-// Key-Schema: "Radio<1..5>Freq", "Radio<1..5>DataRate", etc.
-// -----------------------------------------------------------------------
 void Settings::SaveRadioSettings(byte radioIndex, unsigned long freqKHz,
                                   String dataRate, byte toggleMask,
                                   uint16_t toggleInterval) {
