@@ -1979,6 +1979,13 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
     logger.println("Starting wifi");
+    frontend.Begin(&stateManager, &logger);
+    frontend.SetCommandCallback([](String command) {
+      HandleCommand(command);
+    });
+    frontend.SetHardwareCallback([]() -> String {
+      return hardwarePageBuilder.Build();
+    });
     bool wifiConnected = StartWifi(settings);
 
     if (sc16is750.IsConnected() && !useSerialBridge) {
