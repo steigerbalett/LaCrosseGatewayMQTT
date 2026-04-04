@@ -806,9 +806,11 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
   // FromString/ToString zum Kopieren
   Settings merged;
   String raw = existing.ToString();
-  int sep = raw.indexOf(':');  // findet den Doppelpunkt nach dem Präfix
-  if (sep >= 0) merged.FromString(raw.substring(sep + 2));
-  else          merged.FromString(raw);
+  if (raw.startsWith("SETUP ")) {
+    merged.FromString(raw.substring(6));   // "SETUP " = 6 Zeichen
+  } else {
+    merged.FromString(raw);
+  };
 
   // RadioLock
   String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
@@ -857,9 +859,9 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
   String info = merged.Write();
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Radio-Einstellungen gespeichert</h3><p>") +
-    info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
-  // Kein Reboot noetig - Radios werden ueber FHEM neu initialisiert
-  // Optional: delay(1000); ESP.restart();
+    info + F("</p></div>") + GetBottom());
+  delay(1000);
+  ESP.restart();
 });
 
 // -- /save_net -----------------------------------------------------------

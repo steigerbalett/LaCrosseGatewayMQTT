@@ -163,6 +163,13 @@ String Settings::ToString() {
 bool Settings::FromString(String settings) {
   bool result = false;
 
+  if (key.length() > 0 && value.length() > 0) {
+    Add(key, value);
+    result = true;   // ← hinzufügen
+    key = "";
+    value = "";
+  }
+
   settings.trim();
   if (!settings.endsWith(";")) {
     settings += ";";
