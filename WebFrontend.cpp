@@ -430,8 +430,6 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   String raw = existing.ToString();
   String data = raw.startsWith("SETUP ") ? raw.substring(6) : raw;
   merged.FromString(data);
-  if (sep >= 0) merged.FromString(raw.substring(sep + 2));
-  else          merged.FromString(raw);
 
   for (byte i = 0; i < count; i++) {
     String key = String(keys[i]);
