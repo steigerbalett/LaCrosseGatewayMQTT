@@ -427,7 +427,10 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   Settings existing;
   existing.Read(m_logger);
   Settings merged;
-  merged.FromString(existing.ToString().substring(6));
+  String raw = existing.ToString();
+  int sep = raw.indexOf(':');  // findet den Doppelpunkt nach dem Präfix
+  if (sep >= 0) merged.FromString(raw.substring(sep + 2));
+  else          merged.FromString(raw);
 
   for (byte i = 0; i < count; i++) {
     String key = String(keys[i]);
@@ -803,7 +806,10 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
   existing.Read(m_logger);
   // FromString/ToString zum Kopieren
   Settings merged;
-  merged.FromString(existing.ToString().substring(6));
+  String raw = existing.ToString();
+  int sep = raw.indexOf(':');  // findet den Doppelpunkt nach dem Präfix
+  if (sep >= 0) merged.FromString(raw.substring(sep + 2));
+  else          merged.FromString(raw);
 
   // RadioLock
   String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
@@ -1052,7 +1058,7 @@ m_webserver.on("/setup", [this]() {
   data += F("<input name='frontPass' type='password' size='24' maxlength='60' value='");
   data += settings.Get("frontPass", "");
   data += F("'> Wiederholen: <input name='frontPass2' type='password' size='24' maxlength='60' value='");
-  data += settings.Get("frontPass2", "");
+  data += F("");
   data += F("'> <span class='info'>(leer = kein Login)</span></td></tr>");
   data += F("</table>");
   data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
@@ -1071,6 +1077,7 @@ m_webserver.on("/setup", [this]() {
     data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
     data += settings.Get("mqttPass", "");
     data += F("'>");
+    data += F("'></td></tr>");
     data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
     data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
     data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", ""); data += F("'>");
@@ -1290,7 +1297,7 @@ m_webserver.on("/setup", [this]() {
     m_webserver.sendContent(GetBottom());
     m_webserver.sendContent("");
   }
-});
+  });
 
   m_webserver.on("/getLogData", [this]() {
     String data = "";
