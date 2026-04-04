@@ -1296,7 +1296,6 @@ m_webserver.on("/setup", [this]() {
 
     m_webserver.sendContent(GetBottom());
     m_webserver.sendContent("");
-  }
   });
 
   m_webserver.on("/getLogData", [this]() {
