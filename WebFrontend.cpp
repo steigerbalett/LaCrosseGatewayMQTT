@@ -428,7 +428,8 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   existing.Read(m_logger);
   Settings merged;
   String raw = existing.ToString();
-  int sep = raw.indexOf(':');  // findet den Doppelpunkt nach dem Präfix
+  String data = raw.startsWith("SETUP ") ? raw.substring(6) : raw;
+  merged.FromString(data);
   if (sep >= 0) merged.FromString(raw.substring(sep + 2));
   else          merged.FromString(raw);
 

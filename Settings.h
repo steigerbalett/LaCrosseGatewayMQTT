@@ -5,8 +5,8 @@
 #include "HashMap.h"
 #include "Logger.h"
 
-#define EEPROM_SIZE 1024
-#define CAPACITY    50
+#define EEPROM_SIZE 4096
+#define CAPACITY    110
 
 class Settings {
 public:

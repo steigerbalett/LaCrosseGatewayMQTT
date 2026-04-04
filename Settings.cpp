@@ -119,7 +119,7 @@ void Settings::Add(String key, String value) {
   if (m_data.ContainsKey(key)) {
     m_data.Remove(key);
   }
-  if (key.length() > 0) {
+  if (key.length() > 0 && m_data.Size() < CAPACITY) {
     m_data.Put(key, value);
   }
 }

@@ -14,6 +14,7 @@
 #include "IPAddress.h"
 #include "ESP8266WiFiType.h"
 #include "ESP8266WiFi.h"
+#include <WiFiManager.h>
 #include "WiFiClient.h"
 #include "ESP8266WebServer.h"
 #include "pins_arduino.h"
@@ -1409,65 +1410,55 @@ static bool StartWifi(Settings &settings) {
 
   espconn_tcp_set_max_con(10);
 
-  // ── Erst-Setup: Kein WLAN konfiguriert → Captive Portal sofort starten ─
+    // --- WiFiManager: Erstkonfiguration & automatische Wiederverbindung ---
   {
     String ctSSID = settings.Get("ctSSID", "---");
     ctSSID.trim();
     bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
-    if (isFirstSetup) {
-      logger.println(F("*** FIRST SETUP: Kein WLAN konfiguriert ***"));
-      logger.println(F("*** Starte sofort Captive Portal (AP-Modus) ***"));
 
-      WiFi.disconnect(true);
-      WiFi.persistent(false);
-      WiFi.mode(WiFiMode::WIFI_OFF);
+    String hostName = settings.Get("HostName", "LaCrosseGateway");
+    String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
 
-      String hostName = settings.Get("HostName", "LaCrosseGateway");
-      WiFi.hostname(hostName);
+    WiFiManager wifiManager;
 
-      accessPoint.Begin(0); // 0 = kein Auto-Close, Portal bleibt bis Neustart
-      frontend.WebServer()->on("/", HTTP_GET, []() {
-        frontend.WebServer()->sendHeader("Location", "/setup", true);
-        frontend.WebServer()->send(302, "text/plain", "");
-      });
-      frontend.WebServer()->on("/generate_204", HTTP_GET, []() {   // Android
-        frontend.WebServer()->sendHeader("Location", "http://192.168.4.1/setup", true);
-        frontend.WebServer()->send(302, "text/plain", "");
-      });
-      frontend.WebServer()->on("/hotspot-detect.html", HTTP_GET, []() { // iOS
-        frontend.WebServer()->sendHeader("Location", "http://192.168.4.1/setup", true);
-        frontend.WebServer()->send(302, "text/plain", "");
-      });
+    wifiManager.setAPCallback([](WiFiManager* mgr) {
+      logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
+      logger.println("SSID: " + mgr->getConfigPortalSSID());
+      logger.println(F("Oeffne http://192.168.4.1 im Browser"));
+    });
 
-      esp.SwitchLed(true, true);
+    wifiManager.setSaveConfigCallback([]() {
+      logger.println(F("*** WiFiManager: WLAN-Daten gespeichert, starte neu ***"));
+    });
 
-      logger.println("AP gestartet - verbinde dich mit dem WLAN 'LaCrosseGateway_XXXXXX'");
-      logger.println("Oeffne dann http://" + AP_IP.toString() + "/setup im Browser");
+    wifiManager.setConfigPortalTimeout(180);
 
-      frontend.SetPassword(settings.Get("frontPass", ""));
-      frontend.SetCommandCallback([](String command) { CommandHandler(command); });
-      frontend.SetHardwareCallback([]() {
-        HardwarePageBuilder builder;
-        return builder.Build(
-          &rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
-          &ownSensors, &sc16is750, &sc16is750_2, &digitalPorts,
-          &display, &dataPort1, &dataPort2, &dataPort3,
-          &serialBridge, &serialBridge2, &softSerialBridge, &analogPort, &nextion
-        );
-      });
-      frontend.Begin(&stateManager, &logger);
-      ota.Begin(frontend.WebServer());
+    if (isFirstSetup && display.IsConnected()) {
+      display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+      display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+    }
 
-      if (display.IsConnected()) {
-        display.Print("FIRST SETUP", DisplayArea_Line1, OLED::Alignments::Center);
-        display.Print(AP_IP.toString(), DisplayArea_Line2, OLED::Alignments::Center);
-      }
+    esp.SwitchLed(true, true);
 
-      USE_WIFI = 1;
+    bool connected = wifiManager.autoConnect(apName.c_str());
+
+    if (!connected) {
+      logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
+      delay(1000);
+      ESP.restart();
       return false;
     }
+
+    String newSSID = WiFi.SSID();
+    String newPass = WiFi.psk();
+    if (newSSID.length() > 0) {
+      settings.Set("ctSSID", newSSID);
+      settings.Set("ctPASS", newPass);
+      settings.Write();
+      logger.println("WiFiManager: SSID '" + newSSID + "' in Settings gespeichert");
+    }
   }
-  // ── Ende Erst-Setup ────────────────────────────────────────────────────
+  // --- Ende WiFiManager-Block ---
 
   logger.println("Start WIFI_STA");
   WiFi.persistent(false);
