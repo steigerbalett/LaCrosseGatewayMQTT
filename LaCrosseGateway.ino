@@ -1981,10 +1981,17 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
     logger.println("Starting wifi");
     frontend.Begin(&stateManager, &logger);
     frontend.SetCommandCallback([](String command) {
-      HandleCommand(command);
+      HandleCommandString(command);
     });
     frontend.SetHardwareCallback([]() -> String {
-      return hardwarePageBuilder.Build();
+      HardwarePageBuilder hpb;
+      return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
+                       &ownSensors, &sc16is750, &sc16is750_2,
+                       &digitalPorts, &display,
+                       &dataPort1, &dataPort2, &dataPort3,
+                       &serialBridge, &serialBridge2,
+                       &softSerialBridge,
+                       &analogPort, &nextion);
     });
     bool wifiConnected = StartWifi(settings);
 
