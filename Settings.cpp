@@ -12,6 +12,7 @@ void Settings::Read(Logger *logger) {
 
   EEPROM.begin(EEPROM_SIZE);
   String rawData;
+  rawData.reserve(EEPROM_SIZE);
   int i;
   for (i = 0; i < EEPROM_SIZE; i++) {
       rawData += (char)EEPROM.read(i);

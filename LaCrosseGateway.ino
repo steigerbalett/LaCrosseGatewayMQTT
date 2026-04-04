@@ -1410,11 +1410,9 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
-// FIX 1: WiFiManager as static global to avoid ~1.5KB stack overflow on ESP8266
-static WiFiManager wifiManager;
-
 static bool StartWifi(Settings &settings) {
   espconn_tcp_set_max_con(10);
+  WiFiManager *wm = new WiFiManager();
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
@@ -1442,7 +1440,8 @@ static bool StartWifi(Settings &settings) {
 
   esp.SwitchLed(true, true);
 
-  bool connected = wifiManager.autoConnect(apName.c_str());
+  bool connected = wm->autoConnect(apName.c_str());
+  delete wm;
 
   if (!connected) {
     // FIX 4: Do not restart if no SSID configured yet – keep AP running for first-time setup
@@ -1783,9 +1782,7 @@ void setup(void) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
 
-      subProcessor.Begin(frontend.WebServer());
-      logger.println("SubProcessor Reset");
-      subProcessor.Reset();
+      logger.println("SubProcessor vorgemerkt");
     }
     
     serialBridge.SetLogItemCallback([](String logItem, bool newLine) {
@@ -1983,21 +1980,30 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
     int startupDelay = settings.GetInt("StartupDelay", 0);
     if (startupDelay > 0) {
       logger.println("Startup delay: " + String(startupDelay) + " seconds");
-      delay(startupDelay * 1000);
+      for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
     logger.println("Starting wifi");
     bool wifiConnected = StartWifi(settings);
 
+    if (sc16is750.IsConnected() && !useSerialBridge) {
+      subProcessor.Begin(frontend.WebServer());
+      logger.println("SubProcessor Reset");
+      subProcessor.Reset();
+    }
+    if (sc16is750_2.IsConnected() && !useSerialBridge2) {
+      subProcessor2.Begin(frontend.WebServer());
+      logger.println("SubProcessor2 Reset");
+      subProcessor2.Reset();
+    }
+
     if (!wifiConnected) {
-      // First-Setup-Modus: frontend wurde bereits in StartWifi() gestartet.
-      // setup() hier abbrechen – loop() übernimmt (accessPoint.Handle() läuft dort).
       return;
     }
 
     configTime(MY_TZ, MY_NTP_SERVER);
     logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
     time_t t = 0;
-    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); t = time(nullptr); }
+    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); ESP.wdtFeed(); yield(); t = time(nullptr); }
     logger.println(F("NTP sync: ") + getLocalTimeString());
   }
   else {
