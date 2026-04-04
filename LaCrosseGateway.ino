@@ -1417,7 +1417,7 @@ static bool StartWifi(Settings &settings) {
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
 
-  wifiManager.setAPCallback([](WiFiManager* mgr) {
+  wm->setAPCallback([](WiFiManager* mgr) {
     logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
     logger.println("SSID: " + mgr->getConfigPortalSSID());
     logger.println(F("Oeffne http://192.168.4.1 im Browser"));
@@ -1427,7 +1427,7 @@ static bool StartWifi(Settings &settings) {
     }
   });
 
-  wifiManager.setSaveConfigCallback([]() {
+  wm->setSaveConfigCallback([]() {
     logger.println(F("*** WiFiManager: WLAN-Daten gespeichert ***"));
   });
 
@@ -1435,7 +1435,7 @@ static bool StartWifi(Settings &settings) {
   ctSSID.trim();
   bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
   if (!isFirstSetup) {
-    wifiManager.setConfigPortalTimeout(180);
+    wm->setConfigPortalTimeout(180);
   }
 
   esp.SwitchLed(true, true);
@@ -1819,10 +1819,6 @@ void setup(void) {
       subProcessor2.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-
-      subProcessor2.Begin(frontend.WebServer());
-      logger.println("SubProcessor2 Reset");
-      subProcessor2.Reset();
     }
     
     serialBridge2.SetLogItemCallback([](String logItem, bool newLine) {
