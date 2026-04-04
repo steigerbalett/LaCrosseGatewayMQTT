@@ -1452,8 +1452,8 @@ static bool StartWifi(Settings &settings) {
     String newSSID = WiFi.SSID();
     String newPass = WiFi.psk();
     if (newSSID.length() > 0) {
-      settings.Set("ctSSID", newSSID);
-      settings.Set("ctPASS", newPass);
+      settings.Add("ctSSID", newSSID);
+      settings.Add("ctPASS", newPass);
       settings.Write();
       logger.println("WiFiManager: SSID '" + newSSID + "' in Settings gespeichert");
     }
