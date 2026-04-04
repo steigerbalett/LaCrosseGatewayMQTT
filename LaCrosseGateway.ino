@@ -945,8 +945,9 @@ bool HandleReceivedData(RFMxx *rfm) {
   String publishData;
 
   rfm->EnableReceiver(false);
-  byte *payload;
-  payload = new byte[rfm->GetFiFoSize()];
+  // FIX 3: all exit paths must call delete[] to prevent heap fragmentation / OOM
+  const size_t fifoSize = rfm->GetFiFoSize();
+  byte *payload = new byte[fifoSize];
   byte payloadSize = rfm->GetPayload(payload);
   rfm->EnableReceiver(true);
 
@@ -961,6 +962,8 @@ bool HandleReceivedData(RFMxx *rfm) {
     Dispatch(payloadString, payloadString);
 
     result = true;
+    delete[] payload;  // FIX 3: free before early return
+    return result;
   }
   else {
     if(ANALYZE_FRAMES > 0) {
@@ -1259,7 +1262,7 @@ bool HandleReceivedData(RFMxx *rfm) {
     } 
   }
 
-  delete payload;
+  delete[] payload;  // FIX 3: correct array delete
   return result;
 }
 
@@ -1379,6 +1382,8 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     while (retryCounter < timeout * 2 && WiFi.status() != WL_CONNECTED) {
       retryCounter++;
       delay(500);
+      ESP.wdtFeed();  // FIX 2: prevent HW-WDT reset during long WiFi connect timeout
+      yield();
       logger.print(".");
       esp.SwitchLed(retryCounter % 2 == 0, true);
       if (display.IsConnected()) {
@@ -1405,13 +1410,14 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
+// FIX 1: WiFiManager as static global to avoid ~1.5KB stack overflow on ESP8266
+static WiFiManager wifiManager;
+
 static bool StartWifi(Settings &settings) {
   espconn_tcp_set_max_con(10);
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
-
-  WiFiManager wifiManager;
 
   wifiManager.setAPCallback([](WiFiManager* mgr) {
     logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
@@ -1439,9 +1445,17 @@ static bool StartWifi(Settings &settings) {
   bool connected = wifiManager.autoConnect(apName.c_str());
 
   if (!connected) {
-    logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
-    delay(1000);
-    ESP.restart();
+    // FIX 4: Do not restart if no SSID configured yet – keep AP running for first-time setup
+    String storedSSID = settings.Get("ctSSID", "---");
+    storedSSID.trim();
+    bool hasStoredSSID = (storedSSID.length() > 0 && storedSSID != "---");
+    if (hasStoredSSID) {
+      logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
+      delay(1000);
+      ESP.restart();
+    } else {
+      logger.println(F("*** WiFiManager: Kein WLAN konfiguriert, AP laeuft weiter ***"));
+    }
     return false;
   }
 
