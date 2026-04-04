@@ -1443,20 +1443,12 @@ static bool StartWifi(Settings &settings) {
   bool connected = wm->autoConnect(apName.c_str());
   delete wm;
 
-  if (!connected) {
-    // FIX 4: Do not restart if no SSID configured yet – keep AP running for first-time setup
-    String storedSSID = settings.Get("ctSSID", "---");
-    storedSSID.trim();
-    bool hasStoredSSID = (storedSSID.length() > 0 && storedSSID != "---");
-    if (hasStoredSSID) {
-      logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
-      delay(1000);
-      ESP.restart();
-    } else {
-      logger.println(F("*** WiFiManager: Kein WLAN konfiguriert, AP laeuft weiter ***"));
-    }
+if (!connected) {
+    logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte Konfigportal ***"));
+    WiFi.disconnect(true);
+    delay(200);
     return false;
-  }
+}
 
   // SSID/Pass in Settings sichern
   String newSSID = WiFi.SSID();
@@ -1995,14 +1987,27 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
     });
     bool wifiConnected = StartWifi(settings);
 
+    frontend.Begin(&stateManager, &logger);
+    frontend.SetCommandCallback([](String command) {
+      HandleCommandString(command);
+    });
+    frontend.SetHardwareCallback([]() -> String {
+      HardwarePageBuilder hpb;
+      return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
+                       &ownSensors, &sc16is750, &sc16is750_2,
+                       &digitalPorts, &display,
+                       &dataPort1, &dataPort2, &dataPort3,
+                       &serialBridge, &serialBridge2,
+                       &softSerialBridge,
+                       &analogPort, &nextion);
+    });
+
     if (sc16is750.IsConnected() && !useSerialBridge) {
       subProcessor.Begin(frontend.WebServer());
-      logger.println("SubProcessor Reset");
       subProcessor.Reset();
     }
     if (sc16is750_2.IsConnected() && !useSerialBridge2) {
       subProcessor2.Begin(frontend.WebServer());
-      logger.println("SubProcessor2 Reset");
       subProcessor2.Reset();
     }
 
