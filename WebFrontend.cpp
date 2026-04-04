@@ -973,7 +973,7 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
 });
 
-// ── /wlan_scan  (AJAX – liefert HTML-Fragment) ──────────────────────────────
+// -- /wlan_scan  (AJAX - liefert HTML-Fragment) ------------------------------
 m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
   int n = WiFi.scanNetworks();
   String html;
@@ -1008,7 +1008,7 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
   m_webserver.send(200, "text/html", html);
 });
 
-// ── /setup ──────────────────────────────────────────────────────────────────
+// -- /setup ------------------------------------------------------------------
 m_webserver.on("/setup", [this]() {
   if (!IsAuthentified()) return;
   Settings settings; settings.Read(m_logger);
@@ -1016,7 +1016,7 @@ m_webserver.on("/setup", [this]() {
   m_webserver.send(200, "text/html", "");
   m_webserver.sendContent(GetTop() + GetNavigation());
 
-  // ── WLAN-Karte mit WiFi-Scan ────────────────────────────────────────────
+  // -- WLAN-Karte mit WiFi-Scan --------------------------------------------
   String data;
   data += F("<div class='card' style='margin-bottom:12px'>");
   data += F("<h2>&#128225; WLAN-Einstellungen</h2>");
