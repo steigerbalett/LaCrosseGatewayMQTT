@@ -1660,9 +1660,9 @@ void setup(void) {
   
   SetDebugMode(DEBUG);
   
-  Settings settings;
-  settings.Read(&logger);
-  LoadRadioSettings(settings);
+  Settings *pSettings = new Settings();
+  pSettings->Read(&logger);
+  Settings &settings = *pSettings;
   
   pinMode(D7, INPUT);
   if (digitalRead(D7)) {
