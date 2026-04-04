@@ -270,7 +270,7 @@ RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
 AlarmHandler alarm(7, AddOnPinHandler);
 
 OwnSensors ownSensors;
-WebFrontend frontend(FRONTEND_PORT);
+WebFrontend *frontend = nullptr; // Instanziiert in setup() nach WiFi-Init
 DataPort dataPort1;
 DataPort dataPort2;
 DataPort dataPort3;
@@ -1434,7 +1434,11 @@ static bool StartWifi(Settings &settings) {
   String ctSSID = settings.Get("ctSSID", "---");
   ctSSID.trim();
   bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
-  if (!isFirstSetup) {
+  if (isFirstSetup) {
+    WiFi.disconnect(true);
+    delay(100);
+    wm->resetSettings();
+  } else {
     wm->setConfigPortalTimeout(180);
   }
 
@@ -1512,7 +1516,7 @@ if (!connected) {
 
   // OTA
   logger.println("Starting OTA");
-  ota.Begin(frontend.WebServer());
+  ota.Begin(frontend->WebServer());
 
   // DataPorts
   uint16_t p1 = settings.GetInt("DataPort1", 81);
@@ -1543,7 +1547,7 @@ if (!connected) {
         HandleProgressRequest(action, cur, max, msg);
       });
       logger.println("Starting serial bridge on port " + String(sbPort) + " with " + sbBaud + " baud");
-      serialBridge.Begin(sbPort, frontend.WebServer());
+      serialBridge.Begin(sbPort, frontend->WebServer());
       serialBridge.SetBaudrate(sbBaud);
     }
   }
@@ -1555,7 +1559,7 @@ if (!connected) {
         HandleProgressRequest(action, cur, max, msg);
       });
       logger.println("Starting serial bridge 2 on port " + String(sbPort) + " with " + sbBaud + " baud");
-      serialBridge2.Begin(sbPort, frontend.WebServer());
+      serialBridge2.Begin(sbPort, frontend->WebServer());
       serialBridge2.SetBaudrate(sbBaud);
     }
   }
@@ -1927,13 +1931,13 @@ for (byte i = 0; i < 5; i++) {
     });
 
     logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
-    softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend.WebServer());
+    softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
 
     if (settings.GetBool("IsNextion", false)) {
       nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-      if (nextion.Begin(frontend.WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
+      if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
         logger.println("Nextion initialized");
       }
     }
@@ -1971,47 +1975,40 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
     logger.println("Starting wifi");
-    frontend.Begin(&stateManager, &logger);
-    frontend.SetCommandCallback([](String command) {
-      HandleCommandString(command);
-    });
-    frontend.SetHardwareCallback([]() -> String {
-      HardwarePageBuilder hpb;
-      return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
-                       &ownSensors, &sc16is750, &sc16is750_2,
-                       &digitalPorts, &display,
-                       &dataPort1, &dataPort2, &dataPort3,
-                       &serialBridge, &serialBridge2,
-                       &softSerialBridge,
-                       &analogPort, &nextion);
-    });
+    // WebFrontend als Pointer - hier instanziiert (nicht global = kein WDT-Crash).
+    // WiFiManager und WebFrontend teilen Port 80, aber niemals gleichzeitig:
+    //   kein WLAN -> WiFiManager-AP auf Port 80
+    //   WLAN OK   -> WiFiManager beendet sich, WebFrontend startet auf Port 80
+    frontend = new WebFrontend(FRONTEND_PORT);
     bool wifiConnected = StartWifi(settings);
 
-    frontend.Begin(&stateManager, &logger);
-    frontend.SetCommandCallback([](String command) {
-      HandleCommandString(command);
-    });
-    frontend.SetHardwareCallback([]() -> String {
-      HardwarePageBuilder hpb;
-      return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
-                       &ownSensors, &sc16is750, &sc16is750_2,
-                       &digitalPorts, &display,
-                       &dataPort1, &dataPort2, &dataPort3,
-                       &serialBridge, &serialBridge2,
-                       &softSerialBridge,
-                       &analogPort, &nextion);
-    });
-
-    if (sc16is750.IsConnected() && !useSerialBridge) {
-      subProcessor.Begin(frontend.WebServer());
-      subProcessor.Reset();
-    }
-    if (sc16is750_2.IsConnected() && !useSerialBridge2) {
-      subProcessor2.Begin(frontend.WebServer());
-      subProcessor2.Reset();
-    }
-
-    if (!wifiConnected) {
+    if (wifiConnected) {
+      frontend->Begin(&stateManager, &logger);
+      frontend->SetCommandCallback([](String command) {
+        HandleCommandString(command);
+      });
+      frontend->SetHardwareCallback([]() -> String {
+        HardwarePageBuilder hpb;
+        return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
+                         &ownSensors, &sc16is750, &sc16is750_2,
+                         &digitalPorts, &display,
+                         &dataPort1, &dataPort2, &dataPort3,
+                         &serialBridge, &serialBridge2,
+                         &softSerialBridge,
+                         &analogPort, &nextion);
+      });
+      if (sc16is750.IsConnected() && !useSerialBridge) {
+        subProcessor.Begin(frontend->WebServer());
+        subProcessor.Reset();
+      }
+      if (sc16is750_2.IsConnected() && !useSerialBridge2) {
+        subProcessor2.Begin(frontend->WebServer());
+        subProcessor2.Reset();
+      }
+    } else {
+      // Kein WLAN: WiFiManager-AP laeuft auf Port 80.
+      // frontend->Begin() nicht aufgerufen -> kein Port-Konflikt.
+      logger.println(F("Kein WLAN - Konfigportal auf http://192.168.4.1"));
       return;
     }
 
@@ -2242,7 +2239,7 @@ void loop(void) {
     if (USE_WIFI) {
       // Handle the web fronted and the access point
       // -------------------------------------------
-      frontend.Handle();
+      frontend->Handle();
       accessPoint.Handle();
 
       // Handle the ports for FHEM

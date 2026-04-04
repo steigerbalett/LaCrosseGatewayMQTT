@@ -410,17 +410,19 @@ void WebFrontend::Handle() { m_webserver.handleClient(); }
 
 
 String WebFrontend::SavePartial(std::initializer_list<String> keys) {
-  Settings existing;
-  existing.Read(m_logger);
-  // Alle bestehenden Werte uebernehmen
-  Settings settings = existing;  // Kopie
-  // Nur die uebergebenen Keys aus dem Request ueberschreiben
+  // Heap statt Stack: Settings ~2.6KB - zwei Instanzen auf dem Stack wuerden overflow ausloesen
+  Settings *existing = new Settings();
+  existing->Read(m_logger);
+  Settings *settings = new Settings(*existing);
+  delete existing;
   for (const String& key : keys) {
     if (m_webserver.hasArg(key)) {
-      settings.Add(key, m_webserver.arg(key));
+      settings->Add(key, m_webserver.arg(key));
     }
   }
-  return settings.Write();
+  String result = settings->Write();
+  delete settings;
+  return result;
 }
 
 String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot) {
