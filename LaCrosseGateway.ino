@@ -1406,58 +1406,73 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 }
 
 static bool StartWifi(Settings &settings) {
-  bool result = false;
-
   espconn_tcp_set_max_con(10);
 
-    // --- WiFiManager: Erstkonfiguration & automatische Wiederverbindung ---
-  {
-    String ctSSID = settings.Get("ctSSID", "---");
-    ctSSID.trim();
-    bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
+  String hostName = settings.Get("HostName", "LaCrosseGateway");
+  String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
 
-    String hostName = settings.Get("HostName", "LaCrosseGateway");
-    String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
+  WiFiManager wifiManager;
 
-    WiFiManager wifiManager;
-
-    wifiManager.setAPCallback([](WiFiManager* mgr) {
-      logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
-      logger.println("SSID: " + mgr->getConfigPortalSSID());
-      logger.println(F("Oeffne http://192.168.4.1 im Browser"));
-    });
-
-    wifiManager.setSaveConfigCallback([]() {
-      logger.println(F("*** WiFiManager: WLAN-Daten gespeichert, starte neu ***"));
-    });
-
-    wifiManager.setConfigPortalTimeout(180);
-
-    if (isFirstSetup && display.IsConnected()) {
+  wifiManager.setAPCallback([](WiFiManager* mgr) {
+    logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
+    logger.println("SSID: " + mgr->getConfigPortalSSID());
+    logger.println(F("Oeffne http://192.168.4.1 im Browser"));
+    if (display.IsConnected()) {
       display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
       display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
     }
+  });
 
-    esp.SwitchLed(true, true);
+  wifiManager.setSaveConfigCallback([]() {
+    logger.println(F("*** WiFiManager: WLAN-Daten gespeichert ***"));
+  });
 
-    bool connected = wifiManager.autoConnect(apName.c_str());
-
-    if (!connected) {
-      logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
-      delay(1000);
-      ESP.restart();
-      return false;
-    }
-
-    String newSSID = WiFi.SSID();
-    String newPass = WiFi.psk();
-    if (newSSID.length() > 0) {
-      settings.Add("ctSSID", newSSID);
-      settings.Add("ctPASS", newPass);
-      settings.Write();
-      logger.println("WiFiManager: SSID '" + newSSID + "' in Settings gespeichert");
-    }
+  String ctSSID = settings.Get("ctSSID", "---");
+  ctSSID.trim();
+  bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
+  if (!isFirstSetup) {
+    // Nur bei Re-Konfiguration: nach 3 Min. aufgeben und mit alten Daten weitermachen
+    wifiManager.setConfigPortalTimeout(180);
   }
+
+  esp.SwitchLed(true, true);
+
+  bool connected = wifiManager.autoConnect(apName.c_str());
+
+  if (!connected) {
+    logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte neu ***"));
+    delay(1000);
+    ESP.restart();
+    return false;
+  }
+
+  // Verbindung steht — SSID/Pass in Settings sichern
+  String newSSID = WiFi.SSID();
+  String newPass = WiFi.psk();
+  if (newSSID.length() > 0) {
+    settings.Add("ctSSID", newSSID);
+    settings.Add("ctPASS", newPass);
+    settings.Write();
+    logger.println("WiFiManager: SSID '" + newSSID + "' gespeichert");
+  }
+
+  // Hostname setzen
+  String hn = settings.Get("HostName", "LaCrosseGateway");
+  WiFi.hostname(hn);
+  stateManager.SetHostname(hn);
+
+  logger.println("connected :-)");
+  logger.print("IP: ");
+  logger.println(WiFi.localIP().toString());
+
+  if (display.IsConnected()) {
+    display.Print("LGW V" + stateManager.GetVersion(), DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print(WiFi.localIP().toString(), DisplayArea_Line2, OLED::Alignments::Center);
+    display.SetWifiFlag(true);
+  }
+
+  return true;
+}
   // --- Ende WiFiManager-Block ---
 
   logger.println("Start WIFI_STA");
