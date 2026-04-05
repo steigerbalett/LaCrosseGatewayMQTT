@@ -493,9 +493,10 @@ static void HandleSerialPort(char c) {
     
     case 'g':
       if (value == 1) {
-        Settings settings;
-        settings.Read(&logger);
-        Dispatch(settings.ToString());
+        Settings *s = new Settings();
+        s->Read(&logger);
+        Dispatch(s->ToString());
+        delete s;
       }
       break;
       
@@ -687,35 +688,36 @@ void HandleCommandString(String command) {
     digitalPorts.Command(command.substring(4));
   }
   else if (upperCommand.startsWith("SETUP ")) {
-    Settings settings;
-    settings.Read(&logger);
+    Settings *settings = new Settings();
+    settings->Read(&logger);
 
-    bool radioLock = settings.GetBool("RadioLock", false);
+    bool radioLock = settings->GetBool("RadioLock", false);
     String savedRadio[5][5];
     const char* radioKeys[] = {"Type", "Freq", "DataRate", "ToggleMask", "ToggleInterval"};
     if (radioLock) {
       for (byte i = 0; i < 5; i++) {
         String p = "Radio" + String(i + 1);
         for (byte k = 0; k < 5; k++) {
-          savedRadio[i][k] = settings.Get(p + radioKeys[k], "");
+          savedRadio[i][k] = settings->Get(p + radioKeys[k], "");
         }
       }
     }
 
-    settings.FromString(command.substring(6));
+    settings->FromString(command.substring(6));
 
     if (radioLock) {
       for (byte i = 0; i < 5; i++) {
         String p = "Radio" + String(i + 1);
         for (byte k = 0; k < 5; k++) {
           if (savedRadio[i][k].length() > 0) {
-            settings.Add(p + radioKeys[k], savedRadio[i][k]);
+            settings->Add(p + radioKeys[k], savedRadio[i][k]);
           }
         }
       }
     }
 
-    settings.Write();
+    settings->Write();
+    delete settings;
   }
   else if (upperCommand.startsWith("WATCHDOG ")) {
     watchdog.Command(command.substring(9));
@@ -756,17 +758,16 @@ void HandleCommandI(unsigned long *commandData, byte length){
     if (rfm != NULL){
       pca301.Begin(rfm, commandData[1], interval, [](String key, String value, bool write) {
         String result = "";
-        Settings settings;
+        Settings *s = new Settings();
         if (write) {
-          settings.Read(&logger);
-          settings.Add(key, value);
-          settings.Write();
+          s->Read(&logger);
+          s->Add(key, value);
+          s->Write();
+        } else {
+          s->Read(&logger);
+          result = s->Get(key, value);
         }
-        else {
-          settings.Read(&logger);
-          result = settings.Get(key, value);
-        }
-
+        delete s;
         return result;
       });
     }

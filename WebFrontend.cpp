@@ -265,10 +265,10 @@ String WebFrontend::BuildRadioCard(Settings &settings, byte radioNbr) {
   String p  = "Radio" + String(radioNbr);
   String id = "r"     + String(radioNbr);
 
-  String typeVal  = settings.Get(p + "Type",  radioNbr == 1 ? "RFM69" : "---");
-  String freqVal  = settings.Get(p + "Freq",  radioNbr == 1 ? "868310" : "");
-  int    mask     = settings.GetInt(p + "ToggleMask",  radioNbr == 1 ? 1 : 0);
-  String interval = settings.Get(p + "ToggleInterval", "30");
+  String typeVal  = settings->Get(p + "Type",  radioNbr == 1 ? "RFM69" : "---");
+  String freqVal  = settings->Get(p + "Freq",  radioNbr == 1 ? "868310" : "");
+  int    mask     = settings->GetInt(p + "ToggleMask",  radioNbr == 1 ? 1 : 0);
+  String interval = settings->Get(p + "ToggleInterval", "30");
 
   int activeBits = 0;
   for (int b = 0; b < 5; b++) if (mask & (1 << b)) activeBits++;
@@ -426,17 +426,18 @@ String WebFrontend::SavePartial(std::initializer_list<String> keys) {
 }
 
 String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot) {
-  Settings existing;
-  existing.Read(m_logger);
-  Settings merged;
-  String raw = existing.ToString();
+  Settings *existing = new Settings();
+  existing->Read(m_logger);
+  Settings *merged = new Settings();
+  String raw = existing->ToString();
+  delete existing;
   String data = raw.startsWith("SETUP ") ? raw.substring(6) : raw;
-  merged.FromString(data);
+  merged->FromString(data);
 
   for (byte i = 0; i < count; i++) {
     String key = String(keys[i]);
     if (m_webserver.hasArg(key)) {
-      merged.Add(key, m_webserver.arg(key));
+      merged->Add(key, m_webserver.arg(key));
     } else {
       bool isCheckbox = (key == "UseWiFi"        || key == "RadioLock"       ||
                          key == "SendHumidity"    || key == "SendBatteryBeep" ||
@@ -444,10 +445,12 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "PRD"             || key == "IsNextion"       ||
                          key == "AddUnits"        || key == "AsDataFull"      ||
                          key == "ToggleLed"       || key == "oled13");
-      if (isCheckbox) merged.Add(key, "false");
+      if (isCheckbox) merged->Add(key, "false");
     }
   }
-  return merged.Write();
+  String result = merged->Write();
+  delete merged;
+  return result;
 }
 
 // ===================================================
@@ -641,10 +644,10 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 m_webserver.on("/save", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
 
-  Settings existing;
-  existing.Read(m_logger);
+  Settings *existing = new Settings();
+  existing->Read(m_logger);
 
-  Settings settings;
+  Settings *settings = new Settings();
   bool gotUseWiFi   = false;
   bool gotRadioLock = false;
 
@@ -656,19 +659,19 @@ m_webserver.on("/save", HTTP_POST, [this]() {
     for (int b = 0; b < 5; b++) {
       if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
     }
-    settings.Add(p + "ToggleMask", String(mask));
+    settings->Add(p + "ToggleMask", String(mask));
     String fixedRate = "17.241";
     for (int b = 0; b < 5; b++) {
       if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
     }
-    settings.Add(p + "DataRate", fixedRate);
+    settings->Add(p + "DataRate", fixedRate);
     int activeBits = __builtin_popcount(mask);
     if (activeBits <= 1) {
-      settings.Add(p + "ToggleInterval", "0");
+      settings->Add(p + "ToggleInterval", "0");
     } else {
       String iv = m_webserver.arg(p + "ToggleInterval");
       if (iv.length() == 0 || iv == "0") iv = "30";
-      settings.Add(p + "ToggleInterval", iv);
+      settings->Add(p + "ToggleInterval", iv);
     }
   }
 
@@ -678,22 +681,22 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
   
   String typeVal = m_webserver.arg(p + "Type");
   if (typeVal.length() == 0 && !m_webserver.hasArg(p + "Type")) {
-    typeVal = existing.Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
+    typeVal = existing->Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
   }
-  settings.Add(p + "Type", typeVal);
+  settings->Add(p + "Type", typeVal);
 
   String freqVal = m_webserver.arg(p + "Freq");
   if (freqVal.length() == 0 && !m_webserver.hasArg(p + "Freq")) {
-    freqVal = existing.Get(p + "Freq", "");
+    freqVal = existing->Get(p + "Freq", "");
   }
-  settings.Add(p + "Freq", freqVal);
+  settings->Add(p + "Freq", freqVal);
 }
 
   // SCHRITT 2: Passwoerter mit Fallback
   const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass"};
   for (byte pk = 0; pk < 4; pk++) {
     String val = m_webserver.arg(pwKeys[pk]);
-    settings.Add(pwKeys[pk], val.length() > 0 ? val : existing.Get(pwKeys[pk], ""));
+    settings->Add(pwKeys[pk], val.length() > 0 ? val : existing->Get(pwKeys[pk], ""));
   }
 
   // SCHRITT 3: Alle anderen Form-Args
@@ -721,13 +724,13 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
     }
 
     if (!skip) {
-      settings.Add(argName, m_webserver.arg(i));
+      settings->Add(argName, m_webserver.arg(i));
       if (argName == "UseWiFi")   gotUseWiFi   = true;
       if (argName == "RadioLock") gotRadioLock = true;
     }
   }
-  if (!gotUseWiFi)   settings.Add("UseWiFi",   "false");
-  if (!gotRadioLock) settings.Add("RadioLock", "false");
+  if (!gotUseWiFi)   settings->Add("UseWiFi",   "false");
+  if (!gotRadioLock) settings->Add("RadioLock", "false");
 
   // Validierung: frontPass2 aus HTTP-Request (nicht EEPROM)
   bool saveIt = true;
@@ -760,7 +763,7 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
   }
 
   if (saveIt) {
-    String info = settings.Write();
+    String info = settings->Write();
     m_webserver.send(200, "text/html", GetRedirectToRoot("Einstellungen gespeichert<br>" + info));
     delay(1000); ESP.restart();
   }
@@ -803,20 +806,19 @@ m_webserver.on("/save_mqtt", HTTP_POST, [this]() {
 m_webserver.on("/save_radios", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
 
-  Settings existing;
-  existing.Read(m_logger);
-  // FromString/ToString zum Kopieren
-  Settings merged;
-  String raw = existing.ToString();
+  Settings *existing = new Settings();
+  existing->Read(m_logger);
+  Settings *merged = new Settings();
+  String raw = existing->ToString();
   if (raw.startsWith("SETUP ")) {
-    merged.FromString(raw.substring(6));   // "SETUP " = 6 Zeichen
+    merged->FromString(raw.substring(6));   // "SETUP " = 6 Zeichen
   } else {
-    merged.FromString(raw);
+    merged->FromString(raw);
   };
 
   // RadioLock
   String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
-  merged.Add("RadioLock", radioLockVal);
+  merged->Add("RadioLock", radioLockVal);
 
   const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
   for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
@@ -825,11 +827,11 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
     // Typ - was auch immer das Formular schickt (inkl. "---")
     String typeVal = m_webserver.arg(p + "Type");
     if (typeVal.length() == 0) typeVal = "---";
-    merged.Add(p + "Type", typeVal);
+    merged->Add(p + "Type", typeVal);
 
     // Freq
     String freqVal = m_webserver.arg(p + "Freq");
-    merged.Add(p + "Freq", freqVal);
+    merged->Add(p + "Freq", freqVal);
 
     // Datenraten-Maske
     int mask = 0;
@@ -838,27 +840,27 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
     }
 
     if (mask == 0) {
-      mask = existing.GetInt(p + "ToggleMask", radioNbr == 1 ? 1 : 0);
+      mask = existing->GetInt(p + "ToggleMask", radioNbr == 1 ? 1 : 0);
     }
-    merged.Add(p + "ToggleMask", String(mask));
+    merged->Add(p + "ToggleMask", String(mask));
 
     String fixedRate = "17.241";
     for (int b = 0; b < 5; b++) {
       if (mask & (1 << b)) { fixedRate = rateNames[b]; break; }
     }
-    merged.Add(p + "DataRate", fixedRate);
+    merged->Add(p + "DataRate", fixedRate);
 
     int activeBits = __builtin_popcount(mask);
     if (activeBits <= 1) {
-      merged.Add(p + "ToggleInterval", "0");
+      merged->Add(p + "ToggleInterval", "0");
     } else {
       String iv = m_webserver.arg(p + "ToggleInterval");
       if (iv.length() == 0 || iv == "0") iv = "30";
-      merged.Add(p + "ToggleInterval", iv);
+      merged->Add(p + "ToggleInterval", iv);
     }
   }
 
-  String info = merged.Write();
+  String info = merged->Write();
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Radio-Einstellungen gespeichert</h3><p>") +
     info + F("</p></div>") + GetBottom());
@@ -1020,7 +1022,8 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
 // -- /setup ------------------------------------------------------------------
 m_webserver.on("/setup", [this]() {
   if (!IsAuthentified()) return;
-  Settings settings; settings.Read(m_logger);
+  Settings *settings = new Settings();
+  settings->Read(m_logger);
   m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
   m_webserver.send(200, "text/html", "");
   m_webserver.sendContent(GetTop() + GetNavigation());
@@ -1043,23 +1046,23 @@ m_webserver.on("/setup", [this]() {
   data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
   data += F("<tr><td><label>SSID / Passwort:</label></td><td>");
   data += F("<input name='ctSSID' size='30' maxlength='32' value='");
-  data += settings.Get("ctSSID", "");
+  data += settings->Get("ctSSID", "");
   data += F("'> <input type='password' name='ctPASS' size='30' maxlength='63' value='");
-  data += settings.Get("ctPASS", "");
+  data += settings->Get("ctPASS", "");
   data += F("'> <input name='Timeout1' size='5' maxlength='4' value='");
-  data += settings.Get("Timeout1", "15");
+  data += settings->Get("Timeout1", "15");
   data += F("'></td></tr>");
   data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
   data += F("<input name='ctSSID2' size='30' maxlength='32' value='");
-  data += settings.Get("ctSSID2", "");
+  data += settings->Get("ctSSID2", "");
   data += F("'> <input type='password' name='ctPASS2' size='30' maxlength='63' value='");
-  data += settings.Get("ctPASS2", "");
+  data += settings->Get("ctPASS2", "");
   data += F("'> <input name='Timeout2' size='5' maxlength='4' value='");
-  data += settings.Get("Timeout2", "15");
+  data += settings->Get("Timeout2", "15");
   data += F("'></td></tr>");
   data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
   data += F("<input name='frontPass' type='password' size='24' maxlength='60' value='");
-  data += settings.Get("frontPass", "");
+  data += settings->Get("frontPass", "");
   data += F("'> Wiederholen: <input name='frontPass2' type='password' size='24' maxlength='60' value='");
   data += F("");
   data += F("'> <span class='info'>(leer = kein Login)</span></td></tr>");
@@ -1073,20 +1076,20 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128225; MQTT-Einstellungen</h2><table>");
     data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-    data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings.Get("serverIpMqtt", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings.Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
+    data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings->Get("serverIpMqtt", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings->Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
     data += F("<tr><td><label>Benutzername:</label></td><td>");
-    data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings.Get("mqttUser", ""); data += F("'>");
+    data += F("<input name='mqttUser' size='36' maxlength='32' value='"); data += settings->Get("mqttUser", ""); data += F("'>");
     data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
-    data += settings.Get("mqttPass", "");
+    data += settings->Get("mqttPass", "");
     data += F("'>");
     data += F("'></td></tr>");
     data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
-    data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings.Get("pubInt", "20"); data += F("'>");
-    data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings.Get("topic", ""); data += F("'>");
-    data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings.Get("ext1", "0"); data += F("'>");
-    data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings.Get("ext2", "0"); data += F("'>");
-    data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings.Get("ext3", "0"); data += F("'></td></tr>");
+    data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings->Get("pubInt", "20"); data += F("'>");
+    data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings->Get("topic", ""); data += F("'>");
+    data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings->Get("ext1", "0"); data += F("'>");
+    data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings->Get("ext2", "0"); data += F("'>");
+    data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings->Get("ext3", "0"); data += F("'></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; MQTT speichern'>");
     data += F("</div></form>");
@@ -1098,12 +1101,12 @@ m_webserver.on("/setup", [this]() {
     data += F("<h2>&#127760; Netzwerk (statisch)</h2>");
     data += F("<p class='info'>Wenn IP, Maske oder Gateway leer, wird DHCP verwendet.</p><table>");
     data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-    data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings.Get("staticIP", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings.Get("staticMask", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings.Get("staticGW", ""); data += F("'></td></tr>");
+    data += F("<input name='staticIP' size='24' maxlength='15' value='"); data += settings->Get("staticIP", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Maske:</label> <input name='staticMask' size='24' maxlength='15' value='"); data += settings->Get("staticMask", ""); data += F("'>");
+    data += F(" <label style='display:inline'>Gateway:</label> <input name='staticGW' size='24' maxlength='15' value='"); data += settings->Get("staticGW", ""); data += F("'></td></tr>");
     data += F("<tr><td><label>Hostname:</label></td><td>");
-    data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings.Get("HostName", "LaCrosseGateway"); data += F("'>");
-    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings.Get("StartupDelay", "0"); data += F("'></td></tr>");
+    data += F("<input name='HostName' size='24' maxlength='63' value='"); data += settings->Get("HostName", "LaCrosseGateway"); data += F("'>");
+    data += F(" <label style='display:inline'>Startup-Delay (s):</label> <input name='StartupDelay' size='5' maxlength='4' value='"); data += settings->Get("StartupDelay", "0"); data += F("'></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; Netzwerk speichern &amp; neu starten'>");
     data += F("</div></form>");
@@ -1114,11 +1117,11 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#127909; Interne Sensoren</h2><table>");
     data += F("<tr><td><label>Sensoren:</label></td><td>");
-    data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings.Get("ISID", "0"); data += F("'>");
-    data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings.Get("ISIV", "10"); data += F("'>");
-    data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings.Get("Altitude", "0"); data += F("'>");
-    data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings.Get("CorrT", "0"); data += F("'>");
-    data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings.Get("CorrH", "0"); data += F("'></td></tr>");
+    data += F("ID: <input name='ISID' size='5' maxlength='4' value='"); data += settings->Get("ISID", "0"); data += F("'>");
+    data += F(" Intervall: <input name='ISIV' size='5' maxlength='5' value='"); data += settings->Get("ISIV", "10"); data += F("'>");
+    data += F(" Hoehe: <input name='Altitude' size='5' maxlength='4' value='"); data += settings->Get("Altitude", "0"); data += F("'>");
+    data += F(" T-Korr: <input name='CorrT' size='5' maxlength='5' value='"); data += settings->Get("CorrT", "0"); data += F("'>");
+    data += F(" H-Korr: <input name='CorrH' size='5' maxlength='5' value='"); data += settings->Get("CorrH", "0"); data += F("'></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; Sensoren speichern'>");
     data += F("</div></form>");
@@ -1129,20 +1132,20 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128268; Ports &amp; Serial Bridges</h2><table>");
     data += F("<tr><td><label>Daten-Ports:</label></td><td>");
-    data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings.Get("DataPort1", "81"); data += F("'>&nbsp;");
-    data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings.Get("DataPort2", ""); data += F("'>&nbsp;");
-    data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings.Get("DataPort3", ""); data += F("'></td></tr>");
+    data += F("<input name='DataPort1' maxlength='5' size='8' value='"); data += settings->Get("DataPort1", "81"); data += F("'>&nbsp;");
+    data += F("<input name='DataPort2' maxlength='5' size='8' value='"); data += settings->Get("DataPort2", ""); data += F("'>&nbsp;");
+    data += F("<input name='DataPort3' maxlength='5' size='8' value='"); data += settings->Get("DataPort3", ""); data += F("'></td></tr>");
     data += F("<tr><td><label>Serial Bridge 1:</label></td><td>");
-    data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SerialBridgePort", ""); data += F("'>");
-    data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
+    data += F("Port: <input name='SerialBridgePort' maxlength='5' size='8' value='"); data += settings->Get("SerialBridgePort", ""); data += F("'>");
+    data += F(" Baud: <input name='SerialBridgeBaud' maxlength='6' size='8' value='"); data += settings->Get("SerialBridgeBaud", "57600"); data += F("'></td></tr>");
     data += F("<tr><td><label>Serial Bridge 2:</label></td><td>");
-    data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings.Get("SerialBridge2Port", ""); data += F("'>");
-    data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings.Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
+    data += F("Port: <input name='SerialBridge2Port' maxlength='5' size='8' value='"); data += settings->Get("SerialBridge2Port", ""); data += F("'>");
+    data += F(" Baud: <input name='SerialBridge2Baud' maxlength='6' size='8' value='"); data += settings->Get("SerialBridge2Baud", "57600"); data += F("'></td></tr>");
     data += F("<tr><td><label>Soft Serial Bridge:</label></td><td>");
-    data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings.Get("SSBridgePort", ""); data += F("'>");
-    data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings.Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
-    data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings.Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion&nbsp;");
-    data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings.Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten");
+    data += F("Port: <input name='SSBridgePort' maxlength='5' size='8' value='"); data += settings->Get("SSBridgePort", ""); data += F("'>");
+    data += F(" Baud: <input name='SSBridgeBaud' maxlength='6' size='8' value='"); data += settings->Get("SSBridgeBaud", "9600"); data += F("'>&nbsp;");
+    data += F("<input name='IsNextion' type='checkbox' value='true' "); data += settings->Get("IsNextion", "") == "true" ? "checked" : ""; data += F("> Nextion&nbsp;");
+    data += F("<input name='AddUnits' type='checkbox' value='true' "); data += settings->Get("AddUnits", "") == "true" ? "checked" : ""; data += F("> Einheiten");
     data += F("</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Ports speichern'>");
     data += F("</div></form>");
@@ -1153,12 +1156,12 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128225; RFM95</h2><table><tr><td><label>RFM95:</label></td><td>");
     data += F("SF: <select name='SF95' style='width:70px'>");
-    String sfValue = settings.Get("SF95", "SF7");
+    String sfValue = settings->Get("SF95", "SF7");
     data += GetOption("SF6",  sfValue); data += GetOption("SF7",  sfValue); data += GetOption("SF8",  sfValue);
     data += GetOption("SF9",  sfValue); data += GetOption("SF10", sfValue); data += GetOption("SF11", sfValue);
     data += GetOption("SF12", sfValue);
     data += F("</select>&nbsp;BW: <select name='BW95' style='width:70px'>");
-    String bwValue = settings.Get("BW95", "125");
+    String bwValue = settings->Get("BW95", "125");
     data += GetOption("7.8",   bwValue); data += GetOption("10.4",  bwValue); data += GetOption("15.6",  bwValue);
     data += GetOption("20.8",  bwValue); data += GetOption("31.25", bwValue); data += GetOption("41.7",  bwValue);
     data += GetOption("62.6",  bwValue); data += GetOption("125",   bwValue); data += GetOption("250",   bwValue);
@@ -1178,7 +1181,7 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128274; Radio-Schutz</h2><table><tr><td>");
     data += F("<input name='RadioLock' type='checkbox' value='true' ");
-    data += settings.GetBool("RadioLock") ? "checked" : "";
+    data += settings->GetBool("RadioLock") ? "checked" : "";
     data += F("> RadioLock (FHEM darf Radio-Einstellungen nicht &uuml;berschreiben)</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Radios speichern'>");
     data += F("</div></form>");
@@ -1190,23 +1193,23 @@ m_webserver.on("/setup", [this]() {
     data += F("<h2>&#128268; LGW-Betrieb (RFM69 / LaCrosse)</h2>");
     data += F("<p class='info'>Diese Einstellungen entsprechen den FHEM-Attributen des LaCrosseGateway-Moduls.</p><table>");
     data += F("<tr><td><label>Modus:</label></td><td><select name='lgwMode'>");
-    String lgwMode = settings.Get("lgwMode", "0");
+    String lgwMode = settings->Get("lgwMode", "0");
     data += GetOption("0", lgwMode); data += GetOption("1", lgwMode); data += GetOption("2", lgwMode);
     data += F("</select> <span class='info'>0=normal, 1=PCA301, 2=EM</span></td></tr>");
-    data += F("<tr><td><label>Kanal:</label></td><td><input name='lgwChannel' size='5' maxlength='3' value='"); data += settings.Get("lgwChannel", "0"); data += F("'></td></tr>");
-    data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td><input name='lgwFreq' size='12' maxlength='10' value='"); data += settings.Get("lgwFreq", "868300"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Kanal:</label></td><td><input name='lgwChannel' size='5' maxlength='3' value='"); data += settings->Get("lgwChannel", "0"); data += F("'></td></tr>");
+    data += F("<tr><td><label>RFM-Frequenz (kHz):</label></td><td><input name='lgwFreq' size='12' maxlength='10' value='"); data += settings->Get("lgwFreq", "868300"); data += F("'></td></tr>");
     data += F("<tr><td><label>Sendeleistung (dBm):</label></td><td><select name='lgwPower'>");
-    String lgwPwr = settings.Get("lgwPower", "10");
+    String lgwPwr = settings->Get("lgwPower", "10");
     for (int p = 0; p <= 20; p += 2) data += GetOption(String(p), lgwPwr);
     data += F("</select></td></tr>");
     data += F("<tr><td><label>Datenrate (Baud):</label></td><td><select name='lgwDataRate'>");
-    String lgwDR = settings.Get("lgwDataRate", "17241");
+    String lgwDR = settings->Get("lgwDataRate", "17241");
     data += GetOption("4800",  lgwDR); data += GetOption("9600",  lgwDR); data += GetOption("17241", lgwDR);
     data += GetOption("19200", lgwDR); data += GetOption("38400", lgwDR); data += GetOption("57600", lgwDR);
     data += F("</select></td></tr>");
-    data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td><input name='lgwRssiThreshold' size='7' maxlength='5' value='"); data += settings.Get("lgwRssiThreshold", "-200"); data += F("'></td></tr>");
-    data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td><input name='lgwEncryptKey' size='40' maxlength='32' value='"); data += settings.Get("lgwEncryptKey", ""); data += F("'></td></tr>");
-    data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td><input name='lgwWatchdog' size='7' maxlength='5' value='"); data += settings.Get("lgwWatchdog", "0"); data += F("'></td></tr>");
+    data += F("<tr><td><label>RSSI-Filter (dBm):</label></td><td><input name='lgwRssiThreshold' size='7' maxlength='5' value='"); data += settings->Get("lgwRssiThreshold", "-200"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Encrypt-Key (16 Byte Hex):</label></td><td><input name='lgwEncryptKey' size='40' maxlength='32' value='"); data += settings->Get("lgwEncryptKey", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Watchdog-Timeout (s):</label></td><td><input name='lgwWatchdog' size='7' maxlength='5' value='"); data += settings->Get("lgwWatchdog", "0"); data += F("'></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; LGW speichern'>");
     data += F("</div></form>");
@@ -1217,15 +1220,15 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128228; Sende-Verhalten</h2><table>");
     data += F("<tr><td><label>SendMode:</label></td><td><select name='SendMode'>");
-    String sendMode = settings.Get("SendMode", "0");
+    String sendMode = settings->Get("SendMode", "0");
     data += GetOption("0", sendMode); data += GetOption("1", sendMode); data += GetOption("2", sendMode);
     data += F("</select></td></tr>");
-    data += F("<tr><td><label>SendRetries:</label></td><td><input name='SendRetries' size='5' maxlength='3' value='"); data += settings.Get("SendRetries", "3"); data += F("'></td></tr>");
+    data += F("<tr><td><label>SendRetries:</label></td><td><input name='SendRetries' size='5' maxlength='3' value='"); data += settings->Get("SendRetries", "3"); data += F("'></td></tr>");
     data += F("<tr><td><label>Optionen:</label></td><td>");
-    data += F("<input name='SendHumidity' type='checkbox' value='true' "); data += settings.Get("SendHumidity", "true") == "true" ? "checked" : ""; data += F("> Luftfeuchte&nbsp;&nbsp;");
-    data += F("<input name='SendBatteryBeep' type='checkbox' value='true' "); data += settings.Get("SendBatteryBeep", "true") == "true" ? "checked" : ""; data += F("> Batterie-Warnung&nbsp;&nbsp;");
-    data += F("<input name='AsDataFull' type='checkbox' value='true' "); data += settings.Get("AsDataFull", "false") == "true" ? "checked" : ""; data += F("> Vollst. Daten&nbsp;&nbsp;");
-    data += F("<input name='ToggleLed' type='checkbox' value='true' "); data += settings.Get("ToggleLed", "true") == "true" ? "checked" : ""; data += F("> LED blinken</td></tr>");
+    data += F("<input name='SendHumidity' type='checkbox' value='true' "); data += settings->Get("SendHumidity", "true") == "true" ? "checked" : ""; data += F("> Luftfeuchte&nbsp;&nbsp;");
+    data += F("<input name='SendBatteryBeep' type='checkbox' value='true' "); data += settings->Get("SendBatteryBeep", "true") == "true" ? "checked" : ""; data += F("> Batterie-Warnung&nbsp;&nbsp;");
+    data += F("<input name='AsDataFull' type='checkbox' value='true' "); data += settings->Get("AsDataFull", "false") == "true" ? "checked" : ""; data += F("> Vollst. Daten&nbsp;&nbsp;");
+    data += F("<input name='ToggleLed' type='checkbox' value='true' "); data += settings->Get("ToggleLed", "true") == "true" ? "checked" : ""; data += F("> LED blinken</td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; Sende-Verhalten speichern'>");
     data += F("</div></form>");
@@ -1235,11 +1238,11 @@ m_webserver.on("/setup", [this]() {
     data += F("<form method='post' action='/save_options'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#9881;&#65039; Optionen</h2><table><tr><td><label>Flags:</label></td><td>");
-    data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings.Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
-    data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings.Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
-    data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings.Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
-    data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings.Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
-    data += F("<input name='PRD' type='checkbox' value='true' "); data += settings.Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
+    data += F("<input name='UseWiFi' type='checkbox' value='true' "); data += settings->Get("UseWiFi", "true") == "true" ? "checked" : ""; data += F("> WiFi&nbsp;");
+    data += F("<input name='UseMDNS' type='checkbox' value='true' "); data += settings->Get("UseMDNS", "") == "true" ? "checked" : ""; data += F("> MDNS&nbsp;");
+    data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings->Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
+    data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings->Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
+    data += F("<input name='PRD' type='checkbox' value='true' "); data += settings->Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
     data += F("</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Optionen speichern'>");
     data += F("</div></form>");
@@ -1252,7 +1255,7 @@ m_webserver.on("/setup", [this]() {
     for (byte nbr = 0; nbr < 8; nbr++) {
       data += F("IO "); data += String(nbr); data += F(": ");
       data += F("<select name='IO"); data += String(nbr); data += F("' style='width:130px'>");
-      String value = settings.Get("IO" + String(nbr), "Input");
+      String value = settings->Get("IO" + String(nbr), "Input");
       data += GetOption("Input", value);        data += GetOption("Output", value);
       data += GetOption("OLED Off", value);     data += GetOption("OLED On", value);
       data += GetOption("OLED mode=s",    value); data += GetOption("OLED mode=t",    value);
@@ -1272,9 +1275,9 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128250; OLED-Display</h2><table>");
     data += F("<tr><td><label>OLED Start:</label></td><td>");
-    data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings.Get("oledStart", "on"); data += F("'>");
-    data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings.Get("oledMode", ""); data += F("'>&nbsp;");
-    data += F("<input name='oled13' type='checkbox' value='true' "); data += settings.Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
+    data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings->Get("oledStart", "on"); data += F("'>");
+    data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings->Get("oledMode", ""); data += F("'>&nbsp;");
+    data += F("<input name='oled13' type='checkbox' value='true' "); data += settings->Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
     data += F("</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; OLED speichern'>");
     data += F("</div></form>");
@@ -1285,13 +1288,13 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128196; Weitere Einstellungen</h2><table>");
     data += F("<tr><td><label>KV-Interval:</label></td><td>");
-    data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings.Get("KVInterval", "10"); data += F("'>");
-    data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings.Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
-    data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings.Get("otaServer", ""); data += F("'></td></tr>");
-    data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings.Get("otaPort", ""); data += F("'></td></tr>");
-    data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings.Get("otaURL", ""); data += F("'></td></tr>");
-    data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings.Get("PCA301Plugs", ""); data += F("'></td></tr>");
-    data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings.Get("Flags", ""); data += F("'></td></tr>");
+    data += F("<input name='KVInterval' size='10' maxlength='3' value='"); data += settings->Get("KVInterval", "10"); data += F("'>");
+    data += F(" <label style='display:inline'>KV-Identity:</label> <input name='KVIdentity' size='24' maxlength='20' value='"); data += settings->Get("KVIdentity", String(ESP.getChipId())); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-Server:</label></td><td><input name='otaServer' size='50' maxlength='40' value='"); data += settings->Get("otaServer", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-Port:</label></td><td><input name='otaPort' size='10' maxlength='5' value='"); data += settings->Get("otaPort", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>OTA-URL:</label></td><td><input name='otaURL' size='50' maxlength='80' value='"); data += settings->Get("otaURL", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>PCA301:</label></td><td><input name='PCA301Plugs' size='50' maxlength='160' value='"); data += settings->Get("PCA301Plugs", ""); data += F("'></td></tr>");
+    data += F("<tr><td><label>Flags:</label></td><td><input name='Flags' size='50' maxlength='80' value='"); data += settings->Get("Flags", ""); data += F("'></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; Weitere Einstellungen speichern'>");
     data += F("</div></form>");
@@ -1299,6 +1302,7 @@ m_webserver.on("/setup", [this]() {
 
     m_webserver.sendContent(GetBottom());
     m_webserver.sendContent("");
+  delete settings;
   });
 
   m_webserver.on("/getLogData", [this]() {
