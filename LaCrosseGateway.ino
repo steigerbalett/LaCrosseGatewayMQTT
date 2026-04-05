@@ -1646,6 +1646,13 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
+  Serial.begin(74880);
+  delay(500);
+  Serial.println("\n\n=== RESET INFO ===");
+  Serial.println(ESP.getResetReason());
+  Serial.println(ESP.getResetInfo());  // zeigt Exception-Code + Stack
+  Serial.println("=================\n");
+  delay(500);
   Serial.begin(57600);
   delay(1000);
   Serial.println();
