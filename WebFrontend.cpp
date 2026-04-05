@@ -261,7 +261,7 @@ String GetOption(String option, String defaultValue) {
 // - Bit-Maske:  Bit0=17.241 / Bit1=9.579 / Bit2=8.842 / Bit3=6.631 / Bit4=4.800
 // - Persistenz: RadioNToggleMask, RadioNToggleInterval, RadioNDataRate (fix)
 // ===========================================================================
-String WebFrontend::BuildRadioCard(Settings &settings, byte radioNbr) {
+String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   String p  = "Radio" + String(radioNbr);
   String id = "r"     + String(radioNbr);
 

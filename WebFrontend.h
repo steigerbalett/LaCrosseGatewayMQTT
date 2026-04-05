@@ -41,7 +41,7 @@ private:
   String GetDisplayName();
   String GetRedirectToRoot(String message = "");
   String BuildHardwareRow(String text1, String text2, String text3);
-  String BuildRadioCard(Settings &settings, byte radioNbr);
+  String BuildRadioCard(Settings *settings, byte radioNbr);
   String SavePartial(std::initializer_list<String> keys);
   String SaveSelectedKeys(const char** keys, byte count, bool reboot);
 };
