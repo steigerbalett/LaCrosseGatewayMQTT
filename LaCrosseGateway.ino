@@ -1660,6 +1660,8 @@ void setup(void) {
   Settings *pSettings = new Settings();
   pSettings->Read(&logger);
   Settings &settings = *pSettings;
+
+  LoadRadioSettings(settings);
   
   pinMode(D7, INPUT);
   if (digitalRead(D7)) {
@@ -1932,8 +1934,8 @@ for (byte i = 0; i < 5; i++) {
     });
 
     logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
-    softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
-
+    if (frontend != nullptr) {
+      softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
     if (settings.GetBool("IsNextion", false)) {
       nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
@@ -2010,7 +2012,7 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       // Kein WLAN: WiFiManager-AP laeuft auf Port 80.
       // frontend->Begin() nicht aufgerufen -> kein Port-Konflikt.
       logger.println(F("Kein WLAN - Konfigportal auf http://192.168.4.1"));
-      return;
+      USE_WIFI = 0;
     }
 
     configTime(MY_TZ, MY_NTP_SERVER);
@@ -2121,8 +2123,6 @@ void loop(void) {
     serialPortFlasher.Handle();
   }
   else {
-    // Captive Portal DNS + Auto-Close pflegen
-  accessPoint.Handle();
 
   stateManager.SetLoopStart();
 #ifdef USE_MQTT_Pubsub
@@ -2237,14 +2237,9 @@ void loop(void) {
     // --------------------
     HandleDataRate();
 
-    if (USE_WIFI) {
-      // Handle the web fronted and the access point
-      // -------------------------------------------
+    if (USE_WIFI && frontend != nullptr) {
       frontend->Handle();
       accessPoint.Handle();
-
-      // Handle the ports for FHEM
-      // -------------------------
       dataPort1.Handle(CommandHandler);
       dataPort2.Handle(CommandHandler);
       dataPort3.Handle(CommandHandler);
