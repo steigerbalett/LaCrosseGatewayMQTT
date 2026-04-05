@@ -1,5 +1,5 @@
-#define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.49"
+static const char PROGNAME[] PROGMEM = "LaCrosseITPlusReader.Gateway";
+static const char PROGVERS[] PROGMEM = "1.36.49";
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -279,10 +279,10 @@ StateManager stateManager;
 PCA301 pca301;
 ESP8266OTA ota;
 unsigned int lastOtaProgress;
-SubProcessor subProcessor(&sc16is750, 5, "addon.hex");
-SerialBridge serialBridge(&sc16is750, 5, "addon.hex");
-SubProcessor subProcessor2(&sc16is750_2, 5, "addon2.hex");
-SerialBridge serialBridge2(&sc16is750_2, 5, "addon2.hex");
+SubProcessor subProcessor(&sc16is750, 5, nullptr);
+SerialBridge serialBridge(&sc16is750, 5, nullptr);
+SubProcessor subProcessor2(&sc16is750_2, 5, nullptr);
+SerialBridge serialBridge2(&sc16is750_2, 5, nullptr);
 bool useSerialBridge = false;
 bool useSerialBridge2 = false;
 SoftSerialBridge softSerialBridge;
@@ -1943,15 +1943,15 @@ for (byte i = 0; i < 5; i++) {
     logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
     if (frontend != nullptr) {
       softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
-    if (settings.GetBool("IsNextion", false)) {
-      nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-        HandleProgressRequest(action, currentValue, maxValue, message);
-      });
-      if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
-        logger.println("Nextion initialized");
+      if (settings.GetBool("IsNextion", false)) {
+        nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
+          HandleProgressRequest(action, currentValue, maxValue, message);
+        });
+        if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
+          logger.println("Nextion initialized");
+        }
       }
     }
-
   }
 
   logger.println("Searching RFMs and Sensors");
