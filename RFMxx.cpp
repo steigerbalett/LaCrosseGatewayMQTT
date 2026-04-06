@@ -126,19 +126,21 @@ RFMxx::RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq, TPinCallback pin
   m_radioType = RFMxx::RadioType::None;
   m_modulation = RFMxx::Modulation::Unknown;
 
+  m_pinCallback = pinFunction;
+  // GPIO-Initialisierung wurde nach Begin() verschoben
+  // (pinMode im globalen Konstruktor ist undefiniertes Verhalten auf ESP8266)
+}
+
+bool RFMxx::Begin(bool isPrimary) {
+  // GPIO-Pins initialisieren (hier statt im Konstruktor, da Begin() nach Arduino init() läuft)
   pinMode(m_mosi, OUTPUT);
   pinMode(m_miso, INPUT);
   pinMode(m_sck, OUTPUT);
-
-  m_pinCallback = pinFunction;
   if(!m_pinCallback) {
     pinMode(m_ss, OUTPUT);
     digitalWrite(m_ss, HIGH);
   }
 
-}
-
-bool RFMxx::Begin(bool isPrimary) {
   // No radio found until now
   m_radioType = RFMxx::RadioType::None;
   m_modulation = RFMxx::Modulation::Unknown;
