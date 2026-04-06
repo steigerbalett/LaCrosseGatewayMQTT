@@ -1,5 +1,5 @@
-static const char PROGNAME[] PROGMEM = "LaCrosseITPlusReader.Gateway";
-static const char PROGVERS[] PROGMEM = "1.36.49";
+#define PROGNAME         "LaCrosseITPlusReader.Gateway"
+#define PROGVERS         "1.36.49"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -1646,13 +1646,6 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
-  Serial.begin(74880);
-  delay(500);
-  Serial.println("\n\n=== RESET INFO ===");
-  Serial.println(ESP.getResetReason());
-  Serial.println(ESP.getResetInfo());  // zeigt Exception-Code + Stack
-  Serial.println("=================\n");
-  delay(500);
   Serial.begin(57600);
   delay(1000);
   Serial.println();
@@ -1924,36 +1917,6 @@ for (byte i = 0; i < 5; i++) {
     logger.println("MCP23008 found");
   }
  
-  int softSerialBridgePort = settings.GetInt("SSBridgePort", 0);
-  if (USE_WIFI && !rfm2.IsConnected() && !rfm3.IsConnected() && !ownSensors.HasSHT75() && softSerialBridgePort > 0) {
-    unsigned long softSerialBridgeBaud = settings.GetUnsignedLong("SSBridgeBaud", 57600);
-    softSerialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-      HandleProgressRequest(action, currentValue, maxValue, message);
-    });
-
-    softSerialBridge.SetConnectCallback([](bool isConnected) {
-      bridge2Connected = isConnected;
-      if (display.IsConnected()) {
-        display.SetAddonFlag(isConnected);
-      }
-
-      logger.println("SoftSerialBridge Connect: " + String(isConnected));
-    });
-
-    logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
-    if (frontend != nullptr) {
-      softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
-      if (settings.GetBool("IsNextion", false)) {
-        nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-          HandleProgressRequest(action, currentValue, maxValue, message);
-        });
-        if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
-          logger.println("Nextion initialized");
-        }
-      }
-    }
-  }
-
   logger.println("Searching RFMs and Sensors");
 auto parseDataRateLong = [](const String &s) -> unsigned long {
   if (s == "17.241") return 17241ul;
@@ -2015,6 +1978,39 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
         subProcessor2.Begin(frontend->WebServer());
         subProcessor2.Reset();
       }
+
+      // SoftSerialBridge + Nextion: hier initialisieren, da frontend garantiert != nullptr
+      {
+        int softSerialBridgePort = settings.GetInt("SSBridgePort", 0);
+        if (!rfm2.IsConnected() && !rfm3.IsConnected() && !ownSensors.HasSHT75() && softSerialBridgePort > 0) {
+          unsigned long softSerialBridgeBaud = settings.GetUnsignedLong("SSBridgeBaud", 57600);
+
+          softSerialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
+            HandleProgressRequest(action, currentValue, maxValue, message);
+          });
+
+          softSerialBridge.SetConnectCallback([](bool isConnected) {
+            bridge2Connected = isConnected;
+            if (display.IsConnected()) {
+              display.SetAddonFlag(isConnected);
+            }
+            logger.println("SoftSerialBridge Connect: " + String(isConnected));
+          });
+
+          logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
+          softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
+
+          if (settings.GetBool("IsNextion", false)) {
+            nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
+              HandleProgressRequest(action, currentValue, maxValue, message);
+            });
+            if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
+              logger.println("Nextion initialized");
+            }
+          }
+        }
+      }
+
     } else {
       // Kein WLAN: WiFiManager-AP laeuft auf Port 80.
       // frontend->Begin() nicht aufgerufen -> kein Port-Konflikt.
