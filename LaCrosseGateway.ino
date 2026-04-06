@@ -1598,8 +1598,13 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
+//  Serial.begin(57600);
+//  delay(1000);
+  ESP.wdtDisable();   // ← Hardware WDT temporär deaktivieren
   Serial.begin(57600);
-  delay(1000);
+  delay(100);
+  Serial.println(F("SETUP START"));  // Wenn das erscheint → Konstruktoren OK
+  ESP.wdtEnable(WDTO_8S);
   Serial.println();
 
   logger.SetBufferSize(40);
