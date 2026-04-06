@@ -1439,9 +1439,8 @@ static bool StartWifi(Settings &settings) {
     WiFi.disconnect(true);
     delay(100);
     wm->resetSettings();
-  } else {
-    wm->setConfigPortalTimeout(180);
   }
+  wm->setConfigPortalTimeout(300);  // immer Timeout setzen (180s bestehend, 300s Ersteinrichtung)
 
   esp.SwitchLed(true, true);
 
@@ -1515,55 +1514,8 @@ if (!connected) {
     MDNS.addService("http", "tcp", FRONTEND_PORT);
   }
 
-  // OTA
-  logger.println("Starting OTA");
-  ota.Begin(frontend->WebServer());
-
-  // DataPorts
-  uint16_t p1 = settings.GetInt("DataPort1", 81);
-  uint16_t p2 = settings.GetInt("DataPort2", 0);
-  uint16_t p3 = settings.GetInt("DataPort3", 0);
-  if (p1 > 0) {
-    logger.print("Starting data port 1 on "); logger.println(p1);
-    dataPort1.Begin(p1);
-    dataPort1.SetLogItemCallback([](String logItem){ logger.println(logItem); });
-  }
-  if (p2 > 0) {
-    logger.print("Starting data port 2 on "); logger.println(p2);
-    dataPort2.Begin(p2);
-    dataPort2.SetLogItemCallback([](String logItem){ logger.println(logItem); });
-  }
-  if (p3 > 0) {
-    logger.print("Starting data port 3 on "); logger.println(p3);
-    dataPort3.Begin(p3);
-    dataPort3.SetLogItemCallback([](String logItem){ logger.println(logItem); });
-  }
-
-  // Serial Bridges
-  if (useSerialBridge && sc16is750.IsConnected()) {
-    int sbPort = settings.GetInt("SerialBridgePort", 0);
-    unsigned long sbBaud = settings.GetUnsignedLong("SerialBridgeBaud", 57600ul);
-    if (sbPort > 0 && sbBaud > 0) {
-      serialBridge.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
-        HandleProgressRequest(action, cur, max, msg);
-      });
-      logger.println("Starting serial bridge on port " + String(sbPort) + " with " + sbBaud + " baud");
-      serialBridge.Begin(sbPort, frontend->WebServer());
-      serialBridge.SetBaudrate(sbBaud);
-    }
-  }
-  if (useSerialBridge2 && sc16is750_2.IsConnected()) {
-    int sbPort = settings.GetInt("SerialBridge2Port", 0);
-    unsigned long sbBaud = settings.GetUnsignedLong("SerialBridge2Baud", 57600ul);
-    if (sbPort > 0 && sbBaud > 0) {
-      serialBridge2.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
-        HandleProgressRequest(action, cur, max, msg);
-      });
-      logger.println("Starting serial bridge 2 on port " + String(sbPort) + " with " + sbBaud + " baud");
-      serialBridge2.Begin(sbPort, frontend->WebServer());
-      serialBridge2.SetBaudrate(sbBaud);
-    }
-  }
+  // OTA, DataPorts und SerialBridges werden in setup() nach frontend->Begin() gestartet
+  // (frontend->WebServer() ist hier noch nicht verfügbar)
 
   USE_WIFI = 1;
   return true;
@@ -1977,6 +1929,56 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       if (sc16is750_2.IsConnected() && !useSerialBridge2) {
         subProcessor2.Begin(frontend->WebServer());
         subProcessor2.Reset();
+      }
+
+      // OTA
+      logger.println("Starting OTA");
+      ota.Begin(frontend->WebServer());
+
+      // DataPorts
+      uint16_t p1 = settings.GetInt("DataPort1", 81);
+      uint16_t p2 = settings.GetInt("DataPort2", 0);
+      uint16_t p3 = settings.GetInt("DataPort3", 0);
+      if (p1 > 0) {
+        logger.print("Starting data port 1 on "); logger.println(p1);
+        dataPort1.Begin(p1);
+        dataPort1.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+      }
+      if (p2 > 0) {
+        logger.print("Starting data port 2 on "); logger.println(p2);
+        dataPort2.Begin(p2);
+        dataPort2.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+      }
+      if (p3 > 0) {
+        logger.print("Starting data port 3 on "); logger.println(p3);
+        dataPort3.Begin(p3);
+        dataPort3.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+      }
+
+      // Serial Bridges
+      if (useSerialBridge && sc16is750.IsConnected()) {
+        int sbPort = settings.GetInt("SerialBridgePort", 0);
+        unsigned long sbBaud = settings.GetUnsignedLong("SerialBridgeBaud", 57600ul);
+        if (sbPort > 0 && sbBaud > 0) {
+          serialBridge.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
+            HandleProgressRequest(action, cur, max, msg);
+          });
+          logger.println("Starting serial bridge on port " + String(sbPort) + " with " + sbBaud + " baud");
+          serialBridge.Begin(sbPort, frontend->WebServer());
+          serialBridge.SetBaudrate(sbBaud);
+        }
+      }
+      if (useSerialBridge2 && sc16is750_2.IsConnected()) {
+        int sbPort = settings.GetInt("SerialBridge2Port", 0);
+        unsigned long sbBaud = settings.GetUnsignedLong("SerialBridge2Baud", 57600ul);
+        if (sbPort > 0 && sbBaud > 0) {
+          serialBridge2.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
+            HandleProgressRequest(action, cur, max, msg);
+          });
+          logger.println("Starting serial bridge 2 on port " + String(sbPort) + " with " + sbBaud + " baud");
+          serialBridge2.Begin(sbPort, frontend->WebServer());
+          serialBridge2.SetBaudrate(sbBaud);
+        }
       }
 
       // SoftSerialBridge + Nextion: hier initialisieren, da frontend garantiert != nullptr
