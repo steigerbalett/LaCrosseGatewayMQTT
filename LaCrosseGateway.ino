@@ -1600,6 +1600,7 @@ static void WiFiPortal_Begin(const String &apName, Settings *settingsPtr) {
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
   WiFi.softAP(apName.c_str());
+  delay(500);  // AP braucht kurz zum Hochfahren
 
   logger.println(F("*** Hotspot geoeffnet ***"));
   logger.println("SSID: " + apName);
@@ -1655,6 +1656,11 @@ static void WiFiPortal_Begin(const String &apName, Settings *settingsPtr) {
   g_portalServer->begin();
   g_portalActive = true;
   logger.println(F("WiFi-Konfigportal aktiv auf http://192.168.4.1"));
+  // 5x schnell blinken = Hotspot-Modus aktiv
+  for (int _b = 0; _b < 5; _b++) {
+    esp.Blink(1);
+    delay(200);
+  }
 }
 
 static bool StartWifi(Settings &settings) {
@@ -1886,14 +1892,20 @@ void setup(void) {
 
   LoadRadioSettings(settings);
   
-  pinMode(D7, INPUT);
-  if (digitalRead(D7)) {
+  // D7 als Eingang mit Pull-Up: nur wenn D7 explizit auf GND gezogen wird (Jumper),
+  // wird WiFi deaktiviert. Floating / offen = WiFi aktiv.
+  pinMode(D7, INPUT_PULLUP);
+  delay(10);  // kurz warten bis Pull-Up stabil
+  if (!digitalRead(D7)) {   // LOW = Jumper nach GND = kein WiFi
     USE_WIFI = false;
+    logger.println(F("D7=LOW: WiFi deaktiviert per Jumper"));
   }
   pinMode(D7, OUTPUT);
+  digitalWrite(D7, HIGH);
   
   if (!settings.GetBool("UseWiFi", true)) {
     USE_WIFI = false;
+    logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
   }
   if (!USE_WIFI) {
     logger.Disable();
