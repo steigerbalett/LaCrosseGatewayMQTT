@@ -2297,17 +2297,25 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       }
 
     } else {
-      // Kein WLAN: WiFiManager-AP laeuft auf Port 80.
-      // frontend->Begin() nicht aufgerufen -> kein Port-Konflikt.
+      // Portal-Modus: Konfigportal laeuft auf Port 80 (g_portalServer).
+      // Alle weiteren Setup-Schritte (NTP, MQTT, HandleCommandV) MUESSEN
+      // uebersprungen werden – configTime() im AP-only-Modus crasht den
+      // sys-Stack (lwIP SNTP-Callback, nur 256 Byte). Fruehes return,
+      // loop() bedient ab sofort ausschliesslich den Portal-Webserver.
       logger.println(F("Kein WLAN - Konfigportal auf http://192.168.4.1"));
+      logger.println(F("Setup abgeschlossen (Portal-Modus). Oeffne http://192.168.4.1"));
       USE_WIFI = 0;
+      return;   // ← KEIN NTP, KEIN MQTT-Setup, direkt in loop()
     }
 
-    configTime(MY_TZ, MY_NTP_SERVER);
-    logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
-    time_t t = 0;
-    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); ESP.wdtFeed(); yield(); t = time(nullptr); }
-    logger.println(F("NTP sync: ") + getLocalTimeString());
+    // NTP nur aufrufen wenn wirklich mit WLAN verbunden (nicht im Portal-Modus)
+    if (WiFi.status() == WL_CONNECTED) {
+      configTime(MY_TZ, MY_NTP_SERVER);
+      logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
+      time_t t = 0;
+      for (int i = 0; i < 20 && t < 100000; i++) { delay(500); ESP.wdtFeed(); yield(); t = time(nullptr); }
+      logger.println(F("NTP sync: ") + getLocalTimeString());
+    }
   }
   else {
     WiFi.mode(WiFiMode::WIFI_OFF);
