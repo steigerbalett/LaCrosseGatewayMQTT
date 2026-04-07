@@ -1,7 +1,18 @@
 #include "CaptivePortal.h"
-// ESPAsyncWebServer.h nur hier – nicht im Header → kein HTTP_GET Enum-Konflikt
-// mit ESP8266WebServer.h aus LaCrosseGateway.ino
 #include <ESPAsyncWebServer.h>
+// Achtung: extern "C" nötig da ets_delay_us eine C-Funktion ist
+extern "C" { void ets_delay_us(uint32_t us); }
+
+// Busy-Wait OHNE yield() - verhindert panic() bei deaktivierten Interrupts
+// während WiFi-AP-Initialisierung (ESP8266 SDK 2.2.2-dev Bug #6318)
+static inline void safe_delay_ms(uint32_t ms) {
+  // ets_delay_us maximal 65535 us - in 10ms-Blöcke aufteilen
+  while (ms >= 10) {
+    ets_delay_us(10000);
+    ms -= 10;
+  }
+  if (ms > 0) ets_delay_us(ms * 1000);
+}
 
 CaptivePortal::CaptivePortal()
   : m_settings(nullptr), m_logger(nullptr), m_server(nullptr),
@@ -9,10 +20,7 @@ CaptivePortal::CaptivePortal()
 }
 
 CaptivePortal::~CaptivePortal() {
-  if (m_server) {
-    delete m_server;
-    m_server = nullptr;
-  }
+  if (m_server) { delete m_server; m_server = nullptr; }
 }
 
 // -----------------------------------------------------------------------
@@ -35,16 +43,30 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.disconnect(true);
-  delay(100);
+  safe_delay_ms(100);          // kein delay() → kein yield() → kein panic()
+
   WiFi.mode(WIFI_AP_STA);
+  safe_delay_ms(50);
 
   IPAddress apIP(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
   WiFi.softAPConfig(apIP, apIP, subnet);
-  WiFi.softAP(m_apSSID.c_str());
-  delay(500);
 
-  // AsyncWebServer neu anlegen (Pointer-Pattern wegen Header-Konflikt)
+  // softAP() intern ruft delay() auf - wir deaktivieren yield() davor
+  // via Interrupt-Lock: Interrupts bleiben aktiv (ETS_INTR_LOCK/UNLOCK
+  // würde sie sperren), stattdessen WDT füttern und direkt warten
+  WiFi.softAP(m_apSSID.c_str());
+  // Kein delay(500) mehr! Stattdessen: auf softAP-Readiness warten
+  // ohne yield() - busy-poll mit ets_delay_us
+  uint32_t apWait = 0;
+  while (WiFi.softAPgetStationNum() == 0 && apWait < 500) {
+    safe_delay_ms(10);
+    apWait += 10;
+    ESP.wdtFeed();
+  }
+  safe_delay_ms(100);  // finales Settle ohne yield
+
+  // AsyncWebServer anlegen
   if (m_server) { delete m_server; }
   m_server = new AsyncWebServer(80);
 
@@ -54,7 +76,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
     String saved_ssid = m_settings->Get("ctSSID", "---");
     if (saved_ssid == "---") saved_ssid = "";
 
-    String body = F("<h2>WLAN-Netzwerk ausw\u00e4hlen</h2>");
+    String body = F("<h2>WLAN-Netzwerk ausw&#228;hlen</h2>");
     if (saved_ssid.length() > 0) {
       body += F("<div class='msg-ok'>&#10003; Gespeichertes Netzwerk: <strong>");
       body += saved_ssid;
@@ -87,7 +109,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
     if (ssid.length() == 0) {
       req->send(400, "text/html", buildPage(
-        F("<div class='msg-err'>&#9888; Bitte eine SSID eingeben!</div><a href='/'>&#8592; Zur\u00fcck</a>")));
+        F("<div class='msg-err'>&#9888; Bitte eine SSID eingeben!</div><a href='/'>&#8592; Zur&#252;ck</a>")));
       return;
     }
 
@@ -96,7 +118,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
     m_settings->Add("ctPASS", pass);
     m_settings->Write();
 
-    String body = F("<div class='msg-ok'>&#10003; Gespeichert! Das Ger\u00e4t startet neu...</div><p>Verbinde mit <strong>");
+    String body = F("<div class='msg-ok'>&#10003; Gespeichert! Das Ger&#228;t startet neu...</div><p>Verbinde mit <strong>");
     body += ssid;
     body += F("</strong>.<br>Dieser Hotspot wird jetzt getrennt.</p>");
     req->send(200, "text/html", buildPage(body));
@@ -114,7 +136,6 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 // -----------------------------------------------------------------------
 void CaptivePortal::Handle() {
   if (m_done) return;
-  // AsyncWebServer: kein handleClient() n\u00f6tig
   if (m_timeoutS > 0 && (millis() - m_startMs) > (uint32_t)m_timeoutS * 1000UL) {
     m_logger->println("[CaptivePortal] Timeout - closing portal");
     m_done = true;
@@ -132,7 +153,7 @@ void CaptivePortal::End() {
   }
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
-  delay(100);
+  safe_delay_ms(100);
   m_logger->println("[CaptivePortal] Closed");
 }
 
@@ -160,6 +181,7 @@ String CaptivePortal::buildPage(const String &body) {
     ".net-item{display:flex;align-items:center;justify-content:space-between;"
     "padding:8px 10px;border-radius:5px;cursor:pointer}"
     ".net-item:hover{background:#e8f4fb}"
+    ".net-item.selected{background:#d0eaf5}"
     ".signal{font-size:.78rem;color:#888}"
     ".msg-ok{color:#217a30;background:#d6f5dc;padding:10px 14px;border-radius:5px;margin-bottom:14px}"
     ".msg-err{color:#9a2020;background:#fde0e0;padding:10px 14px;border-radius:5px;margin-bottom:14px}"
