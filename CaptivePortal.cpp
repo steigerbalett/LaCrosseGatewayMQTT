@@ -31,9 +31,9 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   WiFi.softAP(m_apSSID.c_str());
   delay(500);
 
-  // DNS Catch-All → alle Anfragen auf AP-IP umleiten
-  m_dns.setErrorReplyCode(DNSReplyCode::NoError);
-  m_dns.start(53, "*", apIP);
+  // Hinweis: DNS Catch-All deaktiviert (verursacht sys-Stack-Crash auf ESP8266).
+  // Browser-Captive-Portal-Erkennung funktioniert nicht, aber Nutzer koennen
+  // manuell http://192.168.4.1 aufrufen.
 
   // HTTP-Routen
   m_server.on("/",         [this]() { handleRoot(); });
@@ -48,7 +48,6 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 // -----------------------------------------------------------------------
 void CaptivePortal::Handle() {
   if (m_done) return;
-  m_dns.processNextRequest();
   m_server.handleClient();
 
   if (m_timeoutS > 0 && (millis() - m_startMs) > (uint32_t)m_timeoutS * 1000UL) {
@@ -64,7 +63,6 @@ bool CaptivePortal::IsDone() {
 
 // -----------------------------------------------------------------------
 void CaptivePortal::End() {
-  m_dns.stop();
   m_server.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
@@ -156,7 +154,8 @@ String CaptivePortal::scanNetworks() {
 
 // -----------------------------------------------------------------------
 void CaptivePortal::handleRoot() {
-  String saved_ssid = m_settings->Get("WifiSSID", "");
+  String saved_ssid = m_settings->Get("ctSSID", "---");
+  if (saved_ssid == "---") saved_ssid = "";
 
   String body = F("<h2>WLAN-Netzwerk auswählen</h2>");
 
@@ -207,41 +206,24 @@ void CaptivePortal::handleSave() {
 
   m_logger->println("[CaptivePortal] Saving credentials for SSID: " + ssid);
 
-  m_settings->Add("WifiSSID",     ssid);
-  m_settings->Add("WifiPassword", pass);
+  m_settings->Add("ctSSID", ssid);
+  m_settings->Add("ctPASS", pass);
   m_settings->Write();
 
-  // Verbindungstest
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid.c_str(), pass.c_str());
-
-  unsigned long t = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t < 12000UL) {
-    delay(250);
-    m_dns.processNextRequest();
-  }
-
-  String body;
-  if (WiFi.status() == WL_CONNECTED) {
-    body = F("<div class='msg-ok'>&#10003; Erfolgreich verbunden!<br>"
-             "IP: <strong>");
-    body += WiFi.localIP().toString();
-    body += F("</strong><br>Das Gateway startet jetzt neu...</div>");
-    m_server.send(200, "text/html", buildPage(body));
-    delay(2000);
-    m_done = true;
-  } else {
-    WiFi.mode(WIFI_AP);
-    body = F("<div class='msg-err'>&#9888; Verbindung fehlgeschlagen.<br>"
-             "Bitte SSID und Passwort prüfen.</div>"
-             "<a href='/'>&#8592; Zurück</a>");
-    m_server.send(200, "text/html", buildPage(body));
-  }
+  // Kein Verbindungstest (wuerde WiFi.begin() im AP-Kontext ausloesen →
+  // sys-Stack-Crash). Zugangsdaten sind gespeichert, Neustart verbindet.
+  String body = F("<div class='msg-ok'>&#10003; Zugangsdaten gespeichert!<br>"
+                  "SSID: <strong>");
+  body += ssid;
+  body += F("</strong><br>Das Gateway startet jetzt neu und verbindet sich...</div>");
+  m_server.send(200, "text/html", buildPage(body));
+  delay(1500);
+  ESP.restart();  // Neustart mit gespeicherten Credentials
 }
 
 // -----------------------------------------------------------------------
 void CaptivePortal::handleNotFound() {
-  // Captive Portal: alle unbekannten URLs zur Startseite umleiten
+  // Kein DNS Catch-All aktiv. Weiterleitung zur Startseite.
   m_server.sendHeader("Location", "http://192.168.4.1/", true);
   m_server.send(302, "text/plain", "");
 }
