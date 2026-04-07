@@ -1,7 +1,8 @@
 #include "CaptivePortal.h"
 
-CaptivePortal::CaptivePortal() : m_server(80), m_done(false), m_timeoutS(0),
-                                  m_startMs(0) {
+CaptivePortal::CaptivePortal()
+  : m_server(80), m_done(false), m_timeoutS(0),
+    m_startMs(0), m_settings(nullptr), m_logger(nullptr) {
 }
 
 // -----------------------------------------------------------------------
@@ -23,9 +24,9 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
-  WiFi.disconnect(true);   // Bestehende STA-Verbindung komplett trennen
+  WiFi.disconnect(true);
   delay(100);
-  WiFi.mode(WIFI_AP_STA);  // WIFI_AP_STA statt WIFI_AP – wie WiFiManager!
+  WiFi.mode(WIFI_AP_STA);
 
   IPAddress apIP(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
@@ -33,15 +34,69 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   WiFi.softAP(m_apSSID.c_str());
   delay(500);
 
-  // Hinweis: DNS Catch-All deaktiviert (verursacht sys-Stack-Crash auf ESP8266).
-  // Browser-Captive-Portal-Erkennung funktioniert nicht, aber Nutzer koennen
-  // manuell http://192.168.4.1 aufrufen.
+  // --- Routen (AsyncWebServer: kein sync handleClient(), kein yield() intern) ---
 
-  // HTTP-Routen
-  m_server.on("/",         [this]() { handleRoot(); });
-  m_server.on("/scan",     [this]() { handleScan(); });
-  m_server.on("/save",     HTTP_POST, [this]() { handleSave(); });
-  m_server.onNotFound(     [this]() { handleNotFound(); });
+  m_server.on("/", HTTP_GET, [this](AsyncWebServerRequest *req) {
+    String saved_ssid = m_settings->Get("ctSSID", "---");
+    if (saved_ssid == "---") saved_ssid = "";
+
+    String body = F("<h2>WLAN-Netzwerk auswählen</h2>");
+    if (saved_ssid.length() > 0) {
+      body += F("<div class='msg-ok'>&#10003; Gespeichertes Netzwerk: <strong>");
+      body += saved_ssid;
+      body += F("</strong></div>");
+    }
+    body += F("<p>Tippe auf ein Netzwerk oder gib die SSID manuell ein.</p>"
+              "<button class='scan-btn' onclick=\"location.reload()\">&#x21BA; Netzwerke neu scannen</button>");
+    body += scanNetworks();
+    body += F("<hr><h2>Zugangsdaten eingeben</h2>"
+              "<form method='POST' action='/save'>"
+              "<label for='ssid'>SSID (Netzwerkname)</label>"
+              "<input type='text' id='ssid' name='ssid' placeholder='Netzwerkname' required value='");
+    body += saved_ssid;
+    body += F("'>"
+              "<label for='pass'>Passwort</label>"
+              "<input type='password' id='pass' name='pass' placeholder='WLAN-Passwort'>"
+              "<input type='submit' value='Speichern &amp; Verbinden'>"
+              "</form>");
+    req->send(200, "text/html", buildPage(body));
+  });
+
+  m_server.on("/scan", HTTP_GET, [this](AsyncWebServerRequest *req) {
+    req->send(200, "text/html", scanNetworks());
+  });
+
+  // POST /save – Credentials speichern
+  m_server.on("/save", HTTP_POST, [this](AsyncWebServerRequest *req) {
+    String ssid = req->hasParam("ssid", true) ? req->getParam("ssid", true)->value() : "";
+    String pass = req->hasParam("pass", true) ? req->getParam("pass", true)->value() : "";
+    ssid.trim();
+
+    if (ssid.length() == 0) {
+      String body = F("<div class='msg-err'>&#9888; Bitte eine SSID eingeben!</div>"
+                      "<a href='/'>&#8592; Zurück</a>");
+      req->send(400, "text/html", buildPage(body));
+      return;
+    }
+
+    m_logger->println("[CaptivePortal] Saving credentials for SSID: " + ssid);
+    m_settings->Add("ctSSID", ssid);
+    m_settings->Add("ctPASS", pass);
+    m_settings->Write();
+
+    String body = F("<div class='msg-ok'>&#10003; Gespeichert! Das Gerät startet neu...</div>"
+                    "<p>Verbinde mit <strong>");
+    body += ssid;
+    body += F("</strong>.<br>Dieser Hotspot wird jetzt getrennt.</p>");
+    req->send(200, "text/html", buildPage(body));
+
+    m_done = true;
+  });
+
+  // Captive-Portal-Redirect: alle unbekannten Pfade → Root
+  m_server.onNotFound([](AsyncWebServerRequest *req) {
+    req->redirect("http://192.168.4.1/");
+  });
 
   m_server.begin();
   m_logger->println("[CaptivePortal] Webserver started on 192.168.4.1");
@@ -50,8 +105,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 // -----------------------------------------------------------------------
 void CaptivePortal::Handle() {
   if (m_done) return;
-  m_server.handleClient();
-
+  // AsyncWebServer: KEIN handleClient() nötig – Callbacks laufen via lwIP async
   if (m_timeoutS > 0 && (millis() - m_startMs) > (uint32_t)m_timeoutS * 1000UL) {
     m_logger->println("[CaptivePortal] Timeout – closing portal");
     m_done = true;
@@ -59,13 +113,12 @@ void CaptivePortal::Handle() {
 }
 
 // -----------------------------------------------------------------------
-bool CaptivePortal::IsDone() {
-  return m_done;
-}
+bool CaptivePortal::IsDone() { return m_done; }
 
 // -----------------------------------------------------------------------
 void CaptivePortal::End() {
-  m_server.stop();
+  // AsyncWebServer: end() teardown, dann AP abschalten
+  m_server.end();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
   delay(100);
@@ -73,7 +126,7 @@ void CaptivePortal::End() {
 }
 
 // -----------------------------------------------------------------------
-// HTML-Hilfsfunktion: vollständige Seite
+// HTML-Hilfsfunktion
 // -----------------------------------------------------------------------
 String CaptivePortal::buildPage(const String &body) {
   String html = F("<!DOCTYPE html><html lang='de'><head>"
@@ -121,7 +174,7 @@ String CaptivePortal::buildPage(const String &body) {
 }
 
 // -----------------------------------------------------------------------
-// WiFi-Scan als HTML-Liste
+// WiFi-Scan
 // -----------------------------------------------------------------------
 String CaptivePortal::scanNetworks() {
   int n = WiFi.scanNetworks();
@@ -130,7 +183,6 @@ String CaptivePortal::scanNetworks() {
   String html = F("<ul class='net-list'>");
   for (int i = 0; i < n; i++) {
     int rssi = WiFi.RSSI(i);
-    // Signalbalken (1-4 Blöcke)
     int bars = 1;
     if (rssi >= -60) bars = 4;
     else if (rssi >= -70) bars = 3;
@@ -141,7 +193,7 @@ String CaptivePortal::scanNetworks() {
     bool secured = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
     html += F("<li class='net-item' onclick=\"selectNet(this,'");
     html += WiFi.SSID(i);
-    html += F("')\">" );
+    html += F("')\">");
     html += F("<span>");
     html += WiFi.SSID(i);
     if (secured) html += F(" <span class='lock-icon'>&#x1F512;</span>");
@@ -153,80 +205,4 @@ String CaptivePortal::scanNetworks() {
   }
   html += F("</ul>");
   return html;
-}
-
-// -----------------------------------------------------------------------
-void CaptivePortal::handleRoot() {
-  String saved_ssid = m_settings->Get("ctSSID", "---");
-  if (saved_ssid == "---") saved_ssid = "";
-
-  String body = F("<h2>WLAN-Netzwerk auswählen</h2>");
-
-  if (saved_ssid.length() > 0) {
-    body += F("<div class='msg-ok'>&#10003; Gespeichertes Netzwerk: <strong>");
-    body += saved_ssid;
-    body += F("</strong></div>");
-  }
-
-  body += F("<p>Tippe auf ein Netzwerk oder gib die SSID manuell ein.</p>"
-            "<button class='scan-btn' onclick=\"location.reload()\">&#x21BA; Netzwerke neu scannen</button>");
-
-  body += scanNetworks();
-
-  body += F("<hr><h2>Zugangsdaten eingeben</h2>"
-            "<form method='POST' action='/save'>"
-            "<label for='ssid'>SSID (Netzwerkname)</label>"
-            "<input type='text' id='ssid' name='ssid' placeholder='Netzwerkname' required value='");
-  body += saved_ssid;
-  body += F("'>"
-            "<label for='pass'>Passwort</label>"
-            "<input type='password' id='pass' name='pass' placeholder='WLAN-Passwort'>"
-            "<input type='submit' value='Speichern &amp; Verbinden'>"
-            "</form>");
-
-  m_server.send(200, "text/html", buildPage(body));
-}
-
-// -----------------------------------------------------------------------
-void CaptivePortal::handleScan() {
-  // AJAX-Endpunkt für Nur-Scan (liefert HTML-Fragment)
-  m_server.send(200, "text/html", scanNetworks());
-}
-
-// -----------------------------------------------------------------------
-void CaptivePortal::handleSave() {
-  String ssid = m_server.arg("ssid");
-  String pass = m_server.arg("pass");
-
-  ssid.trim();
-
-  if (ssid.length() == 0) {
-    String body = F("<div class='msg-err'>&#9888; Bitte eine SSID eingeben!</div>"
-                    "<a href='/'>&#8592; Zurück</a>");
-    m_server.send(400, "text/html", buildPage(body));
-    return;
-  }
-
-  m_logger->println("[CaptivePortal] Saving credentials for SSID: " + ssid);
-
-  m_settings->Add("ctSSID", ssid);
-  m_settings->Add("ctPASS", pass);
-  m_settings->Write();
-
-  // Kein Verbindungstest (wuerde WiFi.begin() im AP-Kontext ausloesen →
-  // sys-Stack-Crash). Zugangsdaten sind gespeichert, Neustart verbindet.
-  String body = F("<div class='msg-ok'>&#10003; Zugangsdaten gespeichert!<br>"
-                  "SSID: <strong>");
-  body += ssid;
-  body += F("</strong><br>Das Gateway startet jetzt neu und verbindet sich...</div>");
-  m_server.send(200, "text/html", buildPage(body));
-  delay(1500);
-  ESP.restart();  // Neustart mit gespeicherten Credentials
-}
-
-// -----------------------------------------------------------------------
-void CaptivePortal::handleNotFound() {
-  // Kein DNS Catch-All aktiv. Weiterleitung zur Startseite.
-  m_server.sendHeader("Location", "http://192.168.4.1/", true);
-  m_server.send(302, "text/plain", "");
 }
