@@ -14,7 +14,6 @@
 #include "IPAddress.h"
 #include "ESP8266WiFiType.h"
 #include "ESP8266WiFi.h"
-#include <WiFiManager.h>
 #include "WiFiClient.h"
 #include "ESP8266WebServer.h"
 #include "pins_arduino.h"
@@ -333,7 +332,7 @@ void reconnectMqtt() {
   // Attempt to connect
   logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
   String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
-  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
+  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password )) {
       Serial.println("connected");
       // Subscribe
       client.subscribe("esp32/output");
@@ -491,7 +490,8 @@ static void HandleSerialPort(char c) {
       else if (value == 8377) {
         ESP.restart();
       }
-    break; 
+      break;
+    
     case 'g':
       if (value == 1) {
         Settings *s = new Settings();
@@ -937,7 +937,7 @@ unsigned long sensorRxTime[MAX_LACROSSE_SENSORS] = {0};
 
 //MQTT data buffer
 char bufData[30];
-char bufTopic[100];
+char bufTopic[160];
 
 bool HandleReceivedData(RFMxx *rfm) {
   unsigned long timeNow = millis();
@@ -1412,117 +1412,373 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
+// ---------------------------------------------------------------------------
+// Eigener Hotspot-Modus: Oeffnet AP + Webformular zur WLAN-Konfiguration
+// Kein WiFiManager mehr notwendig.
+// ---------------------------------------------------------------------------
+static void RunConfigPortal(Settings &settings, const String &apName) {
+  logger.println(F("Starte Konfigurations-Hotspot..."));
+  logger.println("AP-Name: " + apName);
+
+  WiFi.persistent(false);
+  WiFi.disconnect(true);
+  delay(200);
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
+  WiFi.softAP(apName.c_str());
+  delay(500);
+
+  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
+  if (display.IsConnected()) {
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+  }
+
+  ESP8266WebServer portalServer(80);
+
+  // Liefert Scan-Ergebnis als HTML-Optionen
+  auto buildSsidOptions = []() -> String {
+    int n = WiFi.scanNetworks(false, true);
+    String opts = "";
+    for (int i = 0; i < n; i++) {
+      String ssid = WiFi.SSID(i);
+      ssid.replace("\"", "&quot;");
+      opts += "<option value=\"" + ssid + "\">" + ssid +
+              " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
+    }
+    WiFi.scanDelete();
+    return opts;
+  };
+
+  String ssidOptions = buildSsidOptions();
+
+  portalServer.on("/", HTTP_GET, [&]() {
+    String html = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<title>LaCrosse WiFi Setup</title>"
+      "<style>body{font-family:sans-serif;max-width:400px;margin:40px auto;padding:0 16px}"
+      "h2{color:#01696f}input,select{width:100%;padding:8px;margin:8px 0;box-sizing:border-box;border:1px solid #ccc;border-radius:4px}"
+      "button{width:100%;padding:10px;background:#01696f;color:#fff;border:none;border-radius:4px;font-size:1em;cursor:pointer}"
+      "button:hover{background:#0c4e54}.info{color:#777;font-size:.9em}</style></head>"
+      "<body><h2>&#x1F4F6; LaCrosse WiFi Setup</h2>"
+      "<form method='POST' action='/save'>"
+      "<label>WLAN (SSID)</label>"
+      "<select name='ssid' id='ssid'>");
+    html += ssidOptions;
+    html += F("</select>"
+      "<label>Passwort</label>"
+      "<input type='password' name='pass' placeholder='WLAN-Passwort'>"
+      "<button type='submit'>&#x1F517; Verbinden &amp; Speichern</button>"
+      "</form>"
+      "<p class='info'>Nach dem Speichern verbindet sich das Ger&auml;t mit dem WLAN "
+      "und der Hotspot wird beendet.</p>"
+      "</body></html>");
+    portalServer.send(200, "text/html", html);
+  });
+
+  // Erneut scannen (AJAX-Refresh nicht noetig, Seite reloadbar)
+  portalServer.on("/scan", HTTP_GET, [&]() {
+    ssidOptions = buildSsidOptions();
+    portalServer.sendHeader("Location", "/");
+    portalServer.send(302, "text/plain", "");
+  });
+
+  bool gotCredentials = false;
+  String newSSID, newPass;
+
+  portalServer.on("/save", HTTP_POST, [&]() {
+    newSSID = portalServer.arg("ssid");
+    newPass = portalServer.arg("pass");
+    newSSID.trim();
+
+    if (newSSID.length() > 0) {
+      String html = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Gespeichert</title>"
+        "<style>body{font-family:sans-serif;max-width:400px;margin:40px auto;padding:0 16px}"
+        "h2{color:#01696f}</style></head>"
+        "<body><h2>&#x2705; Daten gespeichert!</h2>"
+        "<p>Verbinde mit <b>");
+      html += newSSID;
+      html += F("</b>...<br>Der Hotspot wird in K&uuml;rze beendet.</p></body></html>");
+      portalServer.send(200, "text/html", html);
+      gotCredentials = true;
+    } else {
+      portalServer.send(400, "text/plain", "SSID fehlt");
+    }
+  });
+
+  portalServer.onNotFound([&]() {
+    portalServer.sendHeader("Location", "/");
+    portalServer.send(302, "text/plain", "");
+  });
+
+  portalServer.begin();
+  logger.println(F("Konfigurations-Webserver gestartet"));
+
+  unsigned long portalStart = millis();
+  const unsigned long PORTAL_TIMEOUT_MS = 300000UL; // 5 Minuten
+
+  while (!gotCredentials) {
+    portalServer.handleClient();
+    ESP.wdtFeed();
+    yield();
+    if (millis() - portalStart > PORTAL_TIMEOUT_MS) {
+      logger.println(F("Konfigurations-Timeout - Neustart"));
+      delay(500);
+      ESP.restart();
+    }
+  }
+
+  portalServer.stop();
+  delay(500);
+
+  // Credentials speichern
+  settings.Add("ctSSID", newSSID);
+  settings.Add("ctPASS", newPass);
+  settings.Write();
+  logger.println("WiFi-Daten gespeichert: SSID='" + newSSID + "'");
+
+  WiFi.softAPdisconnect(true);
+  delay(200);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Eigenes WiFi-Konfigurationsportal (ersetzt WiFiManager)
+// Beim Erststart / fehlender SSID: SoftAP + Webseite mit WiFi-Scan
+// ─────────────────────────────────────────────────────────────────────────────
+
+static bool       g_portalActive  = false;
+static ESP8266WebServer *g_portalServer = nullptr;
+static String     g_portalApName  = "";
+static Settings  *g_portalSettings = nullptr;   // zeigt auf pSettings (nie gelöscht)
+
+static String WiFiPortal_ScanPage() {
+  WiFi.mode(WIFI_AP_STA);
+  int n = WiFi.scanNetworks(false, true);
+  String h = F("<!DOCTYPE html><html><head>"
+    "<meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>LaCrosse Setup</title>"
+    "<style>"
+    "body{font-family:sans-serif;max-width:440px;margin:32px auto;padding:16px;color:#222}"
+    "h2{color:#1a73e8;margin-bottom:4px}p{color:#555;font-size:14px}"
+    "label{display:block;margin-top:14px;font-weight:600;font-size:14px}"
+    "select,input{width:100%;padding:9px 8px;margin-top:5px;box-sizing:border-box;"
+    "border:1px solid #ccc;border-radius:6px;font-size:15px}"
+    "button{width:100%;padding:11px;margin-top:18px;background:#1a73e8;color:#fff;"
+    "border:none;border-radius:6px;font-size:16px;cursor:pointer}"
+    "button:hover{background:#1558b0}"
+    ".rssi{color:#888;font-size:12px}"
+    "</style></head><body>"
+    "<h2>LaCrosse Gateway</h2>"
+    "<p>Hotspot: <b>");
+  h += g_portalApName;
+  h += F("</b></p><hr>"
+    "<form method='POST' action='/save'>"
+    "<label>WLAN-Netzwerk ausw&auml;hlen:</label>"
+    "<select name='ssid'>");
+  for (int i = 0; i < n; i++) {
+    String enc = (WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " &#128275;" : " &#128274;";
+    h += "<option value='" + WiFi.SSID(i) + "'>"
+       + WiFi.SSID(i) + enc
+       + " <span class='rssi'>(" + String(WiFi.RSSI(i)) + " dBm)</span>"
+       + "</option>";
+  }
+  h += F("</select>"
+    "<label>Passwort:</label>"
+    "<input type='password' name='pass' placeholder='WLAN-Passwort (leer lassen wenn kein Passwort)'>"
+    "<button type='submit'>&#10003;&nbsp;Verbinden &amp; Speichern</button>"
+    "</form></body></html>");
+  return h;
+}
+
+static void WiFiPortal_Begin(const String &apName, Settings *settingsPtr) {
+  g_portalApName   = apName;
+  g_portalSettings = settingsPtr;
+
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
+  WiFi.softAP(apName.c_str());
+
+  logger.println(F("*** Hotspot geoeffnet ***"));
+  logger.println("SSID: " + apName);
+  logger.println(F("Oeffne http://192.168.4.1 im Browser"));
+
+  if (display.IsConnected()) {
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+  }
+
+  g_portalServer = new ESP8266WebServer(80);
+
+  // Hauptseite: WiFi-Scan + Formular
+  g_portalServer->on("/", HTTP_GET, []() {
+    g_portalServer->send(200, "text/html", WiFiPortal_ScanPage());
+  });
+
+  // Neu scannen
+  g_portalServer->on("/scan", HTTP_GET, []() {
+    g_portalServer->sendHeader("Location", "/", true);
+    g_portalServer->send(302, "text/plain", "");
+  });
+
+  // Speichern und neu starten
+  g_portalServer->on("/save", HTTP_POST, []() {
+    String ssid = g_portalServer->arg("ssid");
+    String pass = g_portalServer->arg("pass");
+    ssid.trim();
+    if (ssid.length() > 0 && g_portalSettings != nullptr) {
+      g_portalSettings->Add("ctSSID", ssid);
+      g_portalSettings->Add("ctPASS", pass);
+      g_portalSettings->Write();
+      g_portalServer->send(200, "text/html",
+        String(F("<!DOCTYPE html><html><body style='font-family:sans-serif;max-width:440px;margin:40px auto;padding:16px'>"
+        "<h2 style='color:#1a73e8'>&#10003; Gespeichert!</h2>"
+        "<p>Verbinde mit <b>")) + ssid + F("</b>...<br>Gateway startet neu, bitte warten.</p>"
+        "<script>setTimeout(()=>location.href='/',8000)</script>"
+        "</body></html>"));
+      delay(2000);
+      ESP.restart();
+    } else {
+      g_portalServer->send(400, "text/html",
+        F("<html><body><h2>Fehler</h2><p>Bitte SSID auswaehlen.</p><a href='/'>Zurueck</a></body></html>"));
+    }
+  });
+
+  // Captive-Portal: alle unbekannten Requests umleiten
+  g_portalServer->onNotFound([]() {
+    g_portalServer->sendHeader("Location", "http://192.168.4.1/", true);
+    g_portalServer->send(302, "text/plain", "Redirect to portal");
+  });
+
+  g_portalServer->begin();
+  g_portalActive = true;
+  logger.println(F("WiFi-Konfigportal aktiv auf http://192.168.4.1"));
+}
+
 static bool StartWifi(Settings &settings) {
   espconn_tcp_set_max_con(10);
-  WiFiManager *wm = new WiFiManager();
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
 
-  wm->setAPCallback([](WiFiManager* mgr) {
-    logger.println(F("*** WiFiManager: Konfigurationsportal gestartet ***"));
-    logger.println("SSID: " + mgr->getConfigPortalSSID());
-    logger.println(F("Oeffne http://192.168.4.1 im Browser"));
-    if (display.IsConnected()) {
-      display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
-      display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
-    }
-  });
-
-  wm->setSaveConfigCallback([]() {
-    logger.println(F("*** WiFiManager: WLAN-Daten gespeichert ***"));
-  });
-
   String ctSSID = settings.Get("ctSSID", "---");
+  String ctPASS = settings.Get("ctPASS", "");
   ctSSID.trim();
+
   bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
-  if (isFirstSetup) {
-    WiFi.mode(WIFI_STA);
+
+  if (!isFirstSetup) {
+    // ── Verbindungsversuch mit gespeicherter SSID ──────────────────────────
+    logger.println("Verbinde mit SSID: " + ctSSID);
     WiFi.persistent(false);
-    WiFi.disconnect(true);
-    delay(500);
-    wm->resetSettings();
-    delay(200);
-}
-  wm->setConfigPortalTimeout(300);  // immer Timeout setzen (180s bestehend, 300s Ersteinrichtung)
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
 
-  esp.SwitchLed(true, true);
+    int numSsid = scanWifi(ctSSID);
+    logger.println(F(""));
+    logger.print(F("SSID search result - #: "));
+    logger.print(String(numSsid));
+    logger.print(F(", ch: ")); logger.print(String(channel));
+    logger.print(F(", rssi: ")); logger.println(String(rssi));
 
-  bool connected = wm->autoConnect(apName.c_str());
-  delete wm;
+    if (rssi != -999) {
+      logger.println(F("Connecting to bssid"));
+      WiFi.begin(ctSSID.c_str(), ctPASS.c_str(), channel, bssid, false);
+    } else {
+      logger.println(F("Connecting to ssid"));
+      WiFi.begin(ctSSID.c_str(), ctPASS.c_str());
+    }
 
-if (!connected) {
-    logger.println(F("*** WiFiManager: Verbindung fehlgeschlagen, starte Konfigportal ***"));
-    WiFi.disconnect(true);
-    delay(200);
-    return false;
-}
+    esp.SwitchLed(true, true);
+    if (display.IsConnected()) display.ShowProgress(60, "Connect WiFi");
+    if (nextion.IsConnected())  nextion.ShowProgress(60, "Connect WiFi");
 
-  // SSID/Pass in Settings sichern
-  String newSSID = WiFi.SSID();
-  String newPass = WiFi.psk();
-  if (newSSID.length() > 0) {
-    settings.Add("ctSSID", newSSID);
-    settings.Add("ctPASS", newPass);
-    settings.Write();
-    logger.println("WiFiManager: SSID '" + newSSID + "' gespeichert");
-  }
+    uint16_t retryCounter = 0;
+    unsigned long startMs = millis();
+    while (retryCounter < 120 && WiFi.status() != WL_CONNECTED) {
+      retryCounter++;
+      delay(500);
+      ESP.wdtFeed();
+      yield();
+      logger.print(".");
+      esp.SwitchLed(retryCounter % 2 == 0, true);
+      if (display.IsConnected()) display.MoveProgress();
+      if (nextion.IsConnected())  nextion.MoveProgress();
+    }
 
-  // Hostname
-  String hn = settings.Get("HostName", "LaCrosseGateway");
-  WiFi.hostname(hn);
-  logger.print("HostName is: ");
-  logger.println(hn);
-  stateManager.SetHostname(hn);
+    esp.SwitchLed(false, true);
+    if (display.IsConnected()) display.HideProgress();
+    if (nextion.IsConnected())  {} // nextion.HideProgress();
 
-  // Statische IP
-  String staticIP   = settings.Get("staticIP",   "");
-  String staticMask = settings.Get("staticMask",  "");
-  String staticGW   = settings.Get("staticGW",    "");
-  String staticDNS  = settings.Get("staticDNS",   "");
-  bool useStaticIP = (staticIP.length() >= 7 && staticMask.length() >= 7 && staticGW.length() >= 7);
-  if (!useStaticIP) {
-    logger.println("Using DHCP");
+    if (WiFi.status() == WL_CONNECTED) {
+      stateManager.SetWiFiConnectTime((millis() - startMs) / 1000.0);
+      logger.println(F(""));
+      logger.println(F("connected :-)"));
+      logger.print(F("IP: "));
+      logger.println(WiFi.localIP().toString());
+
+      String hn = settings.Get("HostName", "LaCrosseGateway");
+      WiFi.hostname(hn);
+      logger.print(F("HostName is: ")); logger.println(hn);
+      stateManager.SetHostname(hn);
+
+      // Statische IP
+      String staticIP   = settings.Get("staticIP",   "");
+      String staticMask = settings.Get("staticMask",  "");
+      String staticGW   = settings.Get("staticGW",    "");
+      String staticDNS  = settings.Get("staticDNS",   "");
+      bool useStaticIP = (staticIP.length() >= 7 && staticMask.length() >= 7 && staticGW.length() >= 7);
+      if (!useStaticIP) {
+        logger.println(F("Using DHCP"));
+      } else {
+        logger.println("Using static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
+        IPAddress dnsIP = staticDNS.length() >= 7
+          ? HTML::IPAddressFromString(staticDNS)
+          : HTML::IPAddressFromString(staticGW);
+        WiFi.config(
+          HTML::IPAddressFromString(staticIP),
+          HTML::IPAddressFromString(staticGW),
+          HTML::IPAddressFromString(staticMask),
+          dnsIP
+        );
+      }
+
+      if (display.IsConnected()) {
+        display.Print("LGW V" + stateManager.GetVersion(), DisplayArea_Line1, OLED::Alignments::Center);
+        display.Print(WiFi.localIP().toString(), DisplayArea_Line2, OLED::Alignments::Center);
+        display.SetWifiFlag(true);
+      }
+      if (nextion.IsConnected()) {
+        nextion.Print("LGW V" + stateManager.GetVersion() + "\r\n" + WiFi.localIP().toString());
+      }
+
+      if (settings.GetBool("UseMDNS")) {
+        logger.println(F("Starting MDNS"));
+        MDNS.begin("esp8266-ota", WiFi.localIP());
+        MDNS.addService("arduino", "tcp", OTA_PORT);
+        MDNS.addService("http", "tcp", FRONTEND_PORT);
+      }
+
+      USE_WIFI = 1;
+      return true;
+
+    } else {
+      logger.println(F(""));
+      logger.println(F("Verbindung fehlgeschlagen - oeffne Konfigurationsportal"));
+      // SSID aus Settings loeschen, damit naechster Start wieder Portal zeigt
+      settings.Add("ctSSID", "---");
+      settings.Write();
+    }
   } else {
-    logger.println("Using static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
-    IPAddress dnsIP = staticDNS.length() >= 7
-      ? HTML::IPAddressFromString(staticDNS)
-      : HTML::IPAddressFromString(staticGW);
-    WiFi.config(
-      HTML::IPAddressFromString(staticIP),
-      HTML::IPAddressFromString(staticGW),
-      HTML::IPAddressFromString(staticMask),
-      dnsIP
-    );
+    logger.println(F("Keine SSID konfiguriert - oeffne Konfigurationsportal"));
   }
 
-  logger.println();
-  logger.println("connected :-)");
-  logger.print("IP: ");
-  logger.println(WiFi.localIP().toString());
-
-  if (display.IsConnected()) {
-    display.Print("LGW V" + stateManager.GetVersion(), DisplayArea_Line1, OLED::Alignments::Center);
-    display.Print(WiFi.localIP().toString(), DisplayArea_Line2, OLED::Alignments::Center);
-    display.SetWifiFlag(true);
-  }
-  if (nextion.IsConnected()) {
-    nextion.Print("LGW V" + stateManager.GetVersion() + "\r\n" + WiFi.localIP().toString());
-  }
-
-  // mDNS
-  if (settings.GetBool("UseMDNS")) {
-    logger.println("Starting MDNS");
-    MDNS.begin("esp8266-ota", WiFi.localIP());
-    MDNS.addService("arduino", "tcp", OTA_PORT);
-    MDNS.addService("http", "tcp", FRONTEND_PORT);
-  }
-
-  // OTA, DataPorts und SerialBridges werden in setup() nach frontend->Begin() gestartet
-  // (frontend->WebServer() ist hier noch nicht verfügbar)
-
-  USE_WIFI = 1;
-  return true;
+  // ── Kein SSID oder Verbindung fehlgeschlagen: Portal starten ─────────────
+  WiFiPortal_Begin(apName, &settings);
+  USE_WIFI = 0;
+  return false;
 }
 
 static void StopWifi() {
@@ -1619,12 +1875,12 @@ void setup(void) {
   SetDebugMode(DEBUG);
   
   Settings *pSettings = new Settings();
-if (!pSettings) {
+  if (!pSettings) {
     logger.println(F("FATAL: Settings allocation failed"));
     delay(1000);
     ESP.restart();
     return;
-}
+  }
   pSettings->Read(&logger);
   Settings &settings = *pSettings;
 
@@ -2145,6 +2401,15 @@ void loop(void) {
   else {
 
   stateManager.SetLoopStart();
+
+  // WiFi-Konfigportal bedienen (aktiv bis Neustart nach Speichern)
+  if (g_portalActive && g_portalServer != nullptr) {
+    g_portalServer->handleClient();
+    ESP.wdtFeed();
+    yield();
+    return;  // Im Portalmodus nichts anderes tun
+  }
+
 #ifdef USE_MQTT_Pubsub
   if (mqttEnabled) {
     if ((WiFi.status() == WL_CONNECTED) && !client.connected() && (((millis() - timetry) > 2000) || !timetry)) {
