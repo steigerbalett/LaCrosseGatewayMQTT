@@ -102,18 +102,27 @@ extern "C" {
 // ─────────────────────────────────────────────────────────────────────────────
 // ESP8266 SDK 2.2.2-dev Bugfix: WiFi-AP-Callbacks rufen yield() aus dem
 // sys-Kontext auf. Der Arduino-Core panikt dann (__yield -> panic()).
-// Diese Überschreibung verhindert den Panic: im sys-Kontext wird yield()
-// stillschweigend ignoriert. Im cont-Kontext funktioniert alles normal.
-// Referenz: core_esp8266_main.cpp:191  __yield -> panic() wenn !ETS_INTR_ENABLED
+//
+// WICHTIG: __yield MUSS als extern "C" definiert werden!
+// In einer .ino-Datei wird ohne extern "C" das Symbol durch C++-Name-Mangling
+// zu "_Z7__yieldv" – der Core ruft aber das C-Symbol "__yield" auf.
+// Ohne extern "C" wird diese Überschreibung vom Linker IGNORIERT.
+//
+// Der Linker bevorzugt Symbole aus Sketch-.o-Dateien gegenüber core.a,
+// daher überschreibt diese Definition die Version in core_esp8266_main.cpp.
 // ─────────────────────────────────────────────────────────────────────────────
-extern "C" void esp_yield(void);
+extern "C" {
+  void esp_yield(void);  // forward declaration
 
-void IRAM_ATTR __yield() {
-  if (ETS_INTR_ENABLED()) {
-    esp_yield();          // cont-Kontext: normales Yield
+  // Überschreibt __yield aus core_esp8266_main.cpp:191
+  // Im cont-Kontext (ETS_INTR_ENABLED): normales Yield
+  // Im sys-Kontext (Interrupts gesperrt): still zurückgeben statt panic()
+  void IRAM_ATTR __yield() {
+    if (ETS_INTR_ENABLED()) {
+      esp_yield();
+    }
+    // sys-Kontext: No-Op (cont_can_yield() == false, yield wäre sowieso No-Op)
   }
-  // sys-Kontext (Interrupts deaktiviert): still zurückgeben statt panic()
-  // cont_can_yield() würde false zurückgeben - yield() wäre sowieso No-Op
 }
 
 /* Configuration of NTP */
