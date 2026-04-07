@@ -22,8 +22,10 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   m_logger->println("[CaptivePortal] Starting AP: " + m_apSSID);
 
   WiFi.persistent(false);
-  WiFi.disconnect(false);
-  WiFi.mode(WIFI_AP);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true);   // Bestehende STA-Verbindung komplett trennen
+  delay(100);
+  WiFi.mode(WIFI_AP_STA);  // WIFI_AP_STA statt WIFI_AP – wie WiFiManager!
 
   IPAddress apIP(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
@@ -66,6 +68,7 @@ void CaptivePortal::End() {
   m_server.stop();
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);
+  delay(100);
   m_logger->println("[CaptivePortal] Closed");
 }
 
