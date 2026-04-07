@@ -100,31 +100,15 @@ extern "C" {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ESP8266 SDK 2.2.2-dev Bugfix: sys-Kontext yield() Panic
+// Hinweis: Die ursprüngliche __yield/__wrap Workaround-Strategie hat nicht
+// funktioniert, da der yield()-Aufruf aus precompilierten WiFi-SDK-Binaries
+// (libnet80211.a, libpp.a) kommt und weder --wrap=__yield noch Symbol-Override
+// diese Calls abfangen können.
 //
-// PlatformIO linkt den Core mit --whole-archive: beide Definitionen von
-// __yield (Core + Sketch) landen im Linker → "multiple definition" Fehler.
-// Daher kann __yield NICHT durch Neudefinition überschrieben werden.
-//
-// Lösung: GNU Linker --wrap=__yield (gesetzt in platformio.ini build_flags)
-//   Alle Aufrufe von __yield()       → __wrap___yield()  (unser Code hier)
-//   __real___yield()                 → original Core-__yield (im cont-Kontext)
-//
-// Im sys-Kontext (WiFi-AP-Callback, Interrupts deaktiviert):
-//   ETS_INTR_ENABLED() == false → still zurückgeben statt panic()
-// Im cont-Kontext (normaler loop/yield-Aufruf):
-//   ETS_INTR_ENABLED() == true  → __real___yield() → normales Yield
+// Fix: CaptivePortal wurde auf ESPAsyncWebServer umgestellt.
+// ESPAsyncWebServer verwendet lwIP async callbacks und ruft intern kein
+// yield() auf – der sys-Kontext Panic tritt damit nicht mehr auf.
 // ─────────────────────────────────────────────────────────────────────────────
-extern "C" {
-  void __real___yield(void);  // original __yield aus core_esp8266_main.cpp
-
-  void IRAM_ATTR __wrap___yield(void) {
-    if (ETS_INTR_ENABLED()) {
-      __real___yield();       // cont-Kontext: normales Yield
-    }
-    // sys-Kontext: No-Op – verhindert panic() bei WiFi-AP-Callbacks
-  }
-}
 
 /* Configuration of NTP */
 #define MY_NTP_SERVER "de.pool.ntp.org"           
