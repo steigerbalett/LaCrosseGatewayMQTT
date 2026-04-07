@@ -99,6 +99,23 @@ extern "C" {
   #include <lwip/dns.h>
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ESP8266 SDK 2.2.2-dev Bugfix: WiFi-AP-Callbacks rufen yield() aus dem
+// sys-Kontext auf. Der Arduino-Core panikt dann (__yield -> panic()).
+// Diese Überschreibung verhindert den Panic: im sys-Kontext wird yield()
+// stillschweigend ignoriert. Im cont-Kontext funktioniert alles normal.
+// Referenz: core_esp8266_main.cpp:191  __yield -> panic() wenn !ETS_INTR_ENABLED
+// ─────────────────────────────────────────────────────────────────────────────
+extern "C" void esp_yield(void);
+
+void IRAM_ATTR __yield() {
+  if (ETS_INTR_ENABLED()) {
+    esp_yield();          // cont-Kontext: normales Yield
+  }
+  // sys-Kontext (Interrupts deaktiviert): still zurückgeben statt panic()
+  // cont_can_yield() würde false zurückgeben - yield() wäre sowieso No-Op
+}
+
 /* Configuration of NTP */
 #define MY_NTP_SERVER "de.pool.ntp.org"           
 #define MY_TZ "CET-1CEST,M3.5.0/02,M10.5.0/03"
