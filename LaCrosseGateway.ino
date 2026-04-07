@@ -72,6 +72,7 @@
 #include "Logger.h"
 #include "SerialPortFlasher.h"
 #include "AccessPoint.h"
+#include "CaptivePortal.h"
 #include "WebFrontend.h"
 #include "DataPort.h"
 #include "Settings.h"
@@ -1544,124 +1545,14 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Eigenes WiFi-Konfigurationsportal (ersetzt WiFiManager)
-// Beim Erststart / fehlender SSID: SoftAP + Webseite mit WiFi-Scan
+// WiFi-Start: Gespeicherte SSID → direkt verbinden.
+// Kein SSID / Verbindung fehlgeschlagen → CaptivePortal starten.
+// CaptivePortal ist eine fertige Klasse im Repo (CaptivePortal.h/.cpp)
+// mit DNS-Catch-all, WiFi-Scan, Credentials-Speicherung und Timeout.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static bool       g_portalActive  = false;
-static ESP8266WebServer *g_portalServer = nullptr;
-static String     g_portalApName  = "";
-static Settings  *g_portalSettings = nullptr;   // zeigt auf pSettings (nie gelöscht)
-
-static String WiFiPortal_ScanPage() {
-  WiFi.mode(WIFI_AP_STA);
-  int n = WiFi.scanNetworks(false, true);
-  String h = F("<!DOCTYPE html><html><head>"
-    "<meta charset='utf-8'>"
-    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>LaCrosse Setup</title>"
-    "<style>"
-    "body{font-family:sans-serif;max-width:440px;margin:32px auto;padding:16px;color:#222}"
-    "h2{color:#1a73e8;margin-bottom:4px}p{color:#555;font-size:14px}"
-    "label{display:block;margin-top:14px;font-weight:600;font-size:14px}"
-    "select,input{width:100%;padding:9px 8px;margin-top:5px;box-sizing:border-box;"
-    "border:1px solid #ccc;border-radius:6px;font-size:15px}"
-    "button{width:100%;padding:11px;margin-top:18px;background:#1a73e8;color:#fff;"
-    "border:none;border-radius:6px;font-size:16px;cursor:pointer}"
-    "button:hover{background:#1558b0}"
-    ".rssi{color:#888;font-size:12px}"
-    "</style></head><body>"
-    "<h2>LaCrosse Gateway</h2>"
-    "<p>Hotspot: <b>");
-  h += g_portalApName;
-  h += F("</b></p><hr>"
-    "<form method='POST' action='/save'>"
-    "<label>WLAN-Netzwerk ausw&auml;hlen:</label>"
-    "<select name='ssid'>");
-  for (int i = 0; i < n; i++) {
-    String enc = (WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " &#128275;" : " &#128274;";
-    h += "<option value='" + WiFi.SSID(i) + "'>"
-       + WiFi.SSID(i) + enc
-       + " <span class='rssi'>(" + String(WiFi.RSSI(i)) + " dBm)</span>"
-       + "</option>";
-  }
-  h += F("</select>"
-    "<label>Passwort:</label>"
-    "<input type='password' name='pass' placeholder='WLAN-Passwort (leer lassen wenn kein Passwort)'>"
-    "<button type='submit'>&#10003;&nbsp;Verbinden &amp; Speichern</button>"
-    "</form></body></html>");
-  return h;
-}
-
-static void WiFiPortal_Begin(const String &apName, Settings *settingsPtr) {
-  g_portalApName   = apName;
-  g_portalSettings = settingsPtr;
-
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
-  WiFi.softAP(apName.c_str());
-  delay(500);  // AP braucht kurz zum Hochfahren
-
-  logger.println(F("*** Hotspot geoeffnet ***"));
-  logger.println("SSID: " + apName);
-  logger.println(F("Oeffne http://192.168.4.1 im Browser"));
-
-  if (display.IsConnected()) {
-    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
-    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
-  }
-
-  g_portalServer = new ESP8266WebServer(80);
-
-  // Hauptseite: WiFi-Scan + Formular
-  g_portalServer->on("/", HTTP_GET, []() {
-    g_portalServer->send(200, "text/html", WiFiPortal_ScanPage());
-  });
-
-  // Neu scannen
-  g_portalServer->on("/scan", HTTP_GET, []() {
-    g_portalServer->sendHeader("Location", "/", true);
-    g_portalServer->send(302, "text/plain", "");
-  });
-
-  // Speichern und neu starten
-  g_portalServer->on("/save", HTTP_POST, []() {
-    String ssid = g_portalServer->arg("ssid");
-    String pass = g_portalServer->arg("pass");
-    ssid.trim();
-    if (ssid.length() > 0 && g_portalSettings != nullptr) {
-      g_portalSettings->Add("ctSSID", ssid);
-      g_portalSettings->Add("ctPASS", pass);
-      g_portalSettings->Write();
-      g_portalServer->send(200, "text/html",
-        String(F("<!DOCTYPE html><html><body style='font-family:sans-serif;max-width:440px;margin:40px auto;padding:16px'>"
-        "<h2 style='color:#1a73e8'>&#10003; Gespeichert!</h2>"
-        "<p>Verbinde mit <b>")) + ssid + F("</b>...<br>Gateway startet neu, bitte warten.</p>"
-        "<script>setTimeout(()=>location.href='/',8000)</script>"
-        "</body></html>"));
-      delay(2000);
-      ESP.restart();
-    } else {
-      g_portalServer->send(400, "text/html",
-        F("<html><body><h2>Fehler</h2><p>Bitte SSID auswaehlen.</p><a href='/'>Zurueck</a></body></html>"));
-    }
-  });
-
-  // Captive-Portal: alle unbekannten Requests umleiten
-  g_portalServer->onNotFound([]() {
-    g_portalServer->sendHeader("Location", "http://192.168.4.1/", true);
-    g_portalServer->send(302, "text/plain", "Redirect to portal");
-  });
-
-  g_portalServer->begin();
-  g_portalActive = true;
-  logger.println(F("WiFi-Konfigportal aktiv auf http://192.168.4.1"));
-  // 5x schnell blinken = Hotspot-Modus aktiv
-  for (int _b = 0; _b < 5; _b++) {
-    esp.Blink(1);
-    delay(200);
-  }
-}
+static CaptivePortal captivePortal;
+static bool          g_portalActive = false;
 
 static bool StartWifi(Settings &settings) {
   espconn_tcp_set_max_con(10);
@@ -1684,20 +1575,16 @@ static bool StartWifi(Settings &settings) {
 
     int numSsid = scanWifi(ctSSID);
     logger.println(F(""));
-    logger.print(F("SSID search result - #: "));
-    logger.print(String(numSsid));
+    logger.print(F("SSID search - #: "));    logger.print(String(numSsid));
     logger.print(F(", ch: ")); logger.print(String(channel));
     logger.print(F(", rssi: ")); logger.println(String(rssi));
 
     if (rssi != -999) {
-      logger.println(F("Connecting to bssid"));
       WiFi.begin(ctSSID.c_str(), ctPASS.c_str(), channel, bssid, false);
     } else {
-      logger.println(F("Connecting to ssid"));
       WiFi.begin(ctSSID.c_str(), ctPASS.c_str());
     }
 
-    esp.SwitchLed(true, true);
     if (display.IsConnected()) display.ShowProgress(60, "Connect WiFi");
     if (nextion.IsConnected())  nextion.ShowProgress(60, "Connect WiFi");
 
@@ -1709,14 +1596,11 @@ static bool StartWifi(Settings &settings) {
       ESP.wdtFeed();
       yield();
       logger.print(".");
-      esp.SwitchLed(retryCounter % 2 == 0, true);
       if (display.IsConnected()) display.MoveProgress();
       if (nextion.IsConnected())  nextion.MoveProgress();
     }
 
-    esp.SwitchLed(false, true);
     if (display.IsConnected()) display.HideProgress();
-    if (nextion.IsConnected())  {} // nextion.HideProgress();
 
     if (WiFi.status() == WL_CONNECTED) {
       stateManager.SetWiFiConnectTime((millis() - startMs) / 1000.0);
@@ -1727,7 +1611,6 @@ static bool StartWifi(Settings &settings) {
 
       String hn = settings.Get("HostName", "LaCrosseGateway");
       WiFi.hostname(hn);
-      logger.print(F("HostName is: ")); logger.println(hn);
       stateManager.SetHostname(hn);
 
       // Statische IP
@@ -1739,7 +1622,7 @@ static bool StartWifi(Settings &settings) {
       if (!useStaticIP) {
         logger.println(F("Using DHCP"));
       } else {
-        logger.println("Using static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
+        logger.println("Static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
         IPAddress dnsIP = staticDNS.length() >= 7
           ? HTML::IPAddressFromString(staticDNS)
           : HTML::IPAddressFromString(staticGW);
@@ -1772,17 +1655,23 @@ static bool StartWifi(Settings &settings) {
 
     } else {
       logger.println(F(""));
-      logger.println(F("Verbindung fehlgeschlagen - oeffne Konfigurationsportal"));
-      // SSID aus Settings loeschen, damit naechster Start wieder Portal zeigt
+      logger.println(F("Verbindung fehlgeschlagen - starte CaptivePortal"));
+      // SSID loeschen damit naechster Start wieder Portal zeigt
       settings.Add("ctSSID", "---");
       settings.Write();
     }
   } else {
-    logger.println(F("Keine SSID konfiguriert - oeffne Konfigurationsportal"));
+    logger.println(F("Keine SSID konfiguriert - starte CaptivePortal"));
   }
 
-  // ── Kein SSID oder Verbindung fehlgeschlagen: Portal starten ─────────────
-  WiFiPortal_Begin(apName, &settings);
+  // ── Kein SSID oder Verbindung fehlgeschlagen: CaptivePortal starten ──────
+  if (display.IsConnected()) {
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+  }
+
+  captivePortal.Begin(&settings, &logger, apName, 0); // 0 = kein Timeout
+  g_portalActive = true;
   USE_WIFI = 0;
   return false;
 }
@@ -2297,11 +2186,10 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       }
 
     } else {
-      // Portal-Modus: Konfigportal laeuft auf Port 80 (g_portalServer).
-      // Alle weiteren Setup-Schritte (NTP, MQTT, HandleCommandV) MUESSEN
-      // uebersprungen werden – configTime() im AP-only-Modus crasht den
-      // sys-Stack (lwIP SNTP-Callback, nur 256 Byte). Fruehes return,
-      // loop() bedient ab sofort ausschliesslich den Portal-Webserver.
+      // Portal-Modus: CaptivePortal laeuft, bedient von loop().
+      // Frühes return aus setup() verhindert configTime()-Crash:
+      // SNTP-Callbacks laufen im sys-Kontext (256 Byte Stack) und
+      // crashen bei yield() ohne aktive STA-Verbindung.
       logger.println(F("Kein WLAN - Konfigportal auf http://192.168.4.1"));
       logger.println(F("Setup abgeschlossen (Portal-Modus). Oeffne http://192.168.4.1"));
       USE_WIFI = 0;
@@ -2422,11 +2310,10 @@ void loop(void) {
 
   stateManager.SetLoopStart();
 
-  // WiFi-Konfigportal bedienen (aktiv bis Neustart nach Speichern)
-  if (g_portalActive && g_portalServer != nullptr) {
-    g_portalServer->handleClient();
+  // CaptivePortal: im Portal-Modus nur den Portal-Webserver bedienen
+  if (g_portalActive) {
+    captivePortal.Handle();
     ESP.wdtFeed();
-    yield();
     return;  // Im Portalmodus nichts anderes tun
   }
 
