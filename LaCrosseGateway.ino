@@ -332,7 +332,8 @@ void reconnectMqtt() {
 
   // Attempt to connect
   logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
-  if (client.connect("ESP32Client", mqtt_user, mqtt_password )) {
+  String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
+  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
       Serial.println("connected");
       // Subscribe
       client.subscribe("esp32/output");
@@ -490,7 +491,7 @@ static void HandleSerialPort(char c) {
       else if (value == 8377) {
         ESP.restart();
       }
-    
+    break; 
     case 'g':
       if (value == 1) {
         Settings *s = new Settings();
@@ -1436,10 +1437,13 @@ static bool StartWifi(Settings &settings) {
   ctSSID.trim();
   bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
   if (isFirstSetup) {
+    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
     WiFi.disconnect(true);
-    delay(100);
+    delay(500);
     wm->resetSettings();
-  }
+    delay(200);
+}
   wm->setConfigPortalTimeout(300);  // immer Timeout setzen (180s bestehend, 300s Ersteinrichtung)
 
   esp.SwitchLed(true, true);
@@ -1615,6 +1619,12 @@ void setup(void) {
   SetDebugMode(DEBUG);
   
   Settings *pSettings = new Settings();
+if (!pSettings) {
+    logger.println(F("FATAL: Settings allocation failed"));
+    delay(1000);
+    ESP.restart();
+    return;
+}
   pSettings->Read(&logger);
   Settings &settings = *pSettings;
 
