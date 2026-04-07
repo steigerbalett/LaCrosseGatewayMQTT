@@ -100,28 +100,29 @@ extern "C" {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ESP8266 SDK 2.2.2-dev Bugfix: WiFi-AP-Callbacks rufen yield() aus dem
-// sys-Kontext auf. Der Arduino-Core panikt dann (__yield -> panic()).
+// ESP8266 SDK 2.2.2-dev Bugfix: sys-Kontext yield() Panic
 //
-// WICHTIG: __yield MUSS als extern "C" definiert werden!
-// In einer .ino-Datei wird ohne extern "C" das Symbol durch C++-Name-Mangling
-// zu "_Z7__yieldv" – der Core ruft aber das C-Symbol "__yield" auf.
-// Ohne extern "C" wird diese Überschreibung vom Linker IGNORIERT.
+// PlatformIO linkt den Core mit --whole-archive: beide Definitionen von
+// __yield (Core + Sketch) landen im Linker → "multiple definition" Fehler.
+// Daher kann __yield NICHT durch Neudefinition überschrieben werden.
 //
-// Der Linker bevorzugt Symbole aus Sketch-.o-Dateien gegenüber core.a,
-// daher überschreibt diese Definition die Version in core_esp8266_main.cpp.
+// Lösung: GNU Linker --wrap=__yield (gesetzt in platformio.ini build_flags)
+//   Alle Aufrufe von __yield()       → __wrap___yield()  (unser Code hier)
+//   __real___yield()                 → original Core-__yield (im cont-Kontext)
+//
+// Im sys-Kontext (WiFi-AP-Callback, Interrupts deaktiviert):
+//   ETS_INTR_ENABLED() == false → still zurückgeben statt panic()
+// Im cont-Kontext (normaler loop/yield-Aufruf):
+//   ETS_INTR_ENABLED() == true  → __real___yield() → normales Yield
 // ─────────────────────────────────────────────────────────────────────────────
 extern "C" {
-  void esp_yield(void);  // forward declaration
+  void __real___yield(void);  // original __yield aus core_esp8266_main.cpp
 
-  // Überschreibt __yield aus core_esp8266_main.cpp:191
-  // Im cont-Kontext (ETS_INTR_ENABLED): normales Yield
-  // Im sys-Kontext (Interrupts gesperrt): still zurückgeben statt panic()
-  void IRAM_ATTR __yield() {
+  void IRAM_ATTR __wrap___yield(void) {
     if (ETS_INTR_ENABLED()) {
-      esp_yield();
+      __real___yield();       // cont-Kontext: normales Yield
     }
-    // sys-Kontext: No-Op (cont_can_yield() == false, yield wäre sowieso No-Op)
+    // sys-Kontext: No-Op – verhindert panic() bei WiFi-AP-Callbacks
   }
 }
 
