@@ -1671,7 +1671,21 @@ static bool StartWifi(Settings &settings) {
   }
 
   captivePortal.Begin(&settings, &logger, apName, 0); // 0 = kein Timeout
-  g_portalActive = true;
+  logger.println(F("CaptivePortal aktiv – warte auf WLAN-Konfiguration..."));
+  logger.println(F("Oeffne http://192.168.4.1 im Browser"));
+
+  // BLOCKIEREND warten – identisch zu WiFiManager::autoConnect().
+  // setup() kehrt NIEMALS zurück solange das Portal läuft.
+  // Nach Eingabe der Credentials ruft handleSave() ESP.restart() auf.
+  // Wenn IsDone() ohne Restart true wird (Timeout), brechen wir ab.
+  while (!captivePortal.IsDone()) {
+    captivePortal.Handle();
+    ESP.wdtFeed();
+    yield();
+  }
+
+  // Hier nur erreichbar bei Timeout (kein Restart durch handleSave)
+  captivePortal.End();
   USE_WIFI = 0;
   return false;
 }
@@ -2186,17 +2200,14 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       }
 
     } else {
-      // Portal-Modus: CaptivePortal laeuft, bedient von loop().
-      // Frühes return aus setup() verhindert configTime()-Crash:
-      // SNTP-Callbacks laufen im sys-Kontext (256 Byte Stack) und
-      // crashen bei yield() ohne aktive STA-Verbindung.
-      logger.println(F("Kein WLAN - Konfigportal auf http://192.168.4.1"));
-      logger.println(F("Setup abgeschlossen (Portal-Modus). Oeffne http://192.168.4.1"));
+      // StartWifi() hat intern das Portal blockierend abgearbeitet
+      // (while-Schleife in CaptivePortal, kein return aus setup()).
+      // Dieser Zweig wird nur erreicht wenn Portal-Timeout ohne Neustart.
+      logger.println(F("Kein WLAN nach Portal-Timeout - fahre ohne WiFi fort"));
       USE_WIFI = 0;
-      return;   // ← KEIN NTP, KEIN MQTT-Setup, direkt in loop()
     }
 
-    // NTP nur aufrufen wenn wirklich mit WLAN verbunden (nicht im Portal-Modus)
+    // NTP nur wenn wirklich mit WLAN verbunden
     if (WiFi.status() == WL_CONNECTED) {
       configTime(MY_TZ, MY_NTP_SERVER);
       logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
@@ -2310,12 +2321,7 @@ void loop(void) {
 
   stateManager.SetLoopStart();
 
-  // CaptivePortal: im Portal-Modus nur den Portal-Webserver bedienen
-  if (g_portalActive) {
-    captivePortal.Handle();
-    ESP.wdtFeed();
-    return;  // Im Portalmodus nichts anderes tun
-  }
+  // Kein Portal-Handling nötig: Portal läuft blockierend in setup()
 
 #ifdef USE_MQTT_Pubsub
   if (mqttEnabled) {
