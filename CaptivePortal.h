@@ -25,7 +25,6 @@
 #include "Arduino.h"
 #include "ESP8266WiFi.h"
 #include "ESP8266WebServer.h"
-#include <DNSServer.h>
 #include "Settings.h"
 #include "Logger.h"
 
@@ -52,7 +51,6 @@ private:
   Settings        *m_settings;
   Logger          *m_logger;
   ESP8266WebServer m_server;
-  DNSServer        m_dns;
   bool             m_done;
   int              m_timeoutS;
   unsigned long    m_startMs;
