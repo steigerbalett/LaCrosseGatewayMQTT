@@ -110,7 +110,7 @@ void ESP8266SoftSerial::Println(String data) {
   Write(13);
 }
 
-void ICACHE_RAM_ATTR ESP8266SoftSerial::OnRXD() {
+void IRAM_ATTR ESP8266SoftSerial::OnRXD() {
   unsigned long wait = m_bitTime + m_bitTime / 3 - 500;
   unsigned long start = ESP.getCycleCount();
   byte rec = 0;

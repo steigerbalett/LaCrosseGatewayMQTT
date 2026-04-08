@@ -20,7 +20,7 @@
 #define CP_HEAP()         do { Serial.printf("[CP] Heap=%u ContStack=%u\n", \
                                 ESP.getFreeHeap(), ESP.getFreeContStack()); Serial.flush(); } while(0)
 
-static DNSServer  s_dnsServer;
+static DNSServer* s_dnsServer = nullptr;   // Heap-allokiert in Begin(), kein globaler Konstruktor
 static bool       s_dnsActive = false;
 
 CaptivePortal::CaptivePortal()
@@ -95,9 +95,10 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   // ── 4. DNS-Server: alle Domains → AP-IP ────────────────────
   //    Ermöglicht Captive-Portal-Popup auf iOS/Android/Windows
   CP_DBG("Starting DNS server (port 53)");
-  s_dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-  s_dnsServer.setTTL(300);
-  bool dnsOk = s_dnsServer.start(53, "*", apIP);
+  if (!s_dnsServer) s_dnsServer = new DNSServer();  // Heap-Alloc, kein globaler Konstruktor
+  s_dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+  s_dnsServer->setTTL(300);
+  bool dnsOk = s_dnsServer->start(53, "*", apIP);
   s_dnsActive = dnsOk;
   CP_DBGF("DNS server: %s", dnsOk ? "OK" : "FAILED");
 
@@ -225,7 +226,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 void CaptivePortal::Handle() {
   // DNS-Anfragen verarbeiten (für Captive-Portal-Popup)
   if (s_dnsActive) {
-    s_dnsServer.processNextRequest();
+    s_dnsServer->processNextRequest();
   }
 
   if (m_done) {
@@ -233,7 +234,7 @@ void CaptivePortal::Handle() {
         (millis() - m_doneSince) > 1500UL) {
       CP_DBG("Restarting...");
       m_logger->println("[CaptivePortal] Restarting...");
-      if (s_dnsActive) { s_dnsServer.stop(); s_dnsActive = false; }
+      if (s_dnsActive && s_dnsServer) { s_dnsServer->stop(); delete s_dnsServer; s_dnsServer = nullptr; s_dnsActive = false; }
       ESP.restart();
     }
     return;
@@ -253,7 +254,8 @@ bool CaptivePortal::IsDone() { return m_done; }
 
 void CaptivePortal::End() {
   CP_DBG("End()");
-  if (s_dnsActive) { s_dnsServer.stop(); s_dnsActive = false; }
+  if (s_dnsActive && s_dnsServer) { s_dnsServer->stop(); s_dnsActive = false; }
+  delete s_dnsServer; s_dnsServer = nullptr;
   if (m_server)    { m_server->end(); delete m_server; m_server = nullptr; }
   WiFi.softAPdisconnect(true);
   WiFi.mode(WIFI_STA);

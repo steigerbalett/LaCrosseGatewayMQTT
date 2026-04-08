@@ -1560,7 +1560,6 @@ static CaptivePortal captivePortal;
 static bool          g_portalActive = false;
 
 static bool StartWifi(Settings &settings) {
-  espconn_tcp_set_max_con(10);
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
   String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
