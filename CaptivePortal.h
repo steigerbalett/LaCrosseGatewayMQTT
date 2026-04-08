@@ -25,10 +25,10 @@ private:
   int             m_timeoutS;
   uint32_t        m_startMs;
   bool            m_done;
-  bool            m_restartOnDone;
+  bool            m_restartPending;
   uint32_t        m_doneSince;
   String          m_scanHtml;
 
   String buildPage(const String &body);
-  String scanNetworks();
+  String buildScanHtml();
 };
