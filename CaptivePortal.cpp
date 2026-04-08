@@ -234,7 +234,9 @@ void CaptivePortal::Handle() {
   }
 }
 
-bool CaptivePortal::IsDone() { return m_done; }
+bool CaptivePortal::IsDone() {
+  return m_done && !m_restartPending;
+}
 
 void CaptivePortal::End() {
   CP_DBG("End()");
