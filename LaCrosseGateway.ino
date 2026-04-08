@@ -1419,11 +1419,13 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
 
   WiFi.persistent(false);
   WiFi.disconnect(true);
-  delay(200);
+  // FIX: ets_delay_us statt delay() – kein yield()
+  // => kein panic() wenn SDK 2.2.2-dev Interrupts deaktiviert
+  ets_delay_us(200000UL); // 200 ms
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
   WiFi.softAP(apName.c_str());
-  delay(500);
+  ets_delay_us(500000UL); // 500 ms
 
   logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
   if (display.IsConnected()) {
@@ -1519,16 +1521,17 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
   while (!gotCredentials) {
     portalServer.handleClient();
     ESP.wdtFeed();
-    yield();
+    // FIX: yield() -> ets_delay_us (kein panic bei deaktivierten Interrupts)
+    ets_delay_us(5000UL); // 5 ms
     if (millis() - portalStart > PORTAL_TIMEOUT_MS) {
       logger.println(F("Konfigurations-Timeout - Neustart"));
-      delay(500);
+      ets_delay_us(500000UL);
       ESP.restart();
     }
   }
 
   portalServer.stop();
-  delay(500);
+  ets_delay_us(500000UL);
 
   // Credentials speichern
   settings.Add("ctSSID", newSSID);
@@ -1538,6 +1541,19 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
 
   WiFi.softAPdisconnect(true);
   delay(200);
+}
+
+// ============================================================
+//  dbgStep: schreibt Schrittnummer in RTC-RAM – ueberlebt Crash
+//  Beim naechsten Boot siehst du STEP N in der Debugausgabe.
+// ============================================================
+static void dbgStep(uint32_t step, const char* desc) {
+  uint32_t flag = 0xDEADBEEFUL;
+  ESP.rtcUserMemoryWrite(0, &flag, sizeof(flag));
+  ESP.rtcUserMemoryWrite(1, &step, sizeof(step));
+  Serial.printf("[DBG] >>> STEP %u: %s  Heap=%u ContStack=%u\n",
+    (unsigned)step, desc, ESP.getFreeHeap(), ESP.getFreeContStack());
+  Serial.flush();
 }
 
 static CaptivePortal captivePortal;
@@ -1752,14 +1768,37 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
-//  Serial.begin(57600);
-//  delay(1000);
-  ESP.wdtDisable();   // ← Hardware WDT temporär deaktivieren
+  ESP.wdtDisable();   // Hardware WDT temporaer deaktivieren
   Serial.begin(57600);
-  delay(100);
-  Serial.println(F("SETUP START"));  // Wenn das erscheint → Konstruktoren OK
+  delay(200);
+
+  // ================================================================
+  //  DEBUG: Letzten Crash-Schritt aus RTC-RAM lesen (ueberlebt Reset)
+  // ================================================================
+  {
+    uint32_t crashFlag = 0, crashStep = 0;
+    ESP.rtcUserMemoryRead(0, &crashFlag, sizeof(crashFlag));
+    ESP.rtcUserMemoryRead(1, &crashStep, sizeof(crashStep));
+    uint32_t z = 0;
+    ESP.rtcUserMemoryWrite(0, &z, sizeof(z)); // Flag sofort loeschen
+    Serial.println(F("\n\n=========================================="));
+    Serial.println(F("  LaCrosseGateway  DEBUG-BUILD  v1.36.49+fix"));
+    Serial.println(F("=========================================="));
+    Serial.print(F("[DBG] Reset reason : ")); Serial.println(ESP.getResetReason());
+    Serial.print(F("[DBG] Reset info   : ")); Serial.println(ESP.getResetInfo());
+    if (crashFlag == 0xDEADBEEFUL) {
+      Serial.println(F("[DBG] !!! LETZTER BOOT WAR EIN CRASH !!!!!"));
+      Serial.print(F("[DBG] Crash nach setup()-STEP: ")); Serial.println(crashStep);
+    }
+    Serial.print(F("[DBG] Free Heap      : ")); Serial.println(ESP.getFreeHeap());
+    Serial.print(F("[DBG] Free ContStack : ")); Serial.println(ESP.getFreeContStack());
+    Serial.flush();
+  }
+
+  Serial.println(F("SETUP START"));
   Serial.println();
 
+  dbgStep(1, "EEPROM+Settings init");
   logger.SetBufferSize(40);
 
   logger.Clear();
@@ -1827,6 +1866,7 @@ void setup(void) {
   
   SPI.begin();
 
+  dbgStep(2, "I2C init");
   logger.print("Starting I2C with ");
   logger.print(String(i2cClock/1000));
   logger.println(" kHz");
@@ -2039,6 +2079,7 @@ for (byte i = 0; i < 5; i++) {
     logger.println("MCP23008 found");
   }
  
+  dbgStep(3, "Searching RFMs and Sensors");
   logger.println("Searching RFMs and Sensors");
 auto parseDataRateLong = [](const String &s) -> unsigned long {
   if (s == "17.241") return 17241ul;
@@ -2070,12 +2111,15 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
     logger.println("Starting wifi");
+    dbgStep(5, "vor StartWifi()");
     // WebFrontend als Pointer - hier instanziiert (nicht global = kein WDT-Crash).
     // WiFiManager und WebFrontend teilen Port 80, aber niemals gleichzeitig:
     //   kein WLAN -> WiFiManager-AP auf Port 80
     //   WLAN OK   -> WiFiManager beendet sich, WebFrontend startet auf Port 80
     frontend = new WebFrontend(FRONTEND_PORT);
+    dbgStep(6, "WebFrontend alloziert, rufe StartWifi()");
     bool wifiConnected = StartWifi(settings);
+    dbgStep(7, "StartWifi() zurueckgekehrt");
 
     if (wifiConnected) {
       frontend->Begin(&stateManager, &logger);
