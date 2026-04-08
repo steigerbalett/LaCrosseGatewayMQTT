@@ -97,18 +97,8 @@ extern "C" {
   #include "user_interface.h"
   #include "cont.h"
   #include <lwip/dns.h>
+  void ets_delay_us(uint32_t us);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Hinweis: Die ursprüngliche __yield/__wrap Workaround-Strategie hat nicht
-// funktioniert, da der yield()-Aufruf aus precompilierten WiFi-SDK-Binaries
-// (libnet80211.a, libpp.a) kommt und weder --wrap=__yield noch Symbol-Override
-// diese Calls abfangen können.
-//
-// Fix: CaptivePortal wurde auf ESPAsyncWebServer umgestellt.
-// ESPAsyncWebServer verwendet lwIP async callbacks und ruft intern kein
-// yield() auf – der sys-Kontext Panic tritt damit nicht mehr auf.
-// ─────────────────────────────────────────────────────────────────────────────
 
 /* Configuration of NTP */
 #define MY_NTP_SERVER "de.pool.ntp.org"           
@@ -1362,7 +1352,6 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     uint8_t *thisBssid;
 
     WiFi.setAutoReconnect(true);
-    // WiFi.persistent(true);
 
     numSsid = scanWifi(ctSSID);
 
@@ -1424,10 +1413,6 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
-// ---------------------------------------------------------------------------
-// Eigener Hotspot-Modus: Oeffnet AP + Webformular zur WLAN-Konfiguration
-// Kein WiFiManager mehr notwendig.
-// ---------------------------------------------------------------------------
 static void RunConfigPortal(Settings &settings, const String &apName) {
   logger.println(F("Starte Konfigurations-Hotspot..."));
   logger.println("AP-Name: " + apName);
@@ -1555,13 +1540,6 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
   delay(200);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WiFi-Start: Gespeicherte SSID → direkt verbinden.
-// Kein SSID / Verbindung fehlgeschlagen → CaptivePortal starten.
-// CaptivePortal ist eine fertige Klasse im Repo (CaptivePortal.h/.cpp)
-// mit DNS-Catch-all, WiFi-Scan, Credentials-Speicherung und Timeout.
-// ─────────────────────────────────────────────────────────────────────────────
-
 static CaptivePortal captivePortal;
 static bool          g_portalActive = false;
 
@@ -1685,14 +1663,10 @@ static bool StartWifi(Settings &settings) {
   logger.println(F("CaptivePortal aktiv – warte auf WLAN-Konfiguration..."));
   logger.println(F("Oeffne http://192.168.4.1 im Browser"));
 
-  // BLOCKIEREND warten – identisch zu WiFiManager::autoConnect().
-  // setup() kehrt NIEMALS zurück solange das Portal läuft.
-  // Nach Eingabe der Credentials ruft handleSave() ESP.restart() auf.
-  // Wenn IsDone() ohne Restart true wird (Timeout), brechen wir ab.
   while (!captivePortal.IsDone()) {
     captivePortal.Handle();
     ESP.wdtFeed();
-    yield();
+    ets_delay_us(10000);
   }
 
   // Hier nur erreichbar bei Timeout (kein Restart durch handleSave)
