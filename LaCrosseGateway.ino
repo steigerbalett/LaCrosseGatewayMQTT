@@ -1675,14 +1675,24 @@ static bool StartWifi(Settings &settings) {
     display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
   }
 
+  dbgStep(10, "Vor captivePortal.Begin()");
+  Serial.printf("[DBG] AP-Name=%s  Heap=%u  ContStack=%u\n",
+    apName.c_str(), ESP.getFreeHeap(), ESP.getFreeContStack());
+  Serial.flush();
+
   captivePortal.Begin(&settings, &logger, apName, 0); // 0 = kein Timeout
-  logger.println(F("CaptivePortal aktiv – warte auf WLAN-Konfiguration..."));
+
+  dbgStep(11, "Nach captivePortal.Begin() - Webserver laeuft");
+  logger.println(F("CaptivePortal aktiv - warte auf WLAN-Konfiguration..."));
   logger.println(F("Oeffne http://192.168.4.1 im Browser"));
 
   while (!captivePortal.IsDone()) {
+    // Handle() verarbeitet DNS-Anfragen fuer Captive-Portal auto-detect
     captivePortal.Handle();
     ESP.wdtFeed();
-    delay(10);
+    // Mit CONT_STACKSIZE=8192 (platformio.ini) ist yield() sicher.
+    // Erlaubt dem WiFi-Stack Hintergrundarbeit (TCP, Beacons usw.)
+    yield();
   }
 
   // Hier nur erreichbar bei Timeout (kein Restart durch handleSave)
@@ -1768,6 +1778,8 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
+//  Serial.begin(57600);
+//  delay(1000);
   ESP.wdtDisable();   // Hardware WDT temporaer deaktivieren
   Serial.begin(57600);
   delay(200);
