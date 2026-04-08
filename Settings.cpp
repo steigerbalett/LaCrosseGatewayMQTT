@@ -16,7 +16,7 @@ void Settings::Read(Logger *logger) {
   int i;
   for (i = 0; i < EEPROM_SIZE; i++) {
       rawData += (char)EEPROM.read(i);
-      if (i % 256 == 0) yield();
+      if (i % 64 == 0) yield();
   }
   EEPROM.end();
 
@@ -84,7 +84,7 @@ String Settings::Write() {
   int dataLen = (int)rawData.length();
   for (int i = 0; i < EEPROM_SIZE; i++) {
       EEPROM.write(i, i < dataLen ? (uint8_t)rawData[i] : 0);
-      if (i % 256 == 0) yield();
+      if (i % 64 == 0) yield();
   }
   EEPROM.commit();
   EEPROM.end();

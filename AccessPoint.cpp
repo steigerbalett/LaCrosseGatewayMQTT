@@ -23,10 +23,7 @@ void AccessPoint::Begin(int autoClose) {
   WiFi.mode(WiFiMode::WIFI_AP);
   delay(100);
 
-  // RICHTIGE Reihenfolge: erst Config, dann DHCP starten
-  wifi_softap_dhcps_stop();
   WiFi.softAPConfig(m_ip, m_ip, m_subnet);
-  wifi_softap_dhcps_start();
 
   String ssid = m_ssidPrefix + "_" + String((unsigned int)ESP.getChipId());
   WiFi.softAP(ssid.c_str());

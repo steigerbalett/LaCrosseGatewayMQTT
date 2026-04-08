@@ -1,9 +1,10 @@
 #pragma once
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include "Settings.h"
 #include "Logger.h"
+
+class AsyncWebServer;
 
 class CaptivePortal {
 public:
@@ -24,7 +25,9 @@ private:
   int             m_timeoutS;
   uint32_t        m_startMs;
   bool            m_done;
-  String          m_scanHtml;   // vorab gecachte Scan-Ergebnisse aus Begin()
+  bool            m_restartOnDone;
+  uint32_t        m_doneSince;
+  String          m_scanHtml;
 
   String buildPage(const String &body);
   String scanNetworks();

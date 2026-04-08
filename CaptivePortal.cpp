@@ -15,7 +15,7 @@ static inline void safe_delay_ms(uint32_t ms) {
 // ─────────────────────────────────────────────────────────────────────────────
 CaptivePortal::CaptivePortal()
   : m_server(nullptr), m_settings(nullptr), m_logger(nullptr),
-    m_done(false), m_timeoutS(0), m_startMs(0) {}
+    m_done(false), m_restartOnDone(false), m_doneSince(0), m_timeoutS(0), m_startMs(0) {}
 
 CaptivePortal::~CaptivePortal() {
   if (m_server) { delete m_server; m_server = nullptr; }
@@ -29,6 +29,8 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   m_timeoutS = timeoutS;
   m_startMs  = millis();
   m_done     = false;
+  m_restartOnDone = false;
+  m_doneSince = 0;
 
   m_apSSID = (apSSID.length() == 0)
     ? "LaCrosseGW-" + String(ESP.getChipId(), HEX)
@@ -120,6 +122,8 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
     body += ssid;
     body += F("</strong>.<br>Dieser Hotspot wird jetzt getrennt.</p>");
     req->send(200, "text/html", buildPage(body));
+    m_restartOnDone = true;
+    m_doneSince = millis();
     m_done = true;
   });
 
@@ -133,10 +137,19 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
 // ─────────────────────────────────────────────────────────────────────────────
 void CaptivePortal::Handle() {
-  if (m_done) return;
+  if (m_done) {
+    if (m_restartOnDone && m_doneSince > 0 && (millis() - m_doneSince) > 1500UL) {
+      m_logger->println("[CaptivePortal] Restarting...");
+      ESP.restart();
+    }
+    return;
+  }
+
   if (m_timeoutS > 0 &&
       (millis() - m_startMs) > (uint32_t)m_timeoutS * 1000UL) {
     m_logger->println("[CaptivePortal] Timeout");
+    m_restartOnDone = false;
+    m_doneSince = millis();
     m_done = true;
   }
 }

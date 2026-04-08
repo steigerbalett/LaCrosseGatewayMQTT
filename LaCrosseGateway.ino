@@ -1666,7 +1666,7 @@ static bool StartWifi(Settings &settings) {
   while (!captivePortal.IsDone()) {
     captivePortal.Handle();
     ESP.wdtFeed();
-    ets_delay_us(10000);
+    delay(10);
   }
 
   // Hier nur erreichbar bei Timeout (kein Restart durch handleSave)
@@ -1758,7 +1758,6 @@ void setup(void) {
   Serial.begin(57600);
   delay(100);
   Serial.println(F("SETUP START"));  // Wenn das erscheint → Konstruktoren OK
-  ESP.wdtEnable(WDTO_8S);
   Serial.println();
 
   logger.SetBufferSize(40);
@@ -2267,6 +2266,7 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
   HandleCommandV();
 
   logger.println("Setup completely done");
+  ESP.wdtEnable(WDTO_8S);
   logger.SetBufferSize(10);
 }
 
