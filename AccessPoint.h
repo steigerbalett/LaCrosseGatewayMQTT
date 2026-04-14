@@ -3,6 +3,7 @@
 
 #include "Arduino.h"
 #include "ESP8266WiFi.h"
+#include <DNSServer.h>
 
 typedef void LogItemCallbackType(String);
 
@@ -16,19 +17,13 @@ class AccessPoint {
    int m_autoClose = 0;
    unsigned long m_startMillis = 0;
    LogItemCallbackType *m_logItemCallback;
-   
+
  public:
    AccessPoint(IPAddress ip, IPAddress gateway, IPAddress subnet, String ssidPrefix);
    void Begin(int autoClose = 0);
    void End();
    void Handle();
    void SetLogItemCallback(LogItemCallbackType* callback);
-
 };
 
-
-
-
-
 #endif
-

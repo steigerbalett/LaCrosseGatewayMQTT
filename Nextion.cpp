@@ -172,7 +172,7 @@ void Nextion::UploadeFile(File *file) {
   if (Receive(500, 0x05).indexOf(0x05) != -1) {
     Log("Nextion is now in upload Mode");
 
-    unsigned long trigger = file->size() / 50;
+//    unsigned long trigger = file->size() / 50;
     char *buffer = new char[512];
     unsigned long done = 0;
     unsigned long handledBytes = 0;

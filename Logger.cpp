@@ -1,4 +1,5 @@
 #include "Logger.h"
+#include "DebugHelper.h"
 
 Logger::Logger(byte bufferSize) {
   m_enabled = true;
@@ -39,11 +40,6 @@ void Logger::println(uint32_t data, LogType type) {
   println(String(data), type);
 }
 
-
-
-
-
-
 void Logger::logData(String data, LogType type) {
   if (m_enabled &&  m_queue.Count() <= m_bufferSize) {
     m_queue.Push("DATA:" + data);
@@ -51,7 +47,7 @@ void Logger::logData(String data, LogType type) {
 }
 
 void Logger::print(String data, LogType type) {
-  if (m_enabled && type != LogType::ONLYSYS) {
+  if (m_enabled && type != LogType::ONLYSYS && DebugHelper::enabled) {
     Serial.print(data);
   }
   if (m_enabled &&  m_queue.Count() <= m_bufferSize) {
@@ -60,7 +56,7 @@ void Logger::print(String data, LogType type) {
 }
 
 void Logger::println(String data, LogType type) {
-  if (m_enabled && type != LogType::ONLYSYS) {
+ if (m_enabled && type != LogType::ONLYSYS && DebugHelper::enabled) {
     Serial.println(data);
   }
   String line = m_currentLine + data;

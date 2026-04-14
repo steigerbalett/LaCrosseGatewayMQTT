@@ -2,6 +2,8 @@
 #include "EEPROM.h"
 #include "Logger.h"
 
+bool Settings::m_debug = false;
+
 Settings::Settings() {
 }
 
@@ -10,68 +12,65 @@ void Settings::Read(Logger *logger) {
 
   EEPROM.begin(EEPROM_SIZE);
   String rawData;
+  rawData.reserve(EEPROM_SIZE);
   int i;
   for (i = 0; i < EEPROM_SIZE; i++) {
-    rawData += (char)EEPROM.read(i);
+      rawData += (char)EEPROM.read(i);
+      if (i % 64 == 0) yield();
   }
   EEPROM.end();
-  
+
   logger->print("Read bytes from EEPROM: ");
-  logger->print(rawData);
   logger->println(i);
-  
-  if(rawData[0] == 1) {
+
+  if (rawData[0] == 1) {
     String key = "";
     String value = "";
     bool keyDone = false;
     bool valueDone = false;
-    for (uint i=1; i < rawData.length(); i++) {
+    for (uint j = 1; j < rawData.length(); j++) {
       if (!keyDone) {
-        if (rawData[i] != 2) {
-          key += (char)rawData[i];
-        }
-        else {
+        if (rawData[j] != 2) {
+          key += (char)rawData[j];
+        } else {
           keyDone = true;
           continue;
         }
       }
-      
+
       if (keyDone && !valueDone) {
-        if (rawData[i] != 1) {
-          value += (char)rawData[i];
-        }
-        else {
+        if (rawData[j] != 1) {
+          value += (char)rawData[j];
+        } else {
           valueDone = true;
         }
       }
-    
+
       if (keyDone && valueDone) {
         keyDone = false;
         valueDone = false;
-        if(key.length() > 0 && value.length() > 0) {
+        if (key.length() > 0) {
           m_data.Put(key, value);
         }
         key = "";
         value = "";
       }
-      
     }
   }
-
 }
 
 String Settings::Write() {
   String result;
   String rawData;
-  
+
   rawData += (char)1;
-  for(uint i=0; i < m_data.Size(); i++) {
+  for (uint i = 0; i < m_data.Size(); i++) {
     rawData += m_data.GetKeyAt(i);
     rawData += (char)2;
     rawData += m_data.GetValueAt(i);
     rawData += (char)1;
   }
- 
+
   result += rawData.length();
   result += " Byte (max. ";
   result += EEPROM_SIZE;
@@ -81,15 +80,15 @@ String Settings::Write() {
   result += m_data.GetCapacity();
   result += ")";
 
-  while (rawData.length() < EEPROM_SIZE) {
-    rawData += (char)0;
-  }
   EEPROM.begin(EEPROM_SIZE);
+  int dataLen = (int)rawData.length();
   for (int i = 0; i < EEPROM_SIZE; i++) {
-    EEPROM.write(i, rawData[i]);
+      EEPROM.write(i, i < dataLen ? (uint8_t)rawData[i] : 0);
+      if (i % 64 == 0) yield();
   }
+  EEPROM.commit();
   EEPROM.end();
-  
+
   return result;
 }
 
@@ -121,8 +120,10 @@ void Settings::Add(String key, String value) {
   if (m_data.ContainsKey(key)) {
     m_data.Remove(key);
   }
-  if(value.length() > 0) {
-    m_data.Put(key, value);
+  if (key.length() > 0) {
+    if (m_data.Size() < CAPACITY) {
+      m_data.Put(key, value);
+    }
   }
 }
 
@@ -145,11 +146,9 @@ byte Settings::GetByte(String key, byte defaultValue) {
   strVal.toLowerCase();
   if (strVal.startsWith("0x")) {
     return (byte)strtol(strVal.substring(2).c_str(), NULL, HEX);
-  }
-  else {
+  } else {
     return (byte)strtol(strVal.c_str(), NULL, DEC);
   }
-  
 }
 
 String Settings::ToString() {
@@ -160,18 +159,17 @@ String Settings::ToString() {
     result += m_data.GetValueAt(i);
     result += "; ";
   }
-  
   return result;
 }
 
 bool Settings::FromString(String settings) {
   bool result = false;
-  
+
   settings.trim();
   if (!settings.endsWith(";")) {
     settings += ";";
   }
- 
+
   byte step = 0;
   String key = "";
   String value = "";
@@ -180,28 +178,47 @@ bool Settings::FromString(String settings) {
     if (step == 0) {
       if (cc == ' ' && key.length() > 0) {
         step = 1;
-      }
-      else {
+      } else {
         key += cc;
       }
-    }
-    else if (step == 1) {
+    } else if (step == 1) {
       if (cc == ';') {
         step = 0;
         key.trim();
         value.trim();
         if (key.length() > 0 && value.length() > 0) {
           Add(key, value);
+          result = true;
           key = "";
           value = "";
         }
-      }
-      else {
+      } else {
         value += cc;
       }
     }
-
   }
-  
+
   return result;
+}
+
+void Settings::SaveRadioSettings(byte radioIndex, String type,
+                                 unsigned long freqKHz, String dataRate,
+                                 byte toggleMask, uint16_t toggleInterval) {
+  String p = "Radio" + String(radioIndex + 1);
+  Add(p + "Type",           type);
+  Add(p + "Freq",           String(freqKHz));
+  Add(p + "DataRate",       dataRate);
+  Add(p + "ToggleMask",     String(toggleMask));
+  Add(p + "ToggleInterval", String(toggleInterval));
+}
+
+void Settings::LoadRadioSettingsFrom(byte radioIndex, String &type,
+                                     unsigned long &freqKHz, String &dataRate,
+                                     byte &toggleMask, uint16_t &toggleInterval) {
+  String p = "Radio" + String(radioIndex + 1);
+  type           = Get(p + "Type",                           type);
+  freqKHz        = GetUnsignedLong(p + "Freq",               freqKHz);
+  dataRate       = Get(p + "DataRate",                       dataRate);
+  toggleMask     = (byte)GetInt(p + "ToggleMask",            toggleMask);
+  toggleInterval = (uint16_t)GetInt(p + "ToggleInterval",    toggleInterval);
 }

@@ -62,6 +62,7 @@ public:
   void SendArray(byte *data, byte length);
   void SendString(String data);
   void SetDataRate(unsigned long dataRate);
+  void ApplyDataRateByName(const String &name); 
   unsigned long GetDataRate();
   void SetFrequency(unsigned long kHz);
   unsigned long GetFrequency();
@@ -84,6 +85,8 @@ public:
   byte ReadReg(byte addr);
   void WriteReg(byte addr, byte value);
   String GetInfoString();
+  void SetSS(byte pin) { m_ss = pin; }
+  byte GetSS() { return m_ss; }
   const uint8_t GetFiFoSize();
 
 private:

@@ -269,7 +269,10 @@ bool LaCrosse::TryHandleData(byte *data) {
 
 }
 
-
 bool LaCrosse::IsValidDataRate(unsigned long dataRate) {
-  return dataRate == 17241ul || dataRate == 9579ul;
+  return dataRate == 17241ul
+      || dataRate == 9579ul
+      || dataRate == 8842ul
+      || dataRate == 6631ul
+      || dataRate == 4800ul;
 }

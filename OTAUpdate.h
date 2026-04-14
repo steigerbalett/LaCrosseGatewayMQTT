@@ -4,23 +4,16 @@
 #pragma once
 #include <Arduino.h>
 #include <ESP8266httpUpdate.h>
-#include <WiFiClientSecure.h>
 
-class Logger; 
+class Logger;
 
 class OTAUpdate {
 public:
   void SetDebugMode(boolean mode);
-  String Start(Logger *logger);
-  String StartFromGitHub(const String &owner,
-                         const String &repo,
-                         const String &assetName);
+  static String Start(Logger *logger);
 
 private:
   boolean m_debug = false;
-  String  _resolveGitHubAssetUrl(const String &owner,
-                                  const String &repo,
-                                  const String &assetName);
 };
 
 #endif

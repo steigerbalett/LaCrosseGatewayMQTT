@@ -126,19 +126,17 @@ RFMxx::RFMxx(byte mosi, byte miso, byte sck, byte ss, byte irq, TPinCallback pin
   m_radioType = RFMxx::RadioType::None;
   m_modulation = RFMxx::Modulation::Unknown;
 
-  pinMode(m_mosi, OUTPUT);
-  pinMode(m_miso, INPUT);
-  pinMode(m_sck, OUTPUT);
-
   m_pinCallback = pinFunction;
+  // GPIO-Initialisierung wurde nach Begin() verschoben
+  // (pinMode im globalen Konstruktor ist undefiniertes Verhalten auf ESP8266)
+}
+
+bool RFMxx::Begin(bool isPrimary) {
   if(!m_pinCallback) {
     pinMode(m_ss, OUTPUT);
     digitalWrite(m_ss, HIGH);
   }
 
-}
-
-bool RFMxx::Begin(bool isPrimary) {
   // No radio found until now
   m_radioType = RFMxx::RadioType::None;
   m_modulation = RFMxx::Modulation::Unknown;
@@ -545,4 +543,12 @@ long RFMxx::GetBandwidthHz() {
     case BW500: return 500E3;
   }
   return 0;  // Fallback: unbekannte Bandbreite
+}
+
+void RFMxx::ApplyDataRateByName(const String &name) {
+  if      (name == "17.241") SetDataRate(17241);
+  else if (name == "9.579")  SetDataRate(9579);
+  else if (name == "8.842")  SetDataRate(8842);
+  else if (name == "6.631")  SetDataRate(6631);
+  else if (name == "4.800")  SetDataRate(4800);
 }

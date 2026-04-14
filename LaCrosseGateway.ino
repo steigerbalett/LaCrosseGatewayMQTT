@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.3"
+#define PROGVERS         "1.36.49"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -23,13 +23,11 @@
 #include "ESP8266mDNS.h"
 #include "ArduinoOTA.h"
 #include "Ticker.h"
+#include "DebugHelper.h"
 
 #include <PubSubClient.h>         //MQTT server library
 
-//#include <NTPClient.h>
-//#include <TimeLib.h>
 #include <time.h>
-//#include <Timezone.h>    // https://github.com/JChristensen/Timezone
 
 // Other libs
 #include "ArrayList.h"
@@ -75,6 +73,7 @@
 #include "Logger.h"
 #include "SerialPortFlasher.h"
 #include "AccessPoint.h"
+#include "CaptivePortal.h"
 #include "WebFrontend.h"
 #include "DataPort.h"
 #include "Settings.h"
@@ -99,6 +98,7 @@ extern "C" {
   #include "user_interface.h"
   #include "cont.h"
   #include <lwip/dns.h>
+  void ets_delay_us(uint32_t us);
 }
 
 /* Configuration of NTP */
@@ -157,15 +157,15 @@ bool DEBUG_PCA301            = 0;        //            debug PCA301
 #define DATA_PORT2             82        // Port for data
 #define DATA_PORT3             83        // Port for data
 #define OTA_PORT               8266
-IPAddress AP_IP              = IPAddress(192, 168, 222, 1);
-IPAddress AP_SUBNET          = IPAddress (255, 255, 225, 0);
+IPAddress AP_IP              = IPAddress(192, 168, 4, 1);
+IPAddress AP_SUBNET          = IPAddress (255, 255, 255, 0);
 
 byte AddOnPinHandler(byte command, byte pin, byte value);
 
 IPAddress ipAddr;
 unsigned char macAddr[6];
 unsigned char bssid[6];
-int channel;
+int channel = 0;
 int rssi = -999;
 
 Logger logger;
@@ -209,20 +209,33 @@ static void LogBssid(uint8_t *b) {
   logger.println("");
 }
 
+struct RadioToggleState {
+  bool     enabled;
+  String   type;
+  long     freqKHz;
+  String   fixedDataRate;
+  uint8_t  toggleMask;
+  uint32_t toggleIntervalS;
+  uint8_t  toggleIndex;
+  uint32_t lastToggleMs;
+};
+RadioToggleState g_radio[5];
+
 byte scanWifi(String ctSSID) {
+  memset(bssid, 0, 6);
+  rssi = -999;
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
   uint8_t *thisBssid;
   
   logger.println("Number of all SSIDs: " + String(numSsid));
-
-  rssi = -999;
   for (int thisNet = 0; thisNet<numSsid; thisNet++) {
     logger.println("SSID found: " + WiFi.SSID(thisNet));
     if (!strcmp(WiFi.SSID(thisNet).c_str(), ctSSID.c_str())) {
       corrSsidCnt++;
       
       thisBssid = WiFi.BSSID(thisNet);
+      (void)thisBssid;
       logger.print("SSID " + ctSSID + " found on ch: " + String(WiFi.channel(thisNet)) + ", rssi: " + String(WiFi.RSSI(thisNet))+ ", bssid: ");
       LogBssid(WiFi.BSSID(thisNet));
       logger.println(F(" ,thisNet: ") + String(thisNet));
@@ -260,7 +273,7 @@ RFMxx *rfms[5] = { &rfm1, &rfm2, &rfm3, &rfm4, &rfm5 };
 AlarmHandler alarm(7, AddOnPinHandler);
 
 OwnSensors ownSensors;
-WebFrontend frontend(FRONTEND_PORT);
+WebFrontend *frontend = nullptr; // Instanziiert in setup() nach WiFi-Init
 DataPort dataPort1;
 DataPort dataPort2;
 DataPort dataPort3;
@@ -297,6 +310,7 @@ bool mqttEnabled = false;
 
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
+  if (DebugHelper::enabled) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
@@ -304,7 +318,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
-
+  }
   // Switch on the LED if an 1 was received as first character
   if ((char)payload[0] == '1') {
     //digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
@@ -318,11 +332,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void reconnectMqtt() {
   // Loop until we're reconnected
+  if (DebugHelper::enabled) {
   Serial.print("MQTT disconnected - Attempting MQTT connection...");
-
+  }
   // Attempt to connect
   logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
-  if (client.connect("ESP32Client", mqtt_user, mqtt_password )) {
+  String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
+  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password )) {
       Serial.println("connected");
       // Subscribe
       client.subscribe("esp32/output");
@@ -365,7 +381,7 @@ void SetDebugMode(boolean mode) {
 
 void Dispatch(String data, String raw="") {
   if(USE_SERIAL) {
-    Serial.println(data);
+    if (DebugHelper::enabled) Serial.println(data);
   }
   
   if (USE_WIFI) {
@@ -480,12 +496,14 @@ static void HandleSerialPort(char c) {
       else if (value == 8377) {
         ESP.restart();
       }
+      break;
     
     case 'g':
       if (value == 1) {
-        Settings settings;
-        settings.Read(&logger);
-        Dispatch(settings.ToString());
+        Settings *s = new Settings();
+        s->Read(&logger);
+        Dispatch(s->ToString());
+        delete s;
       }
       break;
       
@@ -652,20 +670,72 @@ static void HandleSerialPort(char c) {
   
 }
 
+void LoadRadioSettings(Settings &settings) {
+  for (byte i = 0; i < 5; i++) {
+    String p = "Radio" + String(i + 1);
+    g_radio[i].type            = settings.Get(p + "Type", i == 0 ? "RFM69" : "---");
+    g_radio[i].enabled         = (g_radio[i].type != "---");
+    g_radio[i].freqKHz         = (long)settings.GetInt(p + "Freq", i == 0 ? 868310 : 868300);
+    g_radio[i].fixedDataRate   = settings.Get(p + "DataRate", "17.241");
+    g_radio[i].toggleMask      = (uint8_t) settings.GetInt(p + "ToggleMask",  0);
+    g_radio[i].toggleIntervalS = (uint32_t)settings.GetInt(p + "ToggleInterval", i == 0 ? 30 : 0);
+    g_radio[i].toggleIndex  = 0;
+    g_radio[i].lastToggleMs = 0;
+  }
+  // SS-Pins setzen (nur rfm1-3, rfm4+5 nutzen AddOn-Bus)
+  const byte ssPinDefaults[3] = { RFM1_SS, RFM2_SS, RFM3_SS };
+  RFMxx *rfmPtrs[3] = { &rfm1, &rfm2, &rfm3 };
+  for (byte i = 0; i < 3; i++) {
+    String key = "Radio" + String(i + 1) + "SS";
+    int pin = settings.GetInt(key, ssPinDefaults[i]);
+    rfmPtrs[i]->SetSS((byte)pin);
+  }
+}
+
 void HandleCommandString(String command) {
   String upperCommand = command;
   upperCommand.toUpperCase();
-  if (upperCommand.startsWith("OLED ") && display.IsConnected()){
+
+  if (upperCommand.startsWith("OLED ") && display.IsConnected()) {
     display.Command(command.substring(5));
   }
-  else if (upperCommand.startsWith("MCP ") && digitalPorts.IsConnected()){
+  else if (upperCommand.startsWith("MCP ") && digitalPorts.IsConnected()) {
     digitalPorts.Command(command.substring(4));
   }
-  else if (upperCommand.startsWith("SETUP ")){
-    Settings settings;
-    settings.Read(&logger);
-    settings.FromString(command.substring(6));
-    settings.Write();
+  else if (upperCommand.startsWith("SETUP ")) {
+    Settings *settings = new Settings();
+    settings->Read(&logger);
+
+    DebugHelper::setEnabled(settings->GetBool("debug"));
+    DebugHelper::begin();
+
+    bool radioLock = settings->GetBool("RadioLock", false);
+    String savedRadio[5][5];
+    const char* radioKeys[] = {"Type", "Freq", "DataRate", "ToggleMask", "ToggleInterval"};
+    if (radioLock) {
+      for (byte i = 0; i < 5; i++) {
+        String p = "Radio" + String(i + 1);
+        for (byte k = 0; k < 5; k++) {
+          savedRadio[i][k] = settings->Get(p + radioKeys[k], "");
+        }
+      }
+    }
+
+    settings->FromString(command.substring(6));
+
+    if (radioLock) {
+      for (byte i = 0; i < 5; i++) {
+        String p = "Radio" + String(i + 1);
+        for (byte k = 0; k < 5; k++) {
+          if (savedRadio[i][k].length() > 0) {
+            settings->Add(p + radioKeys[k], savedRadio[i][k]);
+          }
+        }
+      }
+    }
+
+    settings->Write();
+    delete settings;
   }
   else if (upperCommand.startsWith("WATCHDOG ")) {
     watchdog.Command(command.substring(9));
@@ -706,17 +776,16 @@ void HandleCommandI(unsigned long *commandData, byte length){
     if (rfm != NULL){
       pca301.Begin(rfm, commandData[1], interval, [](String key, String value, bool write) {
         String result = "";
-        Settings settings;
+        Settings *s = new Settings();
         if (write) {
-          settings.Read(&logger);
-          settings.Add(key, value);
-          settings.Write();
+          s->Read(&logger);
+          s->Add(key, value);
+          s->Write();
+        } else {
+          s->Read(&logger);
+          result = s->Get(key, value);
         }
-        else {
-          settings.Read(&logger);
-          result = settings.Get(key, value);
-        }
-
+        delete s;
         return result;
       });
     }
@@ -885,7 +954,7 @@ unsigned long sensorRxTime[MAX_LACROSSE_SENSORS] = {0};
 
 //MQTT data buffer
 char bufData[30];
-char bufTopic[100];
+char bufTopic[160];
 
 bool HandleReceivedData(RFMxx *rfm) {
   unsigned long timeNow = millis();
@@ -895,8 +964,9 @@ bool HandleReceivedData(RFMxx *rfm) {
   String publishData;
 
   rfm->EnableReceiver(false);
-  byte *payload;
-  payload = new byte[rfm->GetFiFoSize()];
+  // FIX 3: all exit paths must call delete[] to prevent heap fragmentation / OOM
+  const size_t fifoSize = rfm->GetFiFoSize();
+  byte *payload = new byte[fifoSize];
   byte payloadSize = rfm->GetPayload(payload);
   rfm->EnableReceiver(true);
 
@@ -911,6 +981,8 @@ bool HandleReceivedData(RFMxx *rfm) {
     Dispatch(payloadString, payloadString);
 
     result = true;
+    delete[] payload;  // FIX 3: free before early return
+    return result;
   }
   else {
     if(ANALYZE_FRAMES > 0) {
@@ -1104,7 +1176,7 @@ bool HandleReceivedData(RFMxx *rfm) {
       Serial.println();
     }
     else {
-      if(DEBUG) {
+      if (DebugHelper::enabled) {
         Serial.print("\r\nEnd receiving, HEX raw data: ");
         for(int i = 0; i < 16; i++) {
           Serial.print(payload[i], HEX);
@@ -1209,7 +1281,7 @@ bool HandleReceivedData(RFMxx *rfm) {
     } 
   }
 
-  delete payload;
+  delete[] payload;  // FIX 3: correct array delete
   return result;
 }
 
@@ -1293,11 +1365,9 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     unsigned long startMillis = millis();
     int numSsid = -1;
     uint8_t *thisBssid;
-
+    (void)thisBssid;
     WiFi.setAutoReconnect(true);
-    // WiFi.persistent(true);
 
-    timeout = 30;
     numSsid = scanWifi(ctSSID);
 
     logger.println("");
@@ -1330,6 +1400,8 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     while (retryCounter < timeout * 2 && WiFi.status() != WL_CONNECTED) {
       retryCounter++;
       delay(500);
+      ESP.wdtFeed();
+      yield();
       logger.print(".");
       esp.SwitchLed(retryCounter % 2 == 0, true);
       if (display.IsConnected()) {
@@ -1356,194 +1428,292 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 }
 
-static bool StartWifi(Settings settings) {
-  bool result = false;
+static void RunConfigPortal(Settings &settings, const String &apName) {
+  logger.println(F("Starte Konfigurations-Hotspot..."));
+  logger.println("AP-Name: " + apName);
 
-  espconn_tcp_set_max_con(10);
-
-  logger.println("Start WIFI_STA");
+  WiFi.persistent(false);
   WiFi.disconnect(true);
-  WiFi.persistent(false); //Avoid to store Wifi configuration in Flash
-  WiFi.mode(WiFiMode::WIFI_OFF);
-  WiFi.mode(WiFiMode::WIFI_STA);
-  WiFi.disconnect(true); // delete old config
+  ets_delay_us(200000UL); // 200 ms
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
+  WiFi.softAP(apName.c_str());
+  ets_delay_us(500000UL); // 500 ms
+
+  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
+  if (display.IsConnected()) {
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+  }
+
+  ESP8266WebServer portalServer(80);
+
+  // Liefert Scan-Ergebnis als HTML-Optionen
+  auto buildSsidOptions = []() -> String {
+    int n = WiFi.scanNetworks(false, true);
+    String opts = "";
+    for (int i = 0; i < n; i++) {
+      String ssid = WiFi.SSID(i);
+      ssid.replace("\"", "&quot;");
+      opts += "<option value=\"" + ssid + "\">" + ssid +
+              " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
+    }
+    WiFi.scanDelete();
+    return opts;
+  };
+
+  String ssidOptions = buildSsidOptions();
+
+  portalServer.on("/", HTTP_GET, [&]() {
+    String html = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+      "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<title>LaCrosse WiFi Setup</title>"
+      "<style>body{font-family:sans-serif;max-width:400px;margin:40px auto;padding:0 16px}"
+      "h2{color:#01696f}input,select{width:100%;padding:8px;margin:8px 0;box-sizing:border-box;border:1px solid #ccc;border-radius:4px}"
+      "button{width:100%;padding:10px;background:#01696f;color:#fff;border:none;border-radius:4px;font-size:1em;cursor:pointer}"
+      "button:hover{background:#0c4e54}.info{color:#777;font-size:.9em}</style></head>"
+      "<body><h2>&#x1F4F6; LaCrosse WiFi Setup</h2>"
+      "<form method='POST' action='/save'>"
+      "<label>WLAN (SSID)</label>"
+      "<select name='ssid' id='ssid'>");
+    html += ssidOptions;
+    html += F("</select>"
+      "<label>Passwort</label>"
+      "<input type='password' name='pass' placeholder='WLAN-Passwort'>"
+      "<button type='submit'>&#x1F517; Verbinden &amp; Speichern</button>"
+      "</form>"
+      "<p class='info'>Nach dem Speichern verbindet sich das Ger&auml;t mit dem WLAN "
+      "und der Hotspot wird beendet.</p>"
+      "</body></html>");
+    portalServer.send(200, "text/html", html);
+  });
+
+  // Erneut scannen (AJAX-Refresh nicht noetig, Seite reloadbar)
+  portalServer.on("/scan", HTTP_GET, [&]() {
+    ssidOptions = buildSsidOptions();
+    portalServer.sendHeader("Location", "/");
+    portalServer.send(302, "text/plain", "");
+  });
+
+  bool gotCredentials = false;
+  String newSSID, newPass;
+
+  portalServer.on("/save", HTTP_POST, [&]() {
+    newSSID = portalServer.arg("ssid");
+    newPass = portalServer.arg("pass");
+    newSSID.trim();
+
+    if (newSSID.length() > 0) {
+      String html = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Gespeichert</title>"
+        "<style>body{font-family:sans-serif;max-width:400px;margin:40px auto;padding:0 16px}"
+        "h2{color:#01696f}</style></head>"
+        "<body><h2>&#x2705; Daten gespeichert!</h2>"
+        "<p>Verbinde mit <b>");
+      html += newSSID;
+      html += F("</b>...<br>Der Hotspot wird in K&uuml;rze beendet.</p></body></html>");
+      portalServer.send(200, "text/html", html);
+      gotCredentials = true;
+    } else {
+      portalServer.send(400, "text/plain", "SSID fehlt");
+    }
+  });
+
+  portalServer.onNotFound([&]() {
+    portalServer.sendHeader("Location", "/");
+    portalServer.send(302, "text/plain", "");
+  });
+
+  portalServer.begin();
+  logger.println(F("Konfigurations-Webserver gestartet"));
+
+  unsigned long portalStart = millis();
+  const unsigned long PORTAL_TIMEOUT_MS = 300000UL; // 5 Minuten
+
+  while (!gotCredentials) {
+    portalServer.handleClient();
+    ESP.wdtFeed();
+    // FIX: yield() -> ets_delay_us (kein panic bei deaktivierten Interrupts)
+    ets_delay_us(5000UL); // 5 ms
+    if (millis() - portalStart > PORTAL_TIMEOUT_MS) {
+      logger.println(F("Konfigurations-Timeout - Neustart"));
+      ets_delay_us(500000UL);
+      ESP.restart();
+    }
+  }
+
+  portalServer.stop();
+  ets_delay_us(500000UL);
+
+  // Credentials speichern
+  settings.Add("ctSSID", newSSID);
+  settings.Add("ctPASS", newPass);
+  settings.Write();
+  logger.println("WiFi-Daten gespeichert: SSID='" + newSSID + "'");
+
+  WiFi.softAPdisconnect(true);
+  delay(200);
+}
+
+// ============================================================
+//  dbgStep: schreibt Schrittnummer in RTC-RAM – ueberlebt Crash
+//  Beim naechsten Boot siehst du STEP N in der Debugausgabe.
+// ============================================================
+static void dbgStep(uint32_t step, const char* desc) {
+  uint32_t flag = 0xDEADBEEFUL;
+  ESP.rtcUserMemoryWrite(0, &flag, sizeof(flag));
+  ESP.rtcUserMemoryWrite(1, &step, sizeof(step));
+  if (!DebugHelper::isEnabled()) return;
+  Serial.printf("[DBG] >>> STEP %u: %s  Heap=%u ContStack=%u\n",
+    (unsigned)step, desc, ESP.getFreeHeap(), ESP.getFreeContStack());
+  Serial.flush();
+}
+
+static CaptivePortal captivePortal;
+static bool          g_portalActive = false;
+
+static bool StartWifi(Settings &settings) {
 
   String hostName = settings.Get("HostName", "LaCrosseGateway");
-  logger.print("HostName is: ");
-  logger.println(hostName);
-  WiFi.hostname(hostName);
-  stateManager.SetHostname(hostName);
+  String apName   = hostName + "_" + String(ESP.getChipId(), HEX);
 
-  String staticIP = settings.Get("staticIP", "");
-  String staticMask = settings.Get("staticMask", "");
-  String staticGW = settings.Get("staticGW", "");
+  String ctSSID = settings.Get("ctSSID", "---");
+  String ctPASS = settings.Get("ctPASS", "");
+  ctSSID.trim();
 
-  if (staticIP.length() < 7 || staticMask.length() < 7){
-    logger.println("Using DHCP");
-  }
-  else {
-    logger.println("Using static IP");
-    logger.print("IP: ");
-    logger.println(staticIP);
-    logger.print("Mask: ");
-    logger.println(staticMask);
-    logger.print("Gateway: ");
-    logger.println(staticGW);
+  bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
 
-    if (staticGW.length() < 7) {
-      WiFi.config(HTML::IPAddressFromString(staticIP),
-      HTML::IPAddressFromString(staticGW),
-      (uint32_t)0);
+  if (!isFirstSetup) {
+    // FIX 1: WiFi.begin mit true statt false
+    logger.println("Verbinde mit SSID: " + ctSSID);
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+
+    int numSsid = scanWifi(ctSSID);
+    logger.println(F(""));
+    logger.print(F("SSID search - #: ")); logger.print(String(numSsid));
+    logger.print(F(", ch: ")); logger.print(String(channel));
+    logger.print(F(", rssi: ")); logger.println(String(rssi));
+
+    if (rssi != -999) {
+      WiFi.begin(ctSSID.c_str(), ctPASS.c_str(), channel, bssid, true);
+    } else {
+      WiFi.begin(ctSSID.c_str(), ctPASS.c_str());
     }
-    else {
-      WiFi.config(HTML::IPAddressFromString(staticIP),
-                  HTML::IPAddressFromString(staticGW),
-                  HTML::IPAddressFromString(staticMask));
+
+    if (display.IsConnected()) display.ShowProgress(60, "Connect WiFi");
+    if (nextion.IsConnected())  nextion.ShowProgress(60, "Connect WiFi");
+
+    uint16_t retryCounter = 0;
+    unsigned long startMs = millis();
+    while (retryCounter < 120 && WiFi.status() != WL_CONNECTED) {
+      retryCounter++;
+      delay(500);
+      ESP.wdtFeed();
+      yield();
+      logger.print(".");
+      if (display.IsConnected()) display.MoveProgress();
+      if (nextion.IsConnected())  nextion.MoveProgress();
     }
+
+    if (display.IsConnected()) display.HideProgress();
+
+    if (WiFi.status() == WL_CONNECTED) {
+      stateManager.SetWiFiConnectTime((millis() - startMs) / 1000.0);
+      logger.println(F(""));
+      logger.println(F("connected :-)"));
+      logger.print(F("IP: "));
+      logger.println(WiFi.localIP().toString());
+
+      String hn = settings.Get("HostName", "LaCrosseGateway");
+      WiFi.hostname(hn);
+      stateManager.SetHostname(hn);
+
+      String staticIP   = settings.Get("staticIP",   "");
+      String staticMask = settings.Get("staticMask",  "");
+      String staticGW   = settings.Get("staticGW",    "");
+      String staticDNS  = settings.Get("staticDNS",   "");
+      bool useStaticIP = (staticIP.length() >= 7 && staticMask.length() >= 7 && staticGW.length() >= 7);
+      if (!useStaticIP) {
+        logger.println(F("Using DHCP"));
+      } else {
+        logger.println("Static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
+        IPAddress dnsIP = staticDNS.length() >= 7
+          ? HTML::IPAddressFromString(staticDNS)
+          : HTML::IPAddressFromString(staticGW);
+        WiFi.config(
+          HTML::IPAddressFromString(staticIP),
+          HTML::IPAddressFromString(staticGW),
+          HTML::IPAddressFromString(staticMask),
+          dnsIP
+        );
+      }
+
+      if (display.IsConnected()) {
+        display.Print("LGW V" + stateManager.GetVersion(), DisplayArea_Line1, OLED::Alignments::Center);
+        display.Print(WiFi.localIP().toString(), DisplayArea_Line2, OLED::Alignments::Center);
+        display.SetWifiFlag(true);
+      }
+      if (nextion.IsConnected()) {
+        nextion.Print("LGW V" + stateManager.GetVersion() + "\r\n" + WiFi.localIP().toString());
+      }
+
+      if (settings.GetBool("UseMDNS")) {
+        logger.println(F("Starting MDNS"));
+        MDNS.begin("esp8266-ota", WiFi.localIP());
+        MDNS.addService("arduino", "tcp", OTA_PORT);
+        MDNS.addService("http", "tcp", FRONTEND_PORT);
+      }
+
+      USE_WIFI = 1;
+      return true;
+
+    } else {
+      logger.println(F(""));
+      logger.println(F("Verbindung fehlgeschlagen - starte CaptivePortal"));
+      if (WiFi.status() == WL_WRONG_PASSWORD) {
+        logger.println(F("Falsches Passwort - SSID geloescht"));
+        settings.Add("ctSSID", "---");
+        settings.Write();
+      }
+    }
+
+  } else {
+    logger.println(F("Keine SSID konfiguriert - starte CaptivePortal"));
   }
 
-  logger.print("Try Connect to AP ");
-  logger.print(settings.Get("ctSSID", "---"));
-  logger.print(", pass: ");
-  logger.println(settings.Get("ctPASS", "---"));
-  
-  TryConnectWIFI(settings.Get("ctSSID", "---"), settings.Get("ctPASS", "---"), 1, settings.GetInt("Timeout1", 15));
-  String ctSSID2 = settings.Get("ctSSID2", "---");
-  if (WiFi.status() != WL_CONNECTED && ctSSID2.length() > 0 && ctSSID2 != "---") {
-    delay(1000);
-    TryConnectWIFI(ctSSID2, settings.Get("ctPASS2", "---"), 2, settings.GetInt("Timeout2", 15));
-  }
-  logger.println("Stop to try Connect to AP");
-
+  // ── CaptivePortal starten ─────────────────────────────────────────────────
   if (display.IsConnected()) {
-    display.Print("LGW V" + stateManager.GetVersion(), DisplayArea_Line1, OLED::Alignments::Center);
-    display.Print(WiFi.localIP().toString(), DisplayArea_Line2, OLED::Alignments::Center);
-  }
-  if (nextion.IsConnected()) {
-    nextion.Print("LGW V" + stateManager.GetVersion() + "\r\n" + WiFi.localIP().toString());
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    result = true;
-    logger.println();
-    logger.println("connected :-)");
-    logger.print("SSID: ");
-    logger.println(WiFi.SSID());
-    logger.print("IP: ");
-    logger.println(WiFi.localIP().toString());
-    if (display.IsConnected()) {
-      display.SetWifiFlag(true);
-    }
+  dbgStep(10, "Vor captivePortal.Begin()");
+  Serial.printf("[DBG] AP-Name=%s  Heap=%u  ContStack=%u\n",
+    apName.c_str(), ESP.getFreeHeap(), ESP.getFreeContStack());
+  Serial.flush();
 
-    if (settings.GetBool("UseMDNS")) {
-      logger.println("Starting MDNS");
-      MDNS.begin("esp8266-ota", WiFi.localIP());
-      MDNS.addService("arduino", "tcp", OTA_PORT);
-      MDNS.addService("http", "tcp", FRONTEND_PORT);
-    }
+  settings.Add("ctSSID", "---");
+  settings.Write();
+  logger.println(F("SSID auf '---' vorgemerkt - Portal-Timeout fuehrt zu erneutem Portal"));
 
-  }
-  else {
-    logger.println();
-    logger.println("We got no connection :-( ... Open access point for 15 minutes");
-    // Open access point for 15 minutes
-    accessPoint.Begin(900);
-    esp.SwitchLed(true, true);
+  captivePortal.Begin(&settings, &logger, apName, 300); // 300s = 5 Min Timeout
+
+  dbgStep(11, "Nach captivePortal.Begin() - Webserver laeuft");
+  logger.println(F("CaptivePortal aktiv - warte auf WLAN-Konfiguration..."));
+  logger.println(F("Oeffne http://192.168.4.1 im Browser"));
+
+  while (!captivePortal.IsDone()) {
+    captivePortal.Handle();
+    ESP.wdtFeed();
+    yield();
   }
 
-  logger.println("Starting frontend");
-  frontend.SetPassword(settings.Get("frontPass", ""));
-  frontend.SetCommandCallback([] (String command) {
-    CommandHandler(command);
-  });
-
-  frontend.SetHardwareCallback([]() {
-    HardwarePageBuilder builder;
-    return builder.Build(
-      &rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
-      &ownSensors, &sc16is750, &sc16is750_2, &digitalPorts,
-      &display, &dataPort1, &dataPort2, &dataPort3,
-      &serialBridge, &serialBridge2, &softSerialBridge, &analogPort, &nextion
-    );
-  });
-
-  logger.println("Starting OTA");
-  ota.Begin(frontend.WebServer());
-
-//  frontend.WebServer()->on("/otaGitHub", HTTP_GET, []() {
-//    OTAUpdate ghOta;
-//
-//  // Owner/Repo/Asset direkt aus den URL-Parametern lesen
-//    String owner = frontend.WebServer()->arg("ghOwner");
-//    String repo  = frontend.WebServer()->arg("ghRepo");
-//    String asset = frontend.WebServer()->arg("ghAsset");
-//
-//    if (owner.isEmpty()) owner = "steigerbalett";
-//    if (repo.isEmpty())  repo  = "LaCrosseGatewayMQTT";
-//    if (asset.isEmpty()) asset = "LaCrosseGateway.bin";
-//
-//    String result = ghOta.StartFromGitHub(owner, repo, asset);
-//    frontend.WebServer()->send(200, "text/plain", result);
-//  });
-
-  uint16_t p1 = settings.GetInt("DataPort1", 81);
-  uint16_t p2 = settings.GetInt("DataPort2", 0);
-  uint16_t p3 = settings.GetInt("DataPort3", 0);
-  if (p1 > 0) {
-    logger.print("Starting data port 1 on ");
-    logger.println(p1);
-    dataPort1.Begin(p1);
-    dataPort1.SetLogItemCallback([](String logItem){
-      logger.println(logItem);
-    });
-  }
-  if (p2 > 0) {
-    logger.print("Starting data port 2 on ");
-    logger.println(p2);
-    dataPort2.Begin(p2);
-    dataPort2.SetLogItemCallback([](String logItem){
-      logger.println(logItem);
-    });
-  }
-  if (p3 > 0) {
-    logger.print("Starting data port 3 on ");
-    logger.println(p3);
-    dataPort3.Begin(p3);
-    dataPort3.SetLogItemCallback([](String logItem){
-      logger.println(logItem);
-    });
-  }
-
-  if (useSerialBridge && sc16is750.IsConnected()) {
-    int serialBridgePort = settings.GetInt("SerialBridgePort", 0);
-    unsigned long serialBridgeBaud = settings.GetUnsignedLong("SerialBridgeBaud", 57600ul);
-    if (serialBridgePort > 0 && serialBridgeBaud > 0) {
-      serialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-        HandleProgressRequest(action, currentValue, maxValue, message);
-      });
-
-      logger.println("Starting serial bridge on port " + String(serialBridgePort) + " with " + serialBridgeBaud + " baud");
-      serialBridge.Begin(serialBridgePort, frontend.WebServer());
-      serialBridge.SetBaudrate(serialBridgeBaud);
-    }
-  }
-  if (useSerialBridge2 && sc16is750_2.IsConnected()) {
-    int serialBridgePort = settings.GetInt("SerialBridge2Port", 0);
-    unsigned long serialBridgeBaud = settings.GetUnsignedLong("SerialBridge2Baud", 57600ul);
-    if (serialBridgePort > 0 && serialBridgeBaud > 0) {
-      serialBridge2.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-        HandleProgressRequest(action, currentValue, maxValue, message);
-      });
-
-      logger.println("Starting serial bridge 2 on port " + String(serialBridgePort) + " with " + serialBridgeBaud + " baud");
-      serialBridge2.Begin(serialBridgePort, frontend.WebServer());
-      serialBridge2.SetBaudrate(serialBridgeBaud);
-    }
-  }
-
-  USE_WIFI = 1;
-  
-  return result;
+  captivePortal.End();
+  USE_WIFI = 0;
+  return false;
 }
 
 static void StopWifi() {
@@ -1560,14 +1730,13 @@ String CommandHandler(String command) {
   return "";
 }
 
-void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) {
+void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings, long freqKHz = 0) {
   if (!rfm->IsConnected()) return;
 
   if (rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
     rfm->InitializeLoRa();
-    rfm->SetFrequency(868200);
+    rfm->SetFrequency(freqKHz > 0 ? freqKHz : 868200);
 
-    // Spreading Factor Lookup
     static const struct { const char *name; RFMxx::SpreadingFactor sf; } sfTable[] = {
       {"SF6",  RFMxx::SpreadingFactor::SF6 },
       {"SF7",  RFMxx::SpreadingFactor::SF7 },
@@ -1582,7 +1751,6 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) 
       if (sfValue == e.name) { rfm->SetSpreadingFactor(e.sf); break; }
     }
 
-    // Bandwidth Lookup
     static const struct { const char *name; RFMxx::Bandwidth bw; } bwTable[] = {
       {"7.8",   RFMxx::Bandwidth::BW7_8  },
       {"10.4",  RFMxx::Bandwidth::BW10_4 },
@@ -1602,7 +1770,7 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings) 
 
   } else {
     rfm->InitializeLaCrosse();
-    rfm->SetFrequency(INITIAL_FREQ);
+    rfm->SetFrequency(freqKHz > 0 ? freqKHz : INITIAL_FREQ);
     SetDataRate(rfm, dataRate);
   }
 
@@ -1623,34 +1791,73 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
+  ESP.wdtDisable();
   Serial.begin(57600);
-  delay(1000);
+  delay(200);
+
+  // ================================================================
+  //  DEBUG: Letzten Crash-Schritt aus RTC-RAM lesen (ueberlebt Reset)
+  // ================================================================
+  {
+    uint32_t crashFlag = 0, crashStep = 0;
+    ESP.rtcUserMemoryRead(0, &crashFlag, sizeof(crashFlag));
+    ESP.rtcUserMemoryRead(1, &crashStep, sizeof(crashStep));
+    uint32_t z = 0;
+    ESP.rtcUserMemoryWrite(0, &z, sizeof(z));
+    Serial.println(F("\n\n=========================================="));
+    Serial.println(F("  LaCrosseGateway  DEBUG-BUILD  v1.36.49+fix"));
+    Serial.println(F("=========================================="));
+    Serial.print(F("[DBG] Reset reason : ")); Serial.println(ESP.getResetReason());
+    Serial.print(F("[DBG] Reset info   : ")); Serial.println(ESP.getResetInfo());
+    if (crashFlag == 0xDEADBEEFUL) {
+      Serial.println(F("[DBG] !!! LETZTER BOOT WAR EIN CRASH !!!!!"));
+      Serial.print(F("[DBG] Crash nach setup()-STEP: ")); Serial.println(crashStep);
+    }
+    Serial.print(F("[DBG] Free Heap      : ")); Serial.println(ESP.getFreeHeap());
+    Serial.print(F("[DBG] Free ContStack : ")); Serial.println(ESP.getFreeContStack());
+    Serial.flush();
+  }
+
+  Serial.println(F("SETUP START"));
   Serial.println();
 
+  dbgStep(1, "EEPROM+Settings init");
   logger.SetBufferSize(40);
 
   logger.Clear();
   logger.println("***CLEARLOG***");
-  
+
   SetDebugMode(DEBUG);
-  
-  Settings settings;
-  settings.Read(&logger);
-  
-  pinMode(D7, INPUT);
-  if (digitalRead(D7)) {
+
+  Settings *pSettings = new Settings();
+  if (!pSettings) {
+    logger.println(F("FATAL: Settings allocation failed"));
+    delay(1000);
+    ESP.restart();
+    return;
+  }
+  pSettings->Read(&logger);
+  Settings &settings = *pSettings;
+  DebugHelper::setEnabled(settings.GetBool("debug"));
+  LoadRadioSettings(settings);
+
+  pinMode(D7, INPUT_PULLUP);
+  delay(10);
+  if (!digitalRead(D7)) {
     USE_WIFI = false;
+    logger.println(F("D7=LOW: WiFi deaktiviert per Jumper"));
   }
   pinMode(D7, OUTPUT);
-  
+  digitalWrite(D7, HIGH);
+
   if (!settings.GetBool("UseWiFi", true)) {
     USE_WIFI = false;
+    logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
   }
   if (!USE_WIFI) {
     logger.Disable();
     esp.Blink(20);
   }
-  
 
   logger.print(PROGNAME);
   logger.print(" V");
@@ -1666,107 +1873,77 @@ void setup(void) {
   logger.print("Reset: ");
   logger.println(ESP.getResetReason());
   logger.println(ESP.getResetInfo());
- 
+
   ownSensors.SetLogItemCallback([](String logItem) {
     logger.println(logItem, Logger::LogType::ONLYSYS);
   });
   ownSensors.SetID(settings.GetByte("ISID", 0));
 
-  useSerialBridge = settings.GetInt("SerialBridgePort", 0) > 0;
+  useSerialBridge  = settings.GetInt("SerialBridgePort",  0) > 0;
   useSerialBridge2 = settings.GetInt("SerialBridge2Port", 0) > 0;
 
   unsigned long i2cClock = 400000ul;
-  
+
   SPI.begin();
 
+  dbgStep(2, "I2C init");
   logger.print("Starting I2C with ");
-  logger.print(String(i2cClock/1000));
+  logger.print(String(i2cClock / 1000));
   logger.println(" kHz");
   Wire.begin();
   Wire.setClock(i2cClock);
   Wire.setClockStretchLimit(1000);
-  
+
   stateManager.Begin(PROGVERS, settings.Get("KVIdentity", String(ESP.getChipId())));
-  
+
   dataPort1.SetConnectCallback([](bool isConnected) {
     dataPort1Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   dataPort2.SetConnectCallback([](bool isConnected) {
     dataPort2Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   dataPort3.SetConnectCallback([](bool isConnected) {
     dataPort3Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   serialBridge.SetConnectCallback([](bool isConnected) {
     bridge1Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetAddonFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetAddonFlag(isConnected);
   });
   serialBridge2.SetConnectCallback([](bool isConnected) {
     bridge3Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetAddonFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetAddonFlag(isConnected);
   });
 
   int displayStartMode = -3;
   String dsmSetting = settings.Get("oledStart", "on");
-  if (dsmSetting == "on") {
-    displayStartMode = -1;
-  }
-  else if (dsmSetting == "off") {
-    displayStartMode = 0;
-  }
-  else {
-    displayStartMode = settings.GetInt("oledStart", 1);
-  }
+  if      (dsmSetting == "on")  displayStartMode = -1;
+  else if (dsmSetting == "off") displayStartMode =  0;
+  else                          displayStartMode = settings.GetInt("oledStart", 1);
 
-  if(display.Begin(&stateManager, displayStartMode, settings.GetBool("oled13", false) ? OLED::Controllers::SH1106 : OLED::Controllers::SSD1306)) {
+  if (display.Begin(&stateManager, displayStartMode,
+      settings.GetBool("oled13", false) ? OLED::Controllers::SH1106 : OLED::Controllers::SSD1306)) {
     logger.println("OLED found");
     delay(500);
   }
-  
+
   delay(250);
   sc16is750.Begin(57600, false);
   if (sc16is750.IsConnected()) {
     logger.println("SC16IS750 (0x90) found");
- 
     if (!useSerialBridge) {
       subProcessor.SetLogItemCallback([](String logItem, bool newLine) {
-        if (newLine) {
-          logger.println(logItem);
-        }
-        else {
-          logger.print(logItem);
-        }
+        if (newLine) logger.println(logItem); else logger.print(logItem);
       });
-
       subProcessor.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-
-      subProcessor.Begin(frontend.WebServer());
-      logger.println("SubProcessor Reset");
-      subProcessor.Reset();
+      logger.println("SubProcessor vorgemerkt");
     }
-    
     serialBridge.SetLogItemCallback([](String logItem, bool newLine) {
-      if (newLine) {
-        logger.println(logItem);
-      }
-      else {
-        logger.print(logItem);
-      }
+      if (newLine) logger.println(logItem); else logger.print(logItem);
     });
   }
 
@@ -1783,30 +1960,14 @@ void setup(void) {
     logger.println("SC16IS750 (0x92) found");
     if (!useSerialBridge2) {
       subProcessor2.SetLogItemCallback([](String logItem, bool newLine) {
-        if (newLine) {
-          logger.println(logItem);
-        }
-        else {
-          logger.print(logItem);
-        }
+        if (newLine) logger.println(logItem); else logger.print(logItem);
       });
-
       subProcessor2.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-
-      subProcessor2.Begin(frontend.WebServer());
-      logger.println("SubProcessor2 Reset");
-      subProcessor2.Reset();
     }
-    
     serialBridge2.SetLogItemCallback([](String logItem, bool newLine) {
-      if (newLine) {
-        logger.println(logItem);
-      }
-      else {
-        logger.print(logItem);
-      }
+      if (newLine) logger.println(logItem); else logger.print(logItem);
     });
   }
 
@@ -1816,56 +1977,36 @@ void setup(void) {
   rfms[3] = &rfm4;
   rfms[4] = &rfm5;
 
-  rfm1.Begin();  
+  rfm1.Begin();
+  logger.println("rfm1 connected: " + String(rfm1.IsConnected()));
   rfm2.Begin();
+  logger.println("rfm2 connected: " + String(rfm2.IsConnected()));
   rfm3.Begin();
+  logger.println("rfm3 connected: " + String(rfm3.IsConnected()));
   if (sc16is750.IsConnected()) {
     rfm4.Begin();
     rfm5.Begin();
   }
-
-  rfm1.ToggleMode = TOGGLE_MODE_R1; rfm1.ToggleInterval = TOGGLE_INTERVAL_R1;
-  rfm2.ToggleMode = TOGGLE_MODE_R2; rfm2.ToggleInterval = TOGGLE_INTERVAL_R2;
-  rfm3.ToggleMode = TOGGLE_MODE_R3; rfm3.ToggleInterval = TOGGLE_INTERVAL_R3;
-  rfm4.ToggleMode = TOGGLE_MODE_R4; rfm4.ToggleInterval = TOGGLE_INTERVAL_R4;
-  rfm5.ToggleMode = TOGGLE_MODE_R5; rfm5.ToggleInterval = TOGGLE_INTERVAL_R5;
 
   ownSensors.TryInitialize(!rfm3.IsConnected(), !rfm2.IsConnected() && !rfm3.IsConnected(), settings.GetBool("PRD", false));
 
   int altitude = settings.GetInt("Altitude", 0);
   logger.println("Configured altitude: " + String(altitude));
   ownSensors.SetAltitudeAboveSeaLevel(altitude);
-
   ownSensors.SetCorrections(settings.Get("CorrT", "0"), settings.Get("CorrH", "0"));
 
-  if (ownSensors.HasBMP180()) {
-    logger.println("BMP180 found");
-  }
-  if (ownSensors.HasBMP280()) {
-    logger.println("BMP280 found");
-  }
-  if (ownSensors.HasBME280()) {
-    logger.println("BME280 found");
-  }
-  if (ownSensors.HasBME680()) {
-    logger.println("BME680 found");
-  }
-  if (ownSensors.HasDHT22()) {
-    logger.println("DHT22 found");
-  }
-  if (ownSensors.HasLM75()) {
-    logger.println("LM75 found");
-  }
-  if (ownSensors.HasSHT75()) {
-    logger.println("SHT75 found");
-  }
-  if(ownSensors.HasBH1750()) {
-    logger.println("BH1750 found");
-  }
+  if (ownSensors.HasBMP180()) logger.println("BMP180 found");
+  if (ownSensors.HasBMP280()) logger.println("BMP280 found");
+  if (ownSensors.HasBME280()) logger.println("BME280 found");
+  if (ownSensors.HasBME680()) logger.println("BME680 found");
+  if (ownSensors.HasDHT22())  logger.println("DHT22 found");
+  if (ownSensors.HasLM75())   logger.println("LM75 found");
+  if (ownSensors.HasSHT75())  logger.println("SHT75 found");
+  if (ownSensors.HasBH1750()) logger.println("BH1750 found");
 
   KVINTERVAL = settings.GetInt("KVInterval", KVINTERVAL);
   OSINTERVAL = settings.GetInt("ISIV", OSINTERVAL) * 1000;
-  
+
   if (settings.Get("Flags", "").indexOf("NO_FRONTEND_LOG") != -1) {
     logger.Disable();
   }
@@ -1875,103 +2016,207 @@ void setup(void) {
   lastToggleR2 = millis();
 
   esp.Blink(5, true);
-  
-  accessPoint.SetLogItemCallback([](String logItem){
+
+  accessPoint.SetLogItemCallback([](String logItem) {
     logger.println("AccessPoint: " + logItem);
   });
 
   if (settings.Get("Flags", "").indexOf("LOG.PCA301") != -1) {
     pca301.EnableLogging(true);
   }
-  pca301.SetLogItemCallback([](String logItem){
-    logger.println("PCA301: "+ logItem);
+  pca301.SetLogItemCallback([](String logItem) {
+    logger.println("PCA301: " + logItem);
   });
 
   if (digitalPorts.Begin(
-    [](String data) {
-    Dispatch(data);
-  },
-    [](String command) {
-    CommandHandler(command);
-  },
-    settings)) {
+      [](String data)    { Dispatch(data); },
+      [](String command) { CommandHandler(command); },
+      settings)) {
     logger.println("MCP23008 found");
   }
- 
-  int softSerialBridgePort = settings.GetInt("SSBridgePort", 0);
-  if (USE_WIFI && !rfm2.IsConnected() && !rfm3.IsConnected() && !ownSensors.HasSHT75() && softSerialBridgePort > 0) {
-    unsigned long softSerialBridgeBaud = settings.GetUnsignedLong("SSBridgeBaud", 57600);
-    softSerialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-      HandleProgressRequest(action, currentValue, maxValue, message);
-    });
 
-    softSerialBridge.SetConnectCallback([](bool isConnected) {
-      bridge2Connected = isConnected;
-      if (display.IsConnected()) {
-        display.SetAddonFlag(isConnected);
+  dbgStep(3, "Searching RFMs and Sensors");
+  logger.println("Searching RFMs and Sensors");
+
+  auto parseDataRateWithDefault = [](const String &s, unsigned long def) -> unsigned long {
+    if (s == "17.241") return 17241ul;
+    if (s == "9.579")  return  9579ul;
+    if (s == "8.842")  return  8842ul;
+    if (s == "6.631")  return  6631ul;
+    if (s == "4.800")  return  4800ul;
+    return def;
+  };
+
+  static const unsigned long drDefaults[5] = { 17241ul, 9579ul, 8842ul, 17241ul, 17241ul };
+
+  for (byte i = 0; i < 5; i++) {
+    if (!g_radio[i].enabled) {
+      if (rfms[i]->IsConnected()) {
+        rfms[i]->EnableReceiver(false);
+        logger.println("Radio #" + String(i + 1) + " deaktiviert (Settings)");
       }
-
-      logger.println("SoftSerialBridge Connect: " + String(isConnected));
-    });
-
-    logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
-    softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend.WebServer());
-
-    if (settings.GetBool("IsNextion", false)) {
-      nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
-        HandleProgressRequest(action, currentValue, maxValue, message);
-      });
-      if (nextion.Begin(frontend.WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
-        logger.println("Nextion initialized");
-      }
+      continue;
     }
-
+    unsigned long dr   = parseDataRateWithDefault(g_radio[i].fixedDataRate, drDefaults[i]);
+    long          freq = g_radio[i].freqKHz;
+    CheckRFM(i + 1, rfms[i], dr, &settings, freq);
   }
 
-  logger.println("Searching RFMs and Sensors");
-  CheckRFM(1, &rfm1, DATA_RATE_R1, &settings);
-  CheckRFM(2, &rfm2, DATA_RATE_R2, &settings);
-  CheckRFM(3, &rfm3, DATA_RATE_R3, &settings);
-  CheckRFM(4, &rfm4, DATA_RATE_R4, &settings);
-  CheckRFM(5, &rfm5, DATA_RATE_R5, &settings);
+  for (byte i = 0; i < 5; i++) {
+    rfms[i]->ToggleMode     = g_radio[i].enabled ? g_radio[i].toggleMask      : 0;
+    rfms[i]->ToggleInterval = g_radio[i].enabled ? g_radio[i].toggleIntervalS : 0;
+  }
+
+  // DATA_RATE globale Variablen mit radio-spezifischen Defaults
+  DATA_RATE_R1 = g_radio[0].enabled ? parseDataRateWithDefault(g_radio[0].fixedDataRate, drDefaults[0]) : drDefaults[0];
+  DATA_RATE_R2 = g_radio[1].enabled ? parseDataRateWithDefault(g_radio[1].fixedDataRate, drDefaults[1]) : drDefaults[1];
+  DATA_RATE_R3 = g_radio[2].enabled ? parseDataRateWithDefault(g_radio[2].fixedDataRate, drDefaults[2]) : drDefaults[2];
+  DATA_RATE_R4 = g_radio[3].enabled ? parseDataRateWithDefault(g_radio[3].fixedDataRate, drDefaults[3]) : drDefaults[3];
+  DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateWithDefault(g_radio[4].fixedDataRate, drDefaults[4]) : drDefaults[4];
 
   // Start wifi
   if (USE_WIFI) {
-    WiFi.disconnect();
     int startupDelay = settings.GetInt("StartupDelay", 0);
     if (startupDelay > 0) {
       logger.println("Startup delay: " + String(startupDelay) + " seconds");
-      delay(startupDelay * 1000);
+      for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
     logger.println("Starting wifi");
-    StartWifi(settings);
+    dbgStep(5, "vor StartWifi()");
+    frontend = new WebFrontend(FRONTEND_PORT);
+    dbgStep(6, "WebFrontend alloziert, rufe StartWifi()");
+    bool wifiConnected = StartWifi(settings);
+    dbgStep(7, "StartWifi() zurueckgekehrt");
 
-    configTime(MY_TZ, MY_NTP_SERVER);
-    logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
-    time_t t = 0;
-    for (int i = 0; i < 20 && t < 100000; i++) { delay(500); t = time(nullptr); }
-    logger.println(F("NTP sync: ") + getLocalTimeString());
-  }
-  else {
+    if (wifiConnected) {
+      frontend->Begin(&stateManager, &logger);
+      frontend->SetCommandCallback([](String command) {
+        HandleCommandString(command);
+      });
+      frontend->SetHardwareCallback([]() -> String {
+        HardwarePageBuilder hpb;
+        return hpb.Build(&rfm1, &rfm2, &rfm3, &rfm4, &rfm5,
+                         &ownSensors, &sc16is750, &sc16is750_2,
+                         &digitalPorts, &display,
+                         &dataPort1, &dataPort2, &dataPort3,
+                         &serialBridge, &serialBridge2,
+                         &softSerialBridge,
+                         &analogPort, &nextion);
+      });
+
+      if (sc16is750.IsConnected() && !useSerialBridge) {
+        subProcessor.Begin(frontend->WebServer());
+        subProcessor.Reset();
+      }
+      if (sc16is750_2.IsConnected() && !useSerialBridge2) {
+        subProcessor2.Begin(frontend->WebServer());
+        subProcessor2.Reset();
+      }
+
+      logger.println("Starting OTA");
+      ota.Begin(frontend->WebServer());
+
+      uint16_t p1 = settings.GetInt("DataPort1", 81);
+      uint16_t p2 = settings.GetInt("DataPort2", 0);
+      uint16_t p3 = settings.GetInt("DataPort3", 0);
+      if (p1 > 0) {
+        logger.print("Starting data port 1 on "); logger.println(p1);
+        dataPort1.Begin(p1);
+        dataPort1.SetLogItemCallback([](String logItem) { logger.println(logItem); });
+      }
+      if (p2 > 0) {
+        logger.print("Starting data port 2 on "); logger.println(p2);
+        dataPort2.Begin(p2);
+        dataPort2.SetLogItemCallback([](String logItem) { logger.println(logItem); });
+      }
+      if (p3 > 0) {
+        logger.print("Starting data port 3 on "); logger.println(p3);
+        dataPort3.Begin(p3);
+        dataPort3.SetLogItemCallback([](String logItem) { logger.println(logItem); });
+      }
+
+      if (useSerialBridge && sc16is750.IsConnected()) {
+        int sbPort = settings.GetInt("SerialBridgePort", 0);
+        unsigned long sbBaud = settings.GetUnsignedLong("SerialBridgeBaud", 57600ul);
+        if (sbPort > 0 && sbBaud > 0) {
+          serialBridge.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
+            HandleProgressRequest(action, cur, max, msg);
+          });
+          logger.println("Starting serial bridge on port " + String(sbPort) + " with " + sbBaud + " baud");
+          serialBridge.Begin(sbPort, frontend->WebServer());
+          serialBridge.SetBaudrate(sbBaud);
+        }
+      }
+      if (useSerialBridge2 && sc16is750_2.IsConnected()) {
+        int sbPort = settings.GetInt("SerialBridge2Port", 0);
+        unsigned long sbBaud = settings.GetUnsignedLong("SerialBridge2Baud", 57600ul);
+        if (sbPort > 0 && sbBaud > 0) {
+          serialBridge2.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
+            HandleProgressRequest(action, cur, max, msg);
+          });
+          logger.println("Starting serial bridge 2 on port " + String(sbPort) + " with " + sbBaud + " baud");
+          serialBridge2.Begin(sbPort, frontend->WebServer());
+          serialBridge2.SetBaudrate(sbBaud);
+        }
+      }
+
+      {
+        int softSerialBridgePort = settings.GetInt("SSBridgePort", 0);
+        if (!rfm2.IsConnected() && !rfm3.IsConnected() && !ownSensors.HasSHT75() && softSerialBridgePort > 0) {
+          unsigned long softSerialBridgeBaud = settings.GetUnsignedLong("SSBridgeBaud", 57600);
+
+          softSerialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
+            HandleProgressRequest(action, currentValue, maxValue, message);
+          });
+          softSerialBridge.SetConnectCallback([](bool isConnected) {
+            bridge2Connected = isConnected;
+            if (display.IsConnected()) display.SetAddonFlag(isConnected);
+            logger.println("SoftSerialBridge Connect: " + String(isConnected));
+          });
+
+          logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
+          softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
+
+          if (settings.GetBool("IsNextion", false)) {
+            nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
+              HandleProgressRequest(action, currentValue, maxValue, message);
+            });
+            if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud,
+                              settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
+              logger.println("Nextion initialized");
+            }
+          }
+        }
+      }
+
+    } else {
+      logger.println(F("Kein WLAN nach Portal-Timeout - fahre ohne WiFi fort"));
+      USE_WIFI = 0;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      configTime(MY_TZ, MY_NTP_SERVER);
+      logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
+      time_t t = 0;
+      for (int i = 0; i < 20 && t < 100000; i++) { delay(500); ESP.wdtFeed(); yield(); t = time(nullptr); }
+      logger.println(F("NTP sync: ") + getLocalTimeString());
+    }
+  } else {
     WiFi.mode(WiFiMode::WIFI_OFF);
   }
-  
-  if(settings.GetBool("SendAnalog")) {
+
+  if (settings.GetBool("SendAnalog")) {
     analogPort.TryInitialize(settings.GetInt("UAnalog1023", 1000));
   }
-
-  frontend.Begin(&stateManager, &logger);
 
   if (display.IsConnected()) {
     display.Command("mode=s");
     ownSensors.Measure();
     lastSensorMeasurement = millis();
-    display.Handle(ownSensors.GetDataFrame(), stateManager.GetFramesPerMinute(), stateManager.GetVersion(), WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
-  
+    display.Handle(ownSensors.GetDataFrame(), stateManager.GetFramesPerMinute(), stateManager.GetVersion(),
+                   WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
     String oledMode = settings.Get("oledMode", "");
-    if (oledMode.length() > 0) {
-      display.Command("mode=" + oledMode);
-    }
+    if (oledMode.length() > 0) display.Command("mode=" + oledMode);
   }
 
   if (nextion.IsConnected()) {
@@ -1985,7 +2230,7 @@ void setup(void) {
   }
 
   watchdog.Begin([](String message) {
-    Dispatch(message);  
+    Dispatch(message);
   });
 
 #ifdef USE_MQTT_Pubsub
@@ -2013,12 +2258,13 @@ void setup(void) {
     logger.println(F("MQTT deaktiviert: kein Server oder Topic konfiguriert"));
   }
 #endif
-  
+
   delay(1000);
   logger.println("Sending init String to FHEM");
   HandleCommandV();
 
   logger.println("Setup completely done");
+  ESP.wdtEnable(WDTO_8S);
   logger.SetBufferSize(10);
 }
 
@@ -2043,11 +2289,11 @@ void HandleDataRate() {
   }
 }
 
-// **********************************************************************
+
 void loop(void) {
   static unsigned long timetry = 0;
   String mqttTopic;
-  
+
   if (serialPortFlasher.IsUploading()) {
     if (Serial.available()) {
       serialPortFlasher.Add(Serial.read());
@@ -2055,7 +2301,9 @@ void loop(void) {
     serialPortFlasher.Handle();
   }
   else {
-    stateManager.SetLoopStart();
+
+  stateManager.SetLoopStart();
+
 #ifdef USE_MQTT_Pubsub
   if (mqttEnabled) {
     if ((WiFi.status() == WL_CONNECTED) && !client.connected() && (((millis() - timetry) > 2000) || !timetry)) {
@@ -2068,36 +2316,28 @@ void loop(void) {
     client.loop();
   }
 #endif
-    // Handle the commands from the serial port
-    // ----------------------------------------
+
     if (Serial.available()) {
       HandleSerialPort(Serial.read());
     }
 
-    // Periodically send own sensor data
-    // ---------------------------------
     ownSensors.Handle();
-    if (millis() < lastSensorMeasurement) {
-      lastSensorMeasurement = 0;
-    }
-    if(millis() < lastSensorTransmission) {
-      lastSensorTransmission = 0;
-    }
+    if (millis() < lastSensorMeasurement)  lastSensorMeasurement  = 0;
+    if (millis() < lastSensorTransmission) lastSensorTransmission = 0;
 
     if (millis() > lastSensorMeasurement + 10000) {
       ownSensors.Measure();
       lastSensorMeasurement = millis();
     }
 
-    if(OSINTERVAL > 0) {
-      if(millis() > lastSensorTransmission + OSINTERVAL) {
+    if (OSINTERVAL > 0) {
+      if (millis() > lastSensorTransmission + OSINTERVAL) {
         String data = ownSensors.GetFhemDataString();
 
-        if(WiFi.status() == WL_CONNECTED){
-            updateNetworkTime();
+        if (WiFi.status() == WL_CONNECTED) {
+          updateNetworkTime();
         }
-        
-        // extract data from ownSensors and send via MQTT
+
         WSBase::Frame actOwnData;
         actOwnData = ownSensors.GetDataFrame();
         logger.print("Current Temperature: ");
@@ -2105,22 +2345,20 @@ void loop(void) {
         logger.print("Current Humidity: ");
         logger.println(actOwnData.Humidity);
 
-        String mqttTopicBase = "esp8266_lacrossegateway";
-
-        if(mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)){
+        if (mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)) {
           logger.println("Publishing sensor data...");
-          //publish rssi
+
           ltoa(WiFi.RSSI(), bufData, 10);
           mqttTopic = mqttTopicBaseGW + "/rssi";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
 
-          sprintf (bufData, "%f", actOwnData.Temperature);
+          sprintf(bufData, "%f", actOwnData.Temperature);
           mqttTopic = mqttTopicBaseGW + "/temp";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
 
-          itoa(actOwnData.Humidity, bufData, 10)  ;
+          itoa(actOwnData.Humidity, bufData, 10);
           mqttTopic = mqttTopicBaseGW + "/hum";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
@@ -2129,83 +2367,59 @@ void loop(void) {
           mqttTopic = mqttTopicBaseGW + "/timeStamp";
           mqttTopic.toCharArray(bufTopic, 100);
           timeNowLocal.toCharArray(bufData, 30);
-          client.publish(bufTopic, bufData);        
-            
-        }else{
+          client.publish(bufTopic, bufData);
+
+        } else {
           logger.println("MQTT unconnected and or Wifi unconnected - skip to publish!");
         }
 
-
-
-        
-        if(data.length() > 0) {
+        if (data.length() > 0) {
           Dispatch(data);
         }
         lastSensorTransmission = millis();
       }
     }
- 
-    // Handle the data reception
-    // -------------------------
+
     byte receivedPackets = HandleDataReception();
 
-    // Handle PCA301
     if (pca301.IsInitialized()) {
       pca301.Handle();
-    } 
+    }
 
-    // Periodically send some info about us
-    // ------------------------------------
     stateManager.Handle(receivedPackets);
-    if (KVINTERVAL > 1) { 
+    if (KVINTERVAL > 1) {
       String kvData = stateManager.GetKVP(KVINTERVAL);
       if (kvData.length() > 0) {
         Dispatch(kvData);
       }
     }
 
-    // Handle the data rate
-    // --------------------
     HandleDataRate();
 
-    if (USE_WIFI) {
-      // Handle the web fronted and the access point
-      // -------------------------------------------
-      frontend.Handle();
+    if (USE_WIFI && frontend != nullptr) {
+      frontend->Handle();
       accessPoint.Handle();
-
-      // Handle the ports for FHEM
-      // -------------------------
       dataPort1.Handle(CommandHandler);
       dataPort2.Handle(CommandHandler);
       dataPort3.Handle(CommandHandler);
     }
 
-    // Handle OTA
-    // ----------
     if (WiFi.status() == WL_CONNECTED) {
       ota.Handle();
     }
 
-    // Handle Alarm
     if (sc16is750.IsConnected()) {
       alarm.Handle();
     }
 
-    // Handle DigitalPorts
     if (digitalPorts.IsConnected()) {
       digitalPorts.Handle();
     }
 
     if (sc16is750.IsConnected()) {
-      // Handle SerialBridge
-      // -------------------
       if (useSerialBridge) {
         serialBridge.Handle();
       }
-
-      // Handle SubProcessor
-      // -------------------
       if (!useSerialBridge) {
         String subData = subProcessor.Handle();
         if (subData.length() > 0) {
@@ -2215,14 +2429,9 @@ void loop(void) {
     }
 
     if (sc16is750_2.IsConnected()) {
-      // Handle SerialBridge
-      // -------------------
       if (useSerialBridge2) {
         serialBridge2.Handle();
       }
-
-      // Handle SubProcessor
-      // -------------------
       if (!useSerialBridge2) {
         String subData = subProcessor2.Handle();
         if (subData.length() > 0) {
@@ -2231,34 +2440,27 @@ void loop(void) {
       }
     }
 
-    // Handle soft serial bridge
-    // -------------------------
     if (softSerialBridge.IsEnabled()) {
       softSerialBridge.Handle();
     }
-    
+
     WSBase::Frame frame = ownSensors.GetDataFrame();
-    
-    // Handle Nextion
-    // --------------
+
     if (nextion.IsConnected()) {
-      nextion.Handle(frame, &stateManager, WiFi.RSSI(), dataPort1Connected || dataPort2Connected || dataPort3Connected, bridge1Connected, bridge2Connected);
+      nextion.Handle(frame, &stateManager, WiFi.RSSI(),
+                     dataPort1Connected || dataPort2Connected || dataPort3Connected,
+                     bridge1Connected, bridge2Connected);
     }
 
-    // Handle OLED
-    // -----------
     if (display.IsConnected()) {
-      display.Handle(frame, stateManager.GetFramesPerMinute(), stateManager.GetVersion(), WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
+      display.Handle(frame, stateManager.GetFramesPerMinute(), stateManager.GetVersion(),
+                     WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
     }
 
-    // Watchdog
-    // --------
     watchdog.Handle();
 
-    // Analogport
-    // ----------
     String analogData;
-    if (analogPort.IsEnabled()){
+    if (analogPort.IsEnabled()) {
       analogData = analogPort.GetFhemDataString();
     }
     if (analogPort.IsEnabled() && analogData.length() > 0) {

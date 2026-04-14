@@ -117,8 +117,8 @@ void BME680::Handle() {
     m_lastMeasurement = 0;
   }
   if(millis() > m_lastMeasurement + 3000) {
-    uint8_t status = Read8(BME680_STATUS_MEAS_0);
-    uint8_t gasLsb = Read8(BME680_DATA_GAS_LSB);
+    (void)Read8(BME680_STATUS_MEAS_0);
+    (void)Read8(BME680_DATA_GAS_LSB);
 
     ////bool isMeasuring = bitRead(status,5);
     ////bool isGasMeasuring = bitRead(status, 6);
@@ -164,7 +164,7 @@ BME680Value BME680::GetLastMeasuredValue() {
 void BME680::CalculateTemperature() {
   uint8_t adcReadings[3];
   Read(BME680_DATA_TEMP_MSB, 3, &adcReadings[0]);
-  uint32_t temp_adc = (uint32_t) (((uint32_t)adcReadings[0] << 12) | ((uint32_t)adcReadings[1] << 4) | ((uint32_t)adcReadings[2] >> 4) & 0b00001111);
+  uint32_t temp_adc = (uint32_t) (((uint32_t)adcReadings[0] << 12) | ((uint32_t)adcReadings[1] << 4) | (((uint32_t)adcReadings[2] >> 4) & 0b00001111));
  
   int64_t var1, var2;
   var1 = ((((temp_adc >> 3) - ((int32_t)m_compensation.T1 << 1))) * ((int32_t)m_compensation.T2)) >> 11;
@@ -204,7 +204,7 @@ void BME680::CalculateHumidity() {
 void BME680::CalculatePressure() {
   uint8_t adcReadings[3];
   Read(BME680_DATA_PRESS_MSB, 3, &adcReadings[0]);
-  uint32_t pres_adc = (uint32_t)(((uint32_t)adcReadings[0] << 12) | ((uint32_t)adcReadings[1] << 4) | ((uint32_t)adcReadings[2] >> 4) & 0b00001111);
+  uint32_t pres_adc = (uint32_t)(((uint32_t)adcReadings[0] << 12) | ((uint32_t)adcReadings[1] << 4) | (((uint32_t)adcReadings[2] >> 4) & 0b00001111));
 
   int32_t var1 = (((int32_t)m_rawTemperature) >> 1) - 64000;
   int32_t var2 = ((((var1 >> 2) * (var1 >> 2)) >> 11) * (int32_t)m_compensation.P6) >> 2;

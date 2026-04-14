@@ -5,8 +5,8 @@
 #include "HashMap.h"
 #include "Logger.h"
 
-#define EEPROM_SIZE 1024
-#define CAPACITY    50
+#define EEPROM_SIZE 4096
+#define CAPACITY    110
 
 class Settings {
 public:
@@ -28,14 +28,18 @@ public:
   bool FromString(String settings);
   bool Change(String key, String value);
 
+  // Radio-spezifische Helpers
+  void SaveRadioSettings(byte radioIndex, String type, unsigned long freqKHz,
+                         String dataRate, byte toggleMask,
+                         uint16_t toggleInterval);
+
+  void LoadRadioSettingsFrom(byte radioIndex, String &type, unsigned long &freqKHz,
+                             String &dataRate, byte &toggleMask,
+                             uint16_t &toggleInterval);
+
 private:
   HashMap<String, String, CAPACITY> m_data;
   static bool m_debug;
 };
 
-
-
-
-
 #endif
-
