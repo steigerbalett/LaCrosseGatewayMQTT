@@ -23,6 +23,7 @@
 #include "ESP8266mDNS.h"
 #include "ArduinoOTA.h"
 #include "Ticker.h"
+#include "DebugHelper.h"
 
 #include <PubSubClient.h>         //MQTT server library
 
@@ -694,7 +695,7 @@ void HandleCommandString(String command) {
     Settings *settings = new Settings();
     settings->Read(&logger);
 
-    DebugHelper::setEnabled(settings.GetBool("debug"));
+    DebugHelper::setEnabled(settings->GetBool("debug"));
     DebugHelper::begin();
 
     bool radioLock = settings->GetBool("RadioLock", false);
