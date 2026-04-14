@@ -12,7 +12,7 @@
 
 class DebugHelper {
 public:
-  static bool enabled;
+  inline static bool enabled = false;
 
   static void setEnabled(bool state) {
     enabled = state;
@@ -111,6 +111,6 @@ public:
   }
 };
 
-bool DebugHelper::enabled = false;
+//bool DebugHelper::enabled = false;
 
 #endif // DEBUGHELPER_H
