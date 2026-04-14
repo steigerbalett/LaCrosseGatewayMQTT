@@ -295,6 +295,27 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   result += F("Freq' size='12' maxlength='10' value='"); result += freqVal;
   result += F("'> <span class='info'>z.B. 868310</span></td></tr>");
 
+// SS-Pin (nur für Radio 1-3 relevant)
+  if (radioNbr <= 3) {
+    const byte ssPinDefaults[3] = { 15, 2, 0 };  // D8, D4, D3
+    int ssPin = settings->GetInt(p + "SS", ssPinDefaults[radioNbr - 1]);
+    result += F("<tr><td><label>SS-Pin (GPIO):</label></td><td>");
+    result += F("<select name='"); result += p; result += F("SS'>");
+    const struct { int gpio; const char* label; } ssPins[] = {
+      {0,  "GPIO0 (D3)"}, {2,  "GPIO2 (D4)"}, {4,  "GPIO4 (D2)"},
+      {5,  "GPIO5 (D1)"}, {12, "GPIO12 (D6)"},{13, "GPIO13 (D7)"},
+      {14, "GPIO14 (D5)"},{15, "GPIO15 (D8)"}
+    };
+    for (auto &e : ssPins) {
+      result += F("<option value='"); result += String(e.gpio); result += F("'");
+      if (ssPin == e.gpio) result += F(" selected");
+      result += F(">"); result += e.label; result += F("</option>");
+    }
+    result += F("</select>");
+    result += F(" <span class='info'>Standard: R1=GPIO15(D8), R2=GPIO2(D4), R3=GPIO0(D3)</span>");
+    result += F("</td></tr>");
+  }
+
   // Datenraten als Checkboxen
   // WICHTIG: name=RadioNRateB, value="1" - wird nur gesendet wenn checked
   // Bit0=17.241 / Bit1=9.579 / Bit2=8.842 / Bit3=6.631 / Bit4=4.800
@@ -359,7 +380,7 @@ String WebFrontend::GetTop() {
   result += FPSTR(LGWMQTT_JS_THEME);
   result += F("</head><body>");
   result += F("<div class='hdr'>");
-  result += F("<h1>&#127777; LaCrosseGateway");
+  result += F("<a href='/'><h1>&#127777; LaCrosseGateway</a>");
   result += F("<span style='font-size:14px;font-weight:400;margin-left:12px;color:var(--txt2)'>V");
   result += m_stateManager->GetVersion();
   result += F(" &mdash; "); result += GetDisplayName(); result += F("</span></h1>");
@@ -385,7 +406,7 @@ String WebFrontend::GetNavigation() {
 }
 
 String WebFrontend::GetBottom() {
-  return F("<div class='footer'><p>LaCrosseGateway &mdash; ESP8266 MQTT Web Frontend</p></div></body></html>");
+  return F("<div class='footer'><p><a href='/'>LaCrosseGateway &mdash; ESP8266 MQTT Web Frontend</a></p></div></body></html>");
 }
 
 String WebFrontend::GetRedirectToRoot(String message) {
@@ -685,6 +706,15 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
     freqVal = existing->Get(p + "Freq", radioNbr == 1 ? "868310" : "");
   }
   settings->Add(p + "Freq", freqVal);
+// SS-Pin nur für Radio 1-3
+  if (radioNbr <= 3) {
+    const int ssPinDefaults[3] = { 15, 2, 0 };
+    String ssVal = m_webserver.arg(p + "SS");
+    if (ssVal.length() == 0) {
+      ssVal = existing->Get(p + "SS", String(ssPinDefaults[radioNbr - 1]));
+    }
+    settings->Add(p + "SS", ssVal);
+  }
   }
 
   // SCHRITT 2: Passwoerter mit Fallback
@@ -712,7 +742,8 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
           argName == p + "DataRate"   ||
           argName == p + "ToggleInterval" ||
           argName == p + "Type"       ||
-          argName == p + "Freq") { skip = true; }
+          argName == p + "Freq"       ||
+          argName == p + "SS") { skip = true; }
       for (int b = 0; b < 5 && !skip; b++) {
         if (argName == p + "Rate" + String(b)) skip = true;
       }
@@ -830,6 +861,16 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
       freqVal = existing->Get(p + "Freq", radioNbr == 1 ? "868310" : "");
     }
     merged->Add(p + "Freq", freqVal);
+
+    // SS-Pin nur für Radio 1-3
+    if (radioNbr <= 3) {
+      const int ssPinDefaults[3] = { 15, 2, 0 };
+      String ssVal = m_webserver.arg(p + "SS");
+      if (ssVal.length() == 0) {
+        ssVal = existing->Get(p + "SS", String(ssPinDefaults[radioNbr - 1]));
+      }
+      merged->Add(p + "SS", ssVal);
+    }
 
     int mask = 0;
     for (int b = 0; b < 5; b++) {

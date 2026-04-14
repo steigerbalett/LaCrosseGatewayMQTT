@@ -682,6 +682,14 @@ void LoadRadioSettings(Settings &settings) {
     g_radio[i].toggleIndex  = 0;
     g_radio[i].lastToggleMs = 0;
   }
+  // SS-Pins setzen (nur rfm1-3, rfm4+5 nutzen AddOn-Bus)
+  const byte ssPinDefaults[3] = { RFM1_SS, RFM2_SS, RFM3_SS };
+  RFMxx *rfmPtrs[3] = { &rfm1, &rfm2, &rfm3 };
+  for (byte i = 0; i < 3; i++) {
+    String key = "Radio" + String(i + 1) + "SS";
+    int pin = settings.GetInt(key, ssPinDefaults[i]);
+    rfmPtrs[i]->SetSS((byte)pin);
+  }
 }
 
 void HandleCommandString(String command) {
@@ -1168,7 +1176,7 @@ bool HandleReceivedData(RFMxx *rfm) {
       Serial.println();
     }
     else {
-      if(DEBUG) {
+      if (DebugHelper::enabled) {
         Serial.print("\r\nEnd receiving, HEX raw data: ");
         for(int i = 0; i < 16; i++) {
           Serial.print(payload[i], HEX);
