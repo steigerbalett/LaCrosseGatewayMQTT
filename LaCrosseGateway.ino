@@ -1431,23 +1431,23 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
   }
 }
 
-//static void RunConfigPortal(Settings &settings, const String &apName) {
-//  logger.println(F("Starte Konfigurations-Hotspot..."));
-//  logger.println("AP-Name: " + apName);
-//
-//  WiFi.persistent(false);
-//  WiFi.disconnect(true);
-//  ets_delay_us(200000UL); // 200 ms
-//  WiFi.mode(WIFI_AP);
-//  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
-//  WiFi.softAP(apName.c_str());
-//  ets_delay_us(500000UL); // 500 ms
-//
-//  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
-//  if (display.IsConnected()) {
-//    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
-//    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
-//  }
+static void RunConfigPortal(Settings &settings, const String &apName) {
+  logger.println(F("Starte Konfigurations-Hotspot..."));
+  logger.println("AP-Name: " + apName);
+
+  WiFi.persistent(false);
+  WiFi.disconnect(true);
+  ets_delay_us(200000UL); // 200 ms
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
+  WiFi.softAP(apName.c_str());
+  ets_delay_us(500000UL); // 500 ms
+
+  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
+  if (display.IsConnected()) {
+    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+  }
 
   ESP8266WebServer portalServer(80);
 
