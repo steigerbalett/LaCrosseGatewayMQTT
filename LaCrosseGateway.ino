@@ -1666,7 +1666,7 @@ static bool StartWifi(Settings &settings) {
       } else {
         logger.println(F("Timeout - SSID bleibt vorerst erhalten"));
       }
-
+    }
   // ── Kein SSID oder Verbindung fehlgeschlagen: CaptivePortal starten ──────
   if (display.IsConnected()) {
     display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
