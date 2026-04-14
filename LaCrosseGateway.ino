@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.49"
+#define PROGVERS         "1.36.51"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -1169,11 +1169,13 @@ bool HandleReceivedData(RFMxx *rfm) {
     }
 
     if(PASS_PAYLOAD == 1) {
-      for(int i = 0; i < payloadSize; i++) {
-        Serial.print(payload[i], HEX);
-        Serial.print(" ");
+      if (DebugHelper::enabled) {
+          for(int i = 0; i < payloadSize; i++) {
+              Serial.print(payload[i], HEX);
+              Serial.print(" ");
+          }
+          Serial.println();
       }
-      Serial.println();
     }
     else {
       if (DebugHelper::enabled) {
@@ -1798,6 +1800,7 @@ void setup(void) {
   // ================================================================
   //  DEBUG: Letzten Crash-Schritt aus RTC-RAM lesen (ueberlebt Reset)
   // ================================================================
+  bool lastBootWasCrash = false;
   {
     uint32_t crashFlag = 0, crashStep = 0;
     ESP.rtcUserMemoryRead(0, &crashFlag, sizeof(crashFlag));
@@ -1810,6 +1813,7 @@ void setup(void) {
     Serial.print(F("[DBG] Reset reason : ")); Serial.println(ESP.getResetReason());
     Serial.print(F("[DBG] Reset info   : ")); Serial.println(ESP.getResetInfo());
     if (crashFlag == 0xDEADBEEFUL) {
+      lastBootWasCrash = true;
       Serial.println(F("[DBG] !!! LETZTER BOOT WAR EIN CRASH !!!!!"));
       Serial.print(F("[DBG] Crash nach setup()-STEP: ")); Serial.println(crashStep);
     }
@@ -1851,9 +1855,13 @@ void setup(void) {
   digitalWrite(D7, HIGH);
 
   if (!settings.GetBool("UseWiFi", true)) {
-    USE_WIFI = false;
-    logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
-  }
+    if (lastBootWasCrash) {
+        logger.println(F("UseWiFi=false, aber letzter Boot war Crash -> WiFi wird trotzdem versucht"));
+    } else {
+        USE_WIFI = false;
+        logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
+    }
+}
   if (!USE_WIFI) {
     logger.Disable();
     esp.Blink(20);
