@@ -478,7 +478,7 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
 static String pwToggleBtn(const char* fieldName) {
   String s = F("<button type='button' onclick=\"var f=document.querySelector(\\\"[name='");
   s += fieldName;
-  s += F("']\\\");f.type=f.type=='password'?'text':'password';this.textContent=f.type=='password'?'👁':'🙈';\" style='margin-left:4px;cursor:pointer;background:none;border:1px solid #aaa;border-radius:3px;padding:1px 5px;'>👁</button>");
+  s += F("']\\\");f.type=f.type=='password'?'text':'password';this.textContent=f.type=='password'?'&#128065;':'&#128584';\" style='margin-left:4px;cursor:pointer;background:none;border:1px solid #aaa;border-radius:3px;padding:1px 5px;'>&#128065;</button>");
   return s;
 }
 

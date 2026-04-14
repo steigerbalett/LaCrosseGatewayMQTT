@@ -1421,7 +1421,6 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
       stateManager.SetWiFiConnectTime((millis() - startMillis) / 1000.0);
     }
     
-
     esp.SwitchLed(false, true);
     if (display.IsConnected()) {
       display.HideProgress();
@@ -1429,28 +1428,26 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     if (nextion.IsConnected()) {
       ////nextion.HideProgress();
     }
-    
   }
-
 }
 
-static void RunConfigPortal(Settings &settings, const String &apName) {
-  logger.println(F("Starte Konfigurations-Hotspot..."));
-  logger.println("AP-Name: " + apName);
-
-  WiFi.persistent(false);
-  WiFi.disconnect(true);
-  ets_delay_us(200000UL); // 200 ms
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
-  WiFi.softAP(apName.c_str());
-  ets_delay_us(500000UL); // 500 ms
-
-  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
-  if (display.IsConnected()) {
-    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
-    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
-  }
+//static void RunConfigPortal(Settings &settings, const String &apName) {
+//  logger.println(F("Starte Konfigurations-Hotspot..."));
+//  logger.println("AP-Name: " + apName);
+//
+//  WiFi.persistent(false);
+//  WiFi.disconnect(true);
+//  ets_delay_us(200000UL); // 200 ms
+//  WiFi.mode(WIFI_AP);
+//  WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);
+//  WiFi.softAP(apName.c_str());
+//  ets_delay_us(500000UL); // 500 ms
+//
+//  logger.println(F("Hotspot aktiv. Oeffne http://192.168.4.1"));
+//  if (display.IsConnected()) {
+//    display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
+//    display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
+//  }
 
   ESP8266WebServer portalServer(80);
 
@@ -1577,7 +1574,6 @@ static void dbgStep(uint32_t step, const char* desc) {
 }
 
 static CaptivePortal captivePortal;
-static bool          g_portalActive = false;
 
 static bool StartWifi(Settings &settings) {
 
@@ -1816,7 +1812,6 @@ void setup(void) {
     Serial.print(F("[DBG] Reset reason : ")); Serial.println(ESP.getResetReason());
     Serial.print(F("[DBG] Reset info   : ")); Serial.println(ESP.getResetInfo());
     if (crashFlag == 0xDEADBEEFUL) {
-      lastBootWasCrash = true;
       Serial.println(F("[DBG] !!! LETZTER BOOT WAR EIN CRASH !!!!!"));
       Serial.print(F("[DBG] Crash nach setup()-STEP: ")); Serial.println(crashStep);
     }
