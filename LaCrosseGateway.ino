@@ -694,6 +694,9 @@ void HandleCommandString(String command) {
     Settings *settings = new Settings();
     settings->Read(&logger);
 
+    DebugHelper::setEnabled(settings.GetBool("debug"));
+    DebugHelper::begin();
+
     bool radioLock = settings->GetBool("RadioLock", false);
     String savedRadio[5][5];
     const char* radioKeys[] = {"Type", "Freq", "DataRate", "ToggleMask", "ToggleInterval"};
@@ -1551,6 +1554,7 @@ static void dbgStep(uint32_t step, const char* desc) {
   uint32_t flag = 0xDEADBEEFUL;
   ESP.rtcUserMemoryWrite(0, &flag, sizeof(flag));
   ESP.rtcUserMemoryWrite(1, &step, sizeof(step));
+  if (!DebugHelper::isEnabled()) return;
   Serial.printf("[DBG] >>> STEP %u: %s  Heap=%u ContStack=%u\n",
     (unsigned)step, desc, ESP.getFreeHeap(), ESP.getFreeContStack());
   Serial.flush();
@@ -1824,7 +1828,7 @@ void setup(void) {
   }
   pSettings->Read(&logger);
   Settings &settings = *pSettings;
-
+  DebugHelper::setEnabled(settings.GetBool("debug"));
   LoadRadioSettings(settings);
 
   pinMode(D7, INPUT_PULLUP);

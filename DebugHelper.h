@@ -4,7 +4,7 @@
 // =============================================================
 //  DebugHelper.h  –  Zentrale Debug-Ausgaben für LaCrosseGateway
 //  Einbinden mit: #include "DebugHelper.h"
-//  Am Anfang von setup() aufrufen: DebugHelper::begin();
+//  Optional aktivieren mit: DebugHelper::setEnabled(true);
 // =============================================================
 
 #include <Arduino.h>
@@ -12,8 +12,19 @@
 
 class DebugHelper {
 public:
+  static bool enabled;
+
+  static void setEnabled(bool state) {
+    enabled = state;
+  }
+
+  static bool isEnabled() {
+    return enabled;
+  }
 
   static void begin() {
+    if (!enabled) return;
+
     Serial.println(F("\n\n========================================"));
     Serial.println(F("  LaCrosseGateway DEBUG BUILD"));
     Serial.println(F("========================================"));
@@ -23,6 +34,8 @@ public:
 
   // ---- Reset-Ursache ausgeben ----
   static void printResetReason() {
+    if (!enabled) return;
+
     struct rst_info* ri = system_get_rst_info();
     Serial.print(F("[DBG] Reset reason code: "));
     Serial.println(ri->reason);
@@ -41,6 +54,7 @@ public:
       ESP.rtcUserMemoryRead(1, &crashStep, sizeof(crashStep));
       Serial.printf("[DBG] Crash nach Schritt: %lu\n", crashStep);
       Serial.flush();
+
       // Flag zurücksetzen
       exceptionFlag = 0;
       ESP.rtcUserMemoryWrite(0, &exceptionFlag, sizeof(exceptionFlag));
@@ -49,6 +63,8 @@ public:
 
   // ---- System-Infos ----
   static void printSystemInfo() {
+    if (!enabled) return;
+
     Serial.printf("[DBG] Free Heap:      %u bytes\n",  ESP.getFreeHeap());
     Serial.printf("[DBG] Free ContStack: %u bytes\n",  ESP.getFreeContStack());
     Serial.printf("[DBG] Flash size:     %u bytes\n",  ESP.getFlashChipRealSize());
@@ -65,6 +81,8 @@ public:
     ESP.rtcUserMemoryWrite(0, &flag, sizeof(flag));
     ESP.rtcUserMemoryWrite(1, &stepNumber, sizeof(stepNumber));
 
+    if (!enabled) return;
+
     Serial.printf("[DBG] >>> STEP %lu", stepNumber);
     if (description) Serial.printf(": %s", description);
     Serial.printf("  Heap=%u  Stack=%u\n",
@@ -75,12 +93,16 @@ public:
 
   // ---- Schritt erfolgreich abgeschlossen ----
   static void stepDone(uint32_t stepNumber) {
+    if (!enabled) return;
+
     Serial.printf("[DBG] <<< STEP %lu done\n", stepNumber);
     Serial.flush();
   }
 
   // ---- Heap-Warnung ----
   static void checkHeap(uint32_t minFree = 8000) {
+    if (!enabled) return;
+
     uint32_t free = ESP.getFreeHeap();
     if (free < minFree) {
       Serial.printf("[DBG] *** HEAP LOW: %u bytes! ***\n", free);
@@ -88,5 +110,7 @@ public:
     }
   }
 };
+
+bool DebugHelper::enabled = false;
 
 #endif // DEBUGHELPER_H

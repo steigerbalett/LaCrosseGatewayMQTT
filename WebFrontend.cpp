@@ -1,5 +1,6 @@
 //attr myLaCrosseGateway1 initCommands 1,868950,17241#r1 9579#2r 8842#3r v
 #include "WebFrontend.h"
+#include "DebugHelper.h"
 #include <EEPROM.h>
 #include "Settings.h"
 #include <ESP8266httpUpdate.h>
@@ -947,8 +948,10 @@ m_webserver.on("/save_send", HTTP_POST, [this]() {
 // -- /save_options ---------------------------------------------------------
 m_webserver.on("/save_options", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
-  const char* keys[] = {"UseWiFi","UseMDNS","SendAnalog","UAnalog1023","PRD"};
-  String info = SaveSelectedKeys(keys, 5, false);
+  const char* keys[] = {"UseWiFi","UseMDNS","SendAnalog","UAnalog1023","PRD","debug"};
+  String info = SaveSelectedKeys(keys, 6, false);
+  DebugHelper::setEnabled(settings->GetBool("debug"));
+
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Optionen gespeichert</h3><p>") +
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
@@ -1267,6 +1270,7 @@ m_webserver.on("/setup", [this]() {
     data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings->Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
     data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings->Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
     data += F("<input name='PRD' type='checkbox' value='true' "); data += settings->Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
+    data += F("&nbsp;"); data += F("<input name='debug' type='checkbox' value='true'"); data += settings->GetBool("debug") ? " checked" : ""; data += F("> Debug-Ausgaben");
     data += F("</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Optionen speichern'>");
     data += F("</div></form>");
