@@ -1970,8 +1970,11 @@ void setup(void) {
   rfms[4] = &rfm5;
 
   rfm1.Begin();
+  logger.println("rfm1 connected: " + String(rfm1.IsConnected()));
   rfm2.Begin();
+  logger.println("rfm2 connected: " + String(rfm2.IsConnected()));
   rfm3.Begin();
+  logger.println("rfm3 connected: " + String(rfm3.IsConnected()));
   if (sc16is750.IsConnected()) {
     rfm4.Begin();
     rfm5.Begin();

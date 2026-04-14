@@ -39,11 +39,6 @@ void Logger::println(uint32_t data, LogType type) {
   println(String(data), type);
 }
 
-
-
-
-
-
 void Logger::logData(String data, LogType type) {
   if (m_enabled &&  m_queue.Count() <= m_bufferSize) {
     m_queue.Push("DATA:" + data);
