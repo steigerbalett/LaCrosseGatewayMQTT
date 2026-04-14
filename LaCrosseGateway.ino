@@ -226,7 +226,7 @@ byte scanWifi(String ctSSID) {
   rssi = -999;
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
-//  uint8_t *thisBssid;
+  uint8_t *thisBssid;
   
   logger.println("Number of all SSIDs: " + String(numSsid));
   for (int thisNet = 0; thisNet<numSsid; thisNet++) {
@@ -235,6 +235,7 @@ byte scanWifi(String ctSSID) {
       corrSsidCnt++;
       
       thisBssid = WiFi.BSSID(thisNet);
+      (void)thisBssid;
       logger.print("SSID " + ctSSID + " found on ch: " + String(WiFi.channel(thisNet)) + ", rssi: " + String(WiFi.RSSI(thisNet))+ ", bssid: ");
       LogBssid(WiFi.BSSID(thisNet));
       logger.println(F(" ,thisNet: ") + String(thisNet));
@@ -1353,8 +1354,8 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
   if (ctSSID.length() > 0 && ctSSID != "---") {
     unsigned long startMillis = millis();
     int numSsid = -1;
-//    uint8_t *thisBssid;
-
+    uint8_t *thisBssid;
+    (void)thisBssid;
     WiFi.setAutoReconnect(true);
 
     numSsid = scanWifi(ctSSID);
