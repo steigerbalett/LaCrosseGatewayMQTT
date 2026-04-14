@@ -120,8 +120,10 @@ void Settings::Add(String key, String value) {
   if (m_data.ContainsKey(key)) {
     m_data.Remove(key);
   }
-  if (key.length() > 0 && m_data.Size() < CAPACITY) {
-    m_data.Put(key, value);
+  if (key.length() > 0) {
+    if (m_data.Size() < CAPACITY) {
+      m_data.Put(key, value);
+    }
   }
 }
 
@@ -213,7 +215,7 @@ void Settings::LoadRadioSettingsFrom(byte radioIndex, unsigned long &freqKHz,
                                       String &dataRate, byte &toggleMask,
                                       uint16_t &toggleInterval) {
   String p = "Radio" + String(radioIndex + 1);
-  freqKHz        = (unsigned long)GetInt(p + "Freq",           freqKHz);
+  freqKHz        = GetUnsignedLong(p + "Freq",           freqKHz);
   dataRate       = Get(p + "DataRate",                         dataRate);
   toggleMask     = (byte)GetInt(p + "ToggleMask",              toggleMask);
   toggleInterval = (uint16_t)GetInt(p + "ToggleInterval",      toggleInterval);

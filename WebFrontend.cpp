@@ -634,12 +634,6 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     m_webserver.send(200, "text/html", result);
   });
 
-
-
-
-
-
-
 // -- /save ---------------------------------------------------------------
 m_webserver.on("/save", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
@@ -680,17 +674,17 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
   String p = "Radio" + String(radioNbr);
   
   String typeVal = m_webserver.arg(p + "Type");
-  if (typeVal.length() == 0 && !m_webserver.hasArg(p + "Type")) {
+  if (typeVal.length() == 0) {
     typeVal = existing->Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
   }
   settings->Add(p + "Type", typeVal);
 
   String freqVal = m_webserver.arg(p + "Freq");
-  if (freqVal.length() == 0 && !m_webserver.hasArg(p + "Freq")) {
-    freqVal = existing->Get(p + "Freq", "");
+  if (freqVal.length() == 0) {
+    freqVal = existing->Get(p + "Freq", radioNbr == 1 ? "868310" : "");
   }
   settings->Add(p + "Freq", freqVal);
-}
+  }
 
   // SCHRITT 2: Passwoerter mit Fallback
   const char* pwKeys[] = {"ctPASS","ctPASS2","mqttPass","frontPass"};
@@ -814,7 +808,7 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
     merged->FromString(raw.substring(6));   // "SETUP " = 6 Zeichen
   } else {
     merged->FromString(raw);
-  };
+  }
 
   // RadioLock
   String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
@@ -824,16 +818,18 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
   for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
     String p = "Radio" + String(radioNbr);
 
-    // Typ - was auch immer das Formular schickt (inkl. "---")
     String typeVal = m_webserver.arg(p + "Type");
-    if (typeVal.length() == 0) typeVal = "---";
+    if (typeVal.length() == 0) {
+      typeVal = existing->Get(p + "Type", radioNbr == 1 ? "RFM69" : "---");
+    }
     merged->Add(p + "Type", typeVal);
 
-    // Freq
     String freqVal = m_webserver.arg(p + "Freq");
+    if (freqVal.length() == 0) {
+      freqVal = existing->Get(p + "Freq", radioNbr == 1 ? "868310" : "");
+    }
     merged->Add(p + "Freq", freqVal);
 
-    // Datenraten-Maske
     int mask = 0;
     for (int b = 0; b < 5; b++) {
       if (m_webserver.arg(p + "Rate" + String(b)) == "1") mask |= (1 << b);
@@ -860,7 +856,12 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
     }
   }
 
+  delete existing;
+
   String info = merged->Write();
+
+  delete merged;
+
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Radio-Einstellungen gespeichert</h3><p>") +
     info + F("</p></div>") + GetBottom());
