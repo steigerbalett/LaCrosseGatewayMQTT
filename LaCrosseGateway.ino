@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.36.50"
+#define PROGVERS         "1.36.52"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -381,11 +381,9 @@ void SetDebugMode(boolean mode) {
 
 void Dispatch(String data, String raw="") {
   if(USE_SERIAL) {
-    if (DebugHelper::enabled) {
-      Serial.println(data);
-    } else if (data.startsWith("OK ")) {
-      Serial.println(data);
-    }
+    String prefix = (rfmNum > 0) ? ("[RFM" + String(rfmNum) + "] ") : "";
+    if (DebugHelper::enabled) Serial.println(prefix + data);
+    else if (data.startsWith("OK ")) Serial.println(prefix + data);
   }
   
   if (USE_WIFI) {
@@ -960,7 +958,17 @@ unsigned long sensorRxTime[MAX_LACROSSE_SENSORS] = {0};
 char bufData[30];
 char bufTopic[160];
 
+// Ermittelt RFM-Nummer (1-5) aus SS-Pin, 0 = unbekannt
+static byte GetRfmNumber(RFMxx *rfm) {
+  byte ss = rfm->GetSS();
+  for (byte i = 0; i < 5; i++) {
+    if (rfms[i] == rfm) return i + 1;
+  }
+  return 0;
+}
+
 bool HandleReceivedData(RFMxx *rfm) {
+  byte rfmNum = GetRfmNumber(rfm);
   unsigned long timeNow = millis();
   bool result = false;
   bool b_publishData = false;
@@ -968,7 +976,6 @@ bool HandleReceivedData(RFMxx *rfm) {
   String publishData;
 
   rfm->EnableReceiver(false);
-  // FIX 3: all exit paths must call delete[] to prevent heap fragmentation / OOM
   const size_t fifoSize = rfm->GetFiFoSize();
   byte *payload = new byte[fifoSize];
   byte payloadSize = rfm->GetPayload(payload);
@@ -982,10 +989,10 @@ bool HandleReceivedData(RFMxx *rfm) {
   if(rfm->GetRadioType() == RFMxx::RadioType::RFM95W && payloadString.startsWith("OK ")) {
     payloadString += " ";
     payloadString += rfm->GetRSSI();
-    Dispatch(payloadString, payloadString);
+    Dispatch(payloadString, payloadString, rfmNum);
 
     result = true;
-    delete[] payload;  // FIX 3: free before early return
+    delete[] payload;
     return result;
   }
   else {
@@ -1282,7 +1289,7 @@ bool HandleReceivedData(RFMxx *rfm) {
         }
         raw.toUpperCase();
 
-        Dispatch(data, raw);
+        Dispatch(data, raw, rfmNum);
       }
     } 
   }
