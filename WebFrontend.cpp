@@ -988,34 +988,57 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
 m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
   int n = WiFi.scanNetworks();
   String html;
+
   if (n == 0) {
     html = F("<p class='info'>Keine Netzwerke gefunden.</p>");
   } else {
     html = F("<ul style='list-style:none;padding:0;margin:8px 0'>");
+
     for (int i = 0; i < n; i++) {
       int rssi = WiFi.RSSI(i);
       int bars = (rssi >= -60) ? 4 : (rssi >= -70) ? 3 : (rssi >= -80) ? 2 : 1;
-      String barStr = "";
-      for (int b = 0; b < 4; b++)
-        barStr += (b < bars) ? "&#9608;" : "&#9617;";
       bool sec = (WiFi.encryptionType(i) != ENC_TYPE_NONE);
-      html += F("<li style='display:flex;justify-content:space-between;align-items:center;"
-                "padding:7px 10px;cursor:pointer;border-radius:5px;margin-bottom:3px;"
-                "background:var(--surface-2,#f5f5f5)' "
-                "onclick=\"document.querySelector('[name=ctSSID]').value='");
-      html += WiFi.SSID(i);
+
+      String ssid = WiFi.SSID(i);
+
+      String safeAttr = ssid;
+      safeAttr.replace("&",  "&amp;");
+      safeAttr.replace("\"", "&quot;");
+      safeAttr.replace("'",  "&#39;");
+      safeAttr.replace("<",  "&lt;");
+      safeAttr.replace(">",  "&gt;");
+      safeAttr.replace("\\", "\\\\");
+
+      String safeText = ssid;
+      safeText.replace("&", "&amp;");
+      safeText.replace("<", "&lt;");
+      safeText.replace(">", "&gt;");
+
+      String barStr;
+      for (int b = 0; b < 4; b++) {
+        barStr += (b < bars) ? F("&#9608;") : F("&#9617;");
+      }
+
+      html += F("<li style='display:flex;justify-content:space-between;align-items:center;");
+      html += F("padding:7px 10px;cursor:pointer;border-radius:5px;margin-bottom:3px;");
+      html += F("background:var(--surface-2,#f5f5f5)' ");
+      html += F("onclick=\"document.querySelector('[name=ctSSID]').value='");
+      html += safeAttr;
       html += F("';this.style.background='#d0eaf5'\">");
+
       html += F("<span>");
-      html += WiFi.SSID(i);
+      html += safeText;
       if (sec) html += F(" &#x1F512;");
       html += F("</span><span style='font-size:.8rem;color:#888'>");
       html += barStr;
-      html += " ";
+      html += ' ';
       html += String(rssi);
       html += F(" dBm</span></li>");
     }
+
     html += F("</ul>");
   }
+
   m_webserver.send(200, "text/html", html);
 });
 

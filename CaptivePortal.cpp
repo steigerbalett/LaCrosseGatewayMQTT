@@ -84,9 +84,12 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
   uint32_t scanStart = millis();
   while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
-    delay(200); 
+    delay(200);
     ESP.wdtFeed();
-    if (millis() - scanStart > 8000UL) { CP_DBG("Scan timeout"); break; }
+    if (millis() - scanStart > 8000UL) {
+      CP_DBG("Scan timeout");
+      break;
+    }
   }
   CP_DBGF("Scan: %d networks", WiFi.scanComplete());
   m_scanHtml = buildScanHtml();
@@ -236,8 +239,8 @@ String CaptivePortal::buildScanHtml() {
     int  b   = (r >= -55) ? 4 : (r >= -65) ? 3 : (r >= -75) ? 2 : 1;
     bool sec = WiFi.encryptionType(i) != ENC_TYPE_NONE;
 
-    // SSID für sicheres Einbetten in HTML-Attribut escapen
     String ssid = WiFi.SSID(i);
+
     String safeAttr = ssid;
     safeAttr.replace("&",  "&amp;");
     safeAttr.replace("\"", "&quot;");
@@ -247,18 +250,21 @@ String CaptivePortal::buildScanHtml() {
     safeAttr.replace("\\", "\\\\");
 
     String safeDisplay = ssid;
-    safeDisplay.replace("&",  "&amp;");
-    safeDisplay.replace("<",  "&lt;");
-    safeDisplay.replace(">",  "&gt;");
+    safeDisplay.replace("&", "&amp;");
+    safeDisplay.replace("<", "&lt;");
+    safeDisplay.replace(">", "&gt;");
 
     html += F("<li onclick=\"document.querySelector('[name=ssid]').value='");
     html += safeAttr;
     html += F("'\">");
     html += safeDisplay;
+
     if (sec) html += F(" &#x1F512;");
     html += F(" <small>");
     for (int j = 0; j < 4; j++) html += (j < b) ? '|' : '.';
-    html += " ("; html += r; html += F(" dBm)</small></li>");
+    html += " (";
+    html += r;
+    html += F(" dBm)</small></li>");
   }
   html += F("</ul>");
   return html;
