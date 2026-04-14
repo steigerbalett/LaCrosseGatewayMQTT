@@ -29,10 +29,13 @@ public:
   bool Change(String key, String value);
 
   // Radio-spezifische Helpers
-  void SaveRadioSettings(byte radioIndex, unsigned long freqKHz, String dataRate,
-                         byte toggleMask, uint16_t toggleInterval);
-  void LoadRadioSettingsFrom(byte radioIndex, unsigned long &freqKHz, String &dataRate,
-                              byte &toggleMask, uint16_t &toggleInterval);
+  void SaveRadioSettings(byte radioIndex, String type, unsigned long freqKHz,
+                         String dataRate, byte toggleMask,
+                         uint16_t toggleInterval);
+
+  void LoadRadioSettingsFrom(byte radioIndex, String &type, unsigned long &freqKHz,
+                             String &dataRate, byte &toggleMask,
+                             uint16_t &toggleInterval);
 
 private:
   HashMap<String, String, CAPACITY> m_data;

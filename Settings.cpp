@@ -201,22 +201,24 @@ bool Settings::FromString(String settings) {
   return result;
 }
 
-void Settings::SaveRadioSettings(byte radioIndex, unsigned long freqKHz,
-                                  String dataRate, byte toggleMask,
-                                  uint16_t toggleInterval) {
+void Settings::SaveRadioSettings(byte radioIndex, String type,
+                                 unsigned long freqKHz, String dataRate,
+                                 byte toggleMask, uint16_t toggleInterval) {
   String p = "Radio" + String(radioIndex + 1);
+  Add(p + "Type",           type);
   Add(p + "Freq",           String(freqKHz));
   Add(p + "DataRate",       dataRate);
   Add(p + "ToggleMask",     String(toggleMask));
   Add(p + "ToggleInterval", String(toggleInterval));
 }
 
-void Settings::LoadRadioSettingsFrom(byte radioIndex, unsigned long &freqKHz,
-                                      String &dataRate, byte &toggleMask,
-                                      uint16_t &toggleInterval) {
+void Settings::LoadRadioSettingsFrom(byte radioIndex, String &type,
+                                     unsigned long &freqKHz, String &dataRate,
+                                     byte &toggleMask, uint16_t &toggleInterval) {
   String p = "Radio" + String(radioIndex + 1);
-  freqKHz        = GetUnsignedLong(p + "Freq",           freqKHz);
-  dataRate       = Get(p + "DataRate",                         dataRate);
-  toggleMask     = (byte)GetInt(p + "ToggleMask",              toggleMask);
-  toggleInterval = (uint16_t)GetInt(p + "ToggleInterval",      toggleInterval);
+  type           = Get(p + "Type",                           type);
+  freqKHz        = GetUnsignedLong(p + "Freq",               freqKHz);
+  dataRate       = Get(p + "DataRate",                       dataRate);
+  toggleMask     = (byte)GetInt(p + "ToggleMask",            toggleMask);
+  toggleInterval = (uint16_t)GetInt(p + "ToggleInterval",    toggleInterval);
 }

@@ -1723,7 +1723,6 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings, 
     rfm->InitializeLoRa();
     rfm->SetFrequency(freqKHz > 0 ? freqKHz : 868200);
 
-    // Spreading Factor Lookup
     static const struct { const char *name; RFMxx::SpreadingFactor sf; } sfTable[] = {
       {"SF6",  RFMxx::SpreadingFactor::SF6 },
       {"SF7",  RFMxx::SpreadingFactor::SF7 },
@@ -1738,7 +1737,6 @@ void CheckRFM(byte nbr, RFMxx *rfm, unsigned long dataRate, Settings *settings, 
       if (sfValue == e.name) { rfm->SetSpreadingFactor(e.sf); break; }
     }
 
-    // Bandwidth Lookup
     static const struct { const char *name; RFMxx::Bandwidth bw; } bwTable[] = {
       {"7.8",   RFMxx::Bandwidth::BW7_8  },
       {"10.4",  RFMxx::Bandwidth::BW10_4 },
@@ -1779,9 +1777,7 @@ bool IsMqttConfigured(Settings& settings) {
 
 
 void setup(void) {
-//  Serial.begin(57600);
-//  delay(1000);
-  ESP.wdtDisable();   // Hardware WDT temporaer deaktivieren
+  ESP.wdtDisable();
   Serial.begin(57600);
   delay(200);
 
@@ -1793,7 +1789,7 @@ void setup(void) {
     ESP.rtcUserMemoryRead(0, &crashFlag, sizeof(crashFlag));
     ESP.rtcUserMemoryRead(1, &crashStep, sizeof(crashStep));
     uint32_t z = 0;
-    ESP.rtcUserMemoryWrite(0, &z, sizeof(z)); // Flag sofort loeschen
+    ESP.rtcUserMemoryWrite(0, &z, sizeof(z));
     Serial.println(F("\n\n=========================================="));
     Serial.println(F("  LaCrosseGateway  DEBUG-BUILD  v1.36.49+fix"));
     Serial.println(F("=========================================="));
@@ -1816,9 +1812,9 @@ void setup(void) {
 
   logger.Clear();
   logger.println("***CLEARLOG***");
-  
+
   SetDebugMode(DEBUG);
-  
+
   Settings *pSettings = new Settings();
   if (!pSettings) {
     logger.println(F("FATAL: Settings allocation failed"));
@@ -1830,18 +1826,16 @@ void setup(void) {
   Settings &settings = *pSettings;
 
   LoadRadioSettings(settings);
-  
-  // D7 als Eingang mit Pull-Up: nur wenn D7 explizit auf GND gezogen wird (Jumper),
-  // wird WiFi deaktiviert. Floating / offen = WiFi aktiv.
+
   pinMode(D7, INPUT_PULLUP);
-  delay(10);  // kurz warten bis Pull-Up stabil
-  if (!digitalRead(D7)) {   // LOW = Jumper nach GND = kein WiFi
+  delay(10);
+  if (!digitalRead(D7)) {
     USE_WIFI = false;
     logger.println(F("D7=LOW: WiFi deaktiviert per Jumper"));
   }
   pinMode(D7, OUTPUT);
   digitalWrite(D7, HIGH);
-  
+
   if (!settings.GetBool("UseWiFi", true)) {
     USE_WIFI = false;
     logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
@@ -1850,7 +1844,6 @@ void setup(void) {
     logger.Disable();
     esp.Blink(20);
   }
-  
 
   logger.print(PROGNAME);
   logger.print(" V");
@@ -1866,106 +1859,77 @@ void setup(void) {
   logger.print("Reset: ");
   logger.println(ESP.getResetReason());
   logger.println(ESP.getResetInfo());
- 
+
   ownSensors.SetLogItemCallback([](String logItem) {
     logger.println(logItem, Logger::LogType::ONLYSYS);
   });
   ownSensors.SetID(settings.GetByte("ISID", 0));
 
-  useSerialBridge = settings.GetInt("SerialBridgePort", 0) > 0;
+  useSerialBridge  = settings.GetInt("SerialBridgePort",  0) > 0;
   useSerialBridge2 = settings.GetInt("SerialBridge2Port", 0) > 0;
 
   unsigned long i2cClock = 400000ul;
-  
+
   SPI.begin();
 
   dbgStep(2, "I2C init");
   logger.print("Starting I2C with ");
-  logger.print(String(i2cClock/1000));
+  logger.print(String(i2cClock / 1000));
   logger.println(" kHz");
   Wire.begin();
   Wire.setClock(i2cClock);
   Wire.setClockStretchLimit(1000);
-  
+
   stateManager.Begin(PROGVERS, settings.Get("KVIdentity", String(ESP.getChipId())));
-  
+
   dataPort1.SetConnectCallback([](bool isConnected) {
     dataPort1Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   dataPort2.SetConnectCallback([](bool isConnected) {
     dataPort2Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   dataPort3.SetConnectCallback([](bool isConnected) {
     dataPort3Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetFhemFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetFhemFlag(isConnected);
   });
   serialBridge.SetConnectCallback([](bool isConnected) {
     bridge1Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetAddonFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetAddonFlag(isConnected);
   });
   serialBridge2.SetConnectCallback([](bool isConnected) {
     bridge3Connected = isConnected;
-    if (display.IsConnected()) {
-      display.SetAddonFlag(isConnected);
-    }
+    if (display.IsConnected()) display.SetAddonFlag(isConnected);
   });
 
   int displayStartMode = -3;
   String dsmSetting = settings.Get("oledStart", "on");
-  if (dsmSetting == "on") {
-    displayStartMode = -1;
-  }
-  else if (dsmSetting == "off") {
-    displayStartMode = 0;
-  }
-  else {
-    displayStartMode = settings.GetInt("oledStart", 1);
-  }
+  if      (dsmSetting == "on")  displayStartMode = -1;
+  else if (dsmSetting == "off") displayStartMode =  0;
+  else                          displayStartMode = settings.GetInt("oledStart", 1);
 
-  if(display.Begin(&stateManager, displayStartMode, settings.GetBool("oled13", false) ? OLED::Controllers::SH1106 : OLED::Controllers::SSD1306)) {
+  if (display.Begin(&stateManager, displayStartMode,
+      settings.GetBool("oled13", false) ? OLED::Controllers::SH1106 : OLED::Controllers::SSD1306)) {
     logger.println("OLED found");
     delay(500);
   }
-  
+
   delay(250);
   sc16is750.Begin(57600, false);
   if (sc16is750.IsConnected()) {
     logger.println("SC16IS750 (0x90) found");
- 
     if (!useSerialBridge) {
       subProcessor.SetLogItemCallback([](String logItem, bool newLine) {
-        if (newLine) {
-          logger.println(logItem);
-        }
-        else {
-          logger.print(logItem);
-        }
+        if (newLine) logger.println(logItem); else logger.print(logItem);
       });
-
       subProcessor.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-
       logger.println("SubProcessor vorgemerkt");
     }
-    
     serialBridge.SetLogItemCallback([](String logItem, bool newLine) {
-      if (newLine) {
-        logger.println(logItem);
-      }
-      else {
-        logger.print(logItem);
-      }
+      if (newLine) logger.println(logItem); else logger.print(logItem);
     });
   }
 
@@ -1982,26 +1946,14 @@ void setup(void) {
     logger.println("SC16IS750 (0x92) found");
     if (!useSerialBridge2) {
       subProcessor2.SetLogItemCallback([](String logItem, bool newLine) {
-        if (newLine) {
-          logger.println(logItem);
-        }
-        else {
-          logger.print(logItem);
-        }
+        if (newLine) logger.println(logItem); else logger.print(logItem);
       });
-
       subProcessor2.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
     }
-    
     serialBridge2.SetLogItemCallback([](String logItem, bool newLine) {
-      if (newLine) {
-        logger.println(logItem);
-      }
-      else {
-        logger.print(logItem);
-      }
+      if (newLine) logger.println(logItem); else logger.print(logItem);
     });
   }
 
@@ -2011,7 +1963,7 @@ void setup(void) {
   rfms[3] = &rfm4;
   rfms[4] = &rfm5;
 
-  rfm1.Begin();  
+  rfm1.Begin();
   rfm2.Begin();
   rfm3.Begin();
   if (sc16is750.IsConnected()) {
@@ -2019,47 +1971,25 @@ void setup(void) {
     rfm5.Begin();
   }
 
-for (byte i = 0; i < 5; i++) {
-  rfms[i]->ToggleMode     = g_radio[i].enabled ? g_radio[i].toggleMask      : 0;
-  rfms[i]->ToggleInterval = g_radio[i].enabled ? g_radio[i].toggleIntervalS : 0;
-}
-
   ownSensors.TryInitialize(!rfm3.IsConnected(), !rfm2.IsConnected() && !rfm3.IsConnected(), settings.GetBool("PRD", false));
 
   int altitude = settings.GetInt("Altitude", 0);
   logger.println("Configured altitude: " + String(altitude));
   ownSensors.SetAltitudeAboveSeaLevel(altitude);
-
   ownSensors.SetCorrections(settings.Get("CorrT", "0"), settings.Get("CorrH", "0"));
 
-  if (ownSensors.HasBMP180()) {
-    logger.println("BMP180 found");
-  }
-  if (ownSensors.HasBMP280()) {
-    logger.println("BMP280 found");
-  }
-  if (ownSensors.HasBME280()) {
-    logger.println("BME280 found");
-  }
-  if (ownSensors.HasBME680()) {
-    logger.println("BME680 found");
-  }
-  if (ownSensors.HasDHT22()) {
-    logger.println("DHT22 found");
-  }
-  if (ownSensors.HasLM75()) {
-    logger.println("LM75 found");
-  }
-  if (ownSensors.HasSHT75()) {
-    logger.println("SHT75 found");
-  }
-  if(ownSensors.HasBH1750()) {
-    logger.println("BH1750 found");
-  }
+  if (ownSensors.HasBMP180()) logger.println("BMP180 found");
+  if (ownSensors.HasBMP280()) logger.println("BMP280 found");
+  if (ownSensors.HasBME280()) logger.println("BME280 found");
+  if (ownSensors.HasBME680()) logger.println("BME680 found");
+  if (ownSensors.HasDHT22())  logger.println("DHT22 found");
+  if (ownSensors.HasLM75())   logger.println("LM75 found");
+  if (ownSensors.HasSHT75())  logger.println("SHT75 found");
+  if (ownSensors.HasBH1750()) logger.println("BH1750 found");
 
   KVINTERVAL = settings.GetInt("KVInterval", KVINTERVAL);
   OSINTERVAL = settings.GetInt("ISIV", OSINTERVAL) * 1000;
-  
+
   if (settings.Get("Flags", "").indexOf("NO_FRONTEND_LOG") != -1) {
     logger.Disable();
   }
@@ -2069,52 +1999,61 @@ for (byte i = 0; i < 5; i++) {
   lastToggleR2 = millis();
 
   esp.Blink(5, true);
-  
-  accessPoint.SetLogItemCallback([](String logItem){
+
+  accessPoint.SetLogItemCallback([](String logItem) {
     logger.println("AccessPoint: " + logItem);
   });
 
   if (settings.Get("Flags", "").indexOf("LOG.PCA301") != -1) {
     pca301.EnableLogging(true);
   }
-  pca301.SetLogItemCallback([](String logItem){
-    logger.println("PCA301: "+ logItem);
+  pca301.SetLogItemCallback([](String logItem) {
+    logger.println("PCA301: " + logItem);
   });
 
   if (digitalPorts.Begin(
-    [](String data) {
-    Dispatch(data);
-  },
-    [](String command) {
-    CommandHandler(command);
-  },
-    settings)) {
+      [](String data)    { Dispatch(data); },
+      [](String command) { CommandHandler(command); },
+      settings)) {
     logger.println("MCP23008 found");
   }
- 
+
   dbgStep(3, "Searching RFMs and Sensors");
   logger.println("Searching RFMs and Sensors");
-auto parseDataRateLong = [](const String &s) -> unsigned long {
-  if (s == "17.241") return 17241ul;
-  if (s == "9.579")  return 9579ul;
-  if (s == "8.842")  return 8842ul;
-  if (s == "6.631")  return 6631ul;
-  if (s == "4.800")  return 4800ul;
-  return 17241ul;
-};
 
-for (byte i = 0; i < 5; i++) {
-  unsigned long dr   = g_radio[i].enabled ? parseDataRateLong(g_radio[i].fixedDataRate) : 17241ul;
-  long          freq = g_radio[i].enabled ? g_radio[i].freqKHz : 0;
-  CheckRFM(i + 1, rfms[i], dr, &settings, freq);
-}
+  auto parseDataRateWithDefault = [](const String &s, unsigned long def) -> unsigned long {
+    if (s == "17.241") return 17241ul;
+    if (s == "9.579")  return  9579ul;
+    if (s == "8.842")  return  8842ul;
+    if (s == "6.631")  return  6631ul;
+    if (s == "4.800")  return  4800ul;
+    return def;
+  };
 
-DATA_RATE_R1 = g_radio[0].enabled ? parseDataRateLong(g_radio[0].fixedDataRate) : 17241ul;
-DATA_RATE_R2 = g_radio[1].enabled ? parseDataRateLong(g_radio[1].fixedDataRate) : 9579ul;
-DATA_RATE_R3 = g_radio[2].enabled ? parseDataRateLong(g_radio[2].fixedDataRate) : 8842ul;
-DATA_RATE_R4 = g_radio[3].enabled ? parseDataRateLong(g_radio[3].fixedDataRate) : 17241ul;
-DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) : 17241ul;
+  // Radio-spezifische Default-Datenraten (Radio 2 = 9579, Radio 3 = 8842)
+  static const unsigned long drDefaults[5] = { 17241ul, 9579ul, 8842ul, 17241ul, 17241ul };
 
+  for (byte i = 0; i < 5; i++) {
+    unsigned long dr   = g_radio[i].enabled
+                         ? parseDataRateWithDefault(g_radio[i].fixedDataRate, drDefaults[i])
+                         : drDefaults[i];
+    long          freq = g_radio[i].enabled ? g_radio[i].freqKHz : 0;
+    CheckRFM(i + 1, rfms[i], dr, &settings, freq);
+  }
+
+  // ToggleMode / ToggleInterval NACH CheckRFM setzen,
+  // da InitializeLaCrosse() diese Felder zuvor auf 0 zuruecksetzt.
+  for (byte i = 0; i < 5; i++) {
+    rfms[i]->ToggleMode     = g_radio[i].enabled ? g_radio[i].toggleMask      : 0;
+    rfms[i]->ToggleInterval = g_radio[i].enabled ? g_radio[i].toggleIntervalS : 0;
+  }
+
+  // DATA_RATE globale Variablen mit radio-spezifischen Defaults
+  DATA_RATE_R1 = g_radio[0].enabled ? parseDataRateWithDefault(g_radio[0].fixedDataRate, drDefaults[0]) : drDefaults[0];
+  DATA_RATE_R2 = g_radio[1].enabled ? parseDataRateWithDefault(g_radio[1].fixedDataRate, drDefaults[1]) : drDefaults[1];
+  DATA_RATE_R3 = g_radio[2].enabled ? parseDataRateWithDefault(g_radio[2].fixedDataRate, drDefaults[2]) : drDefaults[2];
+  DATA_RATE_R4 = g_radio[3].enabled ? parseDataRateWithDefault(g_radio[3].fixedDataRate, drDefaults[3]) : drDefaults[3];
+  DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateWithDefault(g_radio[4].fixedDataRate, drDefaults[4]) : drDefaults[4];
 
   // Start wifi
   if (USE_WIFI) {
@@ -2125,10 +2064,6 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
     }
     logger.println("Starting wifi");
     dbgStep(5, "vor StartWifi()");
-    // WebFrontend als Pointer - hier instanziiert (nicht global = kein WDT-Crash).
-    // WiFiManager und WebFrontend teilen Port 80, aber niemals gleichzeitig:
-    //   kein WLAN -> WiFiManager-AP auf Port 80
-    //   WLAN OK   -> WiFiManager beendet sich, WebFrontend startet auf Port 80
     frontend = new WebFrontend(FRONTEND_PORT);
     dbgStep(6, "WebFrontend alloziert, rufe StartWifi()");
     bool wifiConnected = StartWifi(settings);
@@ -2149,6 +2084,7 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
                          &softSerialBridge,
                          &analogPort, &nextion);
       });
+
       if (sc16is750.IsConnected() && !useSerialBridge) {
         subProcessor.Begin(frontend->WebServer());
         subProcessor.Reset();
@@ -2158,31 +2094,28 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
         subProcessor2.Reset();
       }
 
-      // OTA
       logger.println("Starting OTA");
       ota.Begin(frontend->WebServer());
 
-      // DataPorts
       uint16_t p1 = settings.GetInt("DataPort1", 81);
       uint16_t p2 = settings.GetInt("DataPort2", 0);
       uint16_t p3 = settings.GetInt("DataPort3", 0);
       if (p1 > 0) {
         logger.print("Starting data port 1 on "); logger.println(p1);
         dataPort1.Begin(p1);
-        dataPort1.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+        dataPort1.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
       if (p2 > 0) {
         logger.print("Starting data port 2 on "); logger.println(p2);
         dataPort2.Begin(p2);
-        dataPort2.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+        dataPort2.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
       if (p3 > 0) {
         logger.print("Starting data port 3 on "); logger.println(p3);
         dataPort3.Begin(p3);
-        dataPort3.SetLogItemCallback([](String logItem){ logger.println(logItem); });
+        dataPort3.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
 
-      // Serial Bridges
       if (useSerialBridge && sc16is750.IsConnected()) {
         int sbPort = settings.GetInt("SerialBridgePort", 0);
         unsigned long sbBaud = settings.GetUnsignedLong("SerialBridgeBaud", 57600ul);
@@ -2208,7 +2141,6 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
         }
       }
 
-      // SoftSerialBridge + Nextion: hier initialisieren, da frontend garantiert != nullptr
       {
         int softSerialBridgePort = settings.GetInt("SSBridgePort", 0);
         if (!rfm2.IsConnected() && !rfm3.IsConnected() && !ownSensors.HasSHT75() && softSerialBridgePort > 0) {
@@ -2217,12 +2149,9 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
           softSerialBridge.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
             HandleProgressRequest(action, currentValue, maxValue, message);
           });
-
           softSerialBridge.SetConnectCallback([](bool isConnected) {
             bridge2Connected = isConnected;
-            if (display.IsConnected()) {
-              display.SetAddonFlag(isConnected);
-            }
+            if (display.IsConnected()) display.SetAddonFlag(isConnected);
             logger.println("SoftSerialBridge Connect: " + String(isConnected));
           });
 
@@ -2233,7 +2162,8 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
             nextion.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
               HandleProgressRequest(action, currentValue, maxValue, message);
             });
-            if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud, settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
+            if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud,
+                              settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
               logger.println("Nextion initialized");
             }
           }
@@ -2241,14 +2171,10 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       }
 
     } else {
-      // StartWifi() hat intern das Portal blockierend abgearbeitet
-      // (while-Schleife in CaptivePortal, kein return aus setup()).
-      // Dieser Zweig wird nur erreicht wenn Portal-Timeout ohne Neustart.
       logger.println(F("Kein WLAN nach Portal-Timeout - fahre ohne WiFi fort"));
       USE_WIFI = 0;
     }
 
-    // NTP nur wenn wirklich mit WLAN verbunden
     if (WiFi.status() == WL_CONNECTED) {
       configTime(MY_TZ, MY_NTP_SERVER);
       logger.println(F("NTP konfiguriert, warte auf Synchronisation..."));
@@ -2256,26 +2182,22 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
       for (int i = 0; i < 20 && t < 100000; i++) { delay(500); ESP.wdtFeed(); yield(); t = time(nullptr); }
       logger.println(F("NTP sync: ") + getLocalTimeString());
     }
-  }
-  else {
+  } else {
     WiFi.mode(WiFiMode::WIFI_OFF);
   }
-  
-  if(settings.GetBool("SendAnalog")) {
+
+  if (settings.GetBool("SendAnalog")) {
     analogPort.TryInitialize(settings.GetInt("UAnalog1023", 1000));
   }
-
 
   if (display.IsConnected()) {
     display.Command("mode=s");
     ownSensors.Measure();
     lastSensorMeasurement = millis();
-    display.Handle(ownSensors.GetDataFrame(), stateManager.GetFramesPerMinute(), stateManager.GetVersion(), WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
-  
+    display.Handle(ownSensors.GetDataFrame(), stateManager.GetFramesPerMinute(), stateManager.GetVersion(),
+                   WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
     String oledMode = settings.Get("oledMode", "");
-    if (oledMode.length() > 0) {
-      display.Command("mode=" + oledMode);
-    }
+    if (oledMode.length() > 0) display.Command("mode=" + oledMode);
   }
 
   if (nextion.IsConnected()) {
@@ -2289,7 +2211,7 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
   }
 
   watchdog.Begin([](String message) {
-    Dispatch(message);  
+    Dispatch(message);
   });
 
 #ifdef USE_MQTT_Pubsub
@@ -2317,7 +2239,7 @@ DATA_RATE_R5 = g_radio[4].enabled ? parseDataRateLong(g_radio[4].fixedDataRate) 
     logger.println(F("MQTT deaktiviert: kein Server oder Topic konfiguriert"));
   }
 #endif
-  
+
   delay(1000);
   logger.println("Sending init String to FHEM");
   HandleCommandV();
@@ -2348,11 +2270,11 @@ void HandleDataRate() {
   }
 }
 
-// **********************************************************************
+
 void loop(void) {
   static unsigned long timetry = 0;
   String mqttTopic;
-  
+
   if (serialPortFlasher.IsUploading()) {
     if (Serial.available()) {
       serialPortFlasher.Add(Serial.read());
@@ -2362,8 +2284,6 @@ void loop(void) {
   else {
 
   stateManager.SetLoopStart();
-
-  // Kein Portal-Handling nötig: Portal läuft blockierend in setup()
 
 #ifdef USE_MQTT_Pubsub
   if (mqttEnabled) {
@@ -2377,36 +2297,28 @@ void loop(void) {
     client.loop();
   }
 #endif
-    // Handle the commands from the serial port
-    // ----------------------------------------
+
     if (Serial.available()) {
       HandleSerialPort(Serial.read());
     }
 
-    // Periodically send own sensor data
-    // ---------------------------------
     ownSensors.Handle();
-    if (millis() < lastSensorMeasurement) {
-      lastSensorMeasurement = 0;
-    }
-    if(millis() < lastSensorTransmission) {
-      lastSensorTransmission = 0;
-    }
+    if (millis() < lastSensorMeasurement) lastSensorMeasurement = 0;
+    if (millis() < lastSensorTransmission) lastSensorTransmission = 0;
 
     if (millis() > lastSensorMeasurement + 10000) {
       ownSensors.Measure();
       lastSensorMeasurement = millis();
     }
 
-    if(OSINTERVAL > 0) {
-      if(millis() > lastSensorTransmission + OSINTERVAL) {
+    if (OSINTERVAL > 0) {
+      if (millis() > lastSensorTransmission + OSINTERVAL) {
         String data = ownSensors.GetFhemDataString();
 
-        if(WiFi.status() == WL_CONNECTED){
-            updateNetworkTime();
+        if (WiFi.status() == WL_CONNECTED) {
+          updateNetworkTime();
         }
-        
-        // extract data from ownSensors and send via MQTT
+
         WSBase::Frame actOwnData;
         actOwnData = ownSensors.GetDataFrame();
         logger.print("Current Temperature: ");
@@ -2414,22 +2326,20 @@ void loop(void) {
         logger.print("Current Humidity: ");
         logger.println(actOwnData.Humidity);
 
-        String mqttTopicBase = "esp8266_lacrossegateway";
-
-        if(mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)){
+        if (mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)) {
           logger.println("Publishing sensor data...");
-          //publish rssi
+
           ltoa(WiFi.RSSI(), bufData, 10);
           mqttTopic = mqttTopicBaseGW + "/rssi";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
 
-          sprintf (bufData, "%f", actOwnData.Temperature);
+          sprintf(bufData, "%f", actOwnData.Temperature);
           mqttTopic = mqttTopicBaseGW + "/temp";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
 
-          itoa(actOwnData.Humidity, bufData, 10)  ;
+          itoa(actOwnData.Humidity, bufData, 10);
           mqttTopic = mqttTopicBaseGW + "/hum";
           mqttTopic.toCharArray(bufTopic, 100);
           client.publish(bufTopic, bufData);
@@ -2438,43 +2348,33 @@ void loop(void) {
           mqttTopic = mqttTopicBaseGW + "/timeStamp";
           mqttTopic.toCharArray(bufTopic, 100);
           timeNowLocal.toCharArray(bufData, 30);
-          client.publish(bufTopic, bufData);        
-            
-        }else{
+          client.publish(bufTopic, bufData);
+
+        } else {
           logger.println("MQTT unconnected and or Wifi unconnected - skip to publish!");
         }
 
-
-
-        
-        if(data.length() > 0) {
+        if (data.length() > 0) {
           Dispatch(data);
         }
         lastSensorTransmission = millis();
       }
     }
- 
-    // Handle the data reception
-    // -------------------------
+
     byte receivedPackets = HandleDataReception();
 
-    // Handle PCA301
     if (pca301.IsInitialized()) {
       pca301.Handle();
-    } 
+    }
 
-    // Periodically send some info about us
-    // ------------------------------------
     stateManager.Handle(receivedPackets);
-    if (KVINTERVAL > 1) { 
+    if (KVINTERVAL > 1) {
       String kvData = stateManager.GetKVP(KVINTERVAL);
       if (kvData.length() > 0) {
         Dispatch(kvData);
       }
     }
 
-    // Handle the data rate
-    // --------------------
     HandleDataRate();
 
     if (USE_WIFI && frontend != nullptr) {
@@ -2485,31 +2385,22 @@ void loop(void) {
       dataPort3.Handle(CommandHandler);
     }
 
-    // Handle OTA
-    // ----------
     if (WiFi.status() == WL_CONNECTED) {
       ota.Handle();
     }
 
-    // Handle Alarm
     if (sc16is750.IsConnected()) {
       alarm.Handle();
     }
 
-    // Handle DigitalPorts
     if (digitalPorts.IsConnected()) {
       digitalPorts.Handle();
     }
 
     if (sc16is750.IsConnected()) {
-      // Handle SerialBridge
-      // -------------------
       if (useSerialBridge) {
         serialBridge.Handle();
       }
-
-      // Handle SubProcessor
-      // -------------------
       if (!useSerialBridge) {
         String subData = subProcessor.Handle();
         if (subData.length() > 0) {
@@ -2519,14 +2410,9 @@ void loop(void) {
     }
 
     if (sc16is750_2.IsConnected()) {
-      // Handle SerialBridge
-      // -------------------
       if (useSerialBridge2) {
         serialBridge2.Handle();
       }
-
-      // Handle SubProcessor
-      // -------------------
       if (!useSerialBridge2) {
         String subData = subProcessor2.Handle();
         if (subData.length() > 0) {
@@ -2535,34 +2421,27 @@ void loop(void) {
       }
     }
 
-    // Handle soft serial bridge
-    // -------------------------
     if (softSerialBridge.IsEnabled()) {
       softSerialBridge.Handle();
     }
-    
+
     WSBase::Frame frame = ownSensors.GetDataFrame();
-    
-    // Handle Nextion
-    // --------------
+
     if (nextion.IsConnected()) {
-      nextion.Handle(frame, &stateManager, WiFi.RSSI(), dataPort1Connected || dataPort2Connected || dataPort3Connected, bridge1Connected, bridge2Connected);
+      nextion.Handle(frame, &stateManager, WiFi.RSSI(),
+                     dataPort1Connected || dataPort2Connected || dataPort3Connected,
+                     bridge1Connected, bridge2Connected);
     }
 
-    // Handle OLED
-    // -----------
     if (display.IsConnected()) {
-      display.Handle(frame, stateManager.GetFramesPerMinute(), stateManager.GetVersion(), WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
+      display.Handle(frame, stateManager.GetFramesPerMinute(), stateManager.GetVersion(),
+                     WiFi.RSSI(), WiFi.status() == WL_CONNECTED);
     }
 
-    // Watchdog
-    // --------
     watchdog.Handle();
 
-    // Analogport
-    // ----------
     String analogData;
-    if (analogPort.IsEnabled()){
+    if (analogPort.IsEnabled()) {
       analogData = analogPort.GetFhemDataString();
     }
     if (analogPort.IsEnabled() && analogData.length() > 0) {
