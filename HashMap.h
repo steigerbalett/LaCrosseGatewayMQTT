@@ -102,7 +102,7 @@ V *HashMap<K, V, capacity>::GetValuePointerAt(int pos) {
 template<typename K, typename V, unsigned int capacity>
 V HashMap<K, V, capacity>::Get(K key, V defaultValue) {
   unsigned int index = GetIndexOfKey(key);
-  if (index != -1) {
+  if (index != UINT_MAX) {
     return m_values[index];
   }
   else {

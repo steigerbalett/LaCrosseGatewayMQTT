@@ -226,7 +226,7 @@ byte scanWifi(String ctSSID) {
   rssi = -999;
   byte numSsid = WiFi.scanNetworks();
   int corrSsidCnt = 0;
-  uint8_t *thisBssid;
+//  uint8_t *thisBssid;
   
   logger.println("Number of all SSIDs: " + String(numSsid));
   for (int thisNet = 0; thisNet<numSsid; thisNet++) {
@@ -1353,7 +1353,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
   if (ctSSID.length() > 0 && ctSSID != "---") {
     unsigned long startMillis = millis();
     int numSsid = -1;
-    uint8_t *thisBssid;
+//    uint8_t *thisBssid;
 
     WiFi.setAutoReconnect(true);
 
@@ -1423,8 +1423,6 @@ static void RunConfigPortal(Settings &settings, const String &apName) {
 
   WiFi.persistent(false);
   WiFi.disconnect(true);
-  // FIX: ets_delay_us statt delay() – kein yield()
-  // => kein panic() wenn SDK 2.2.2-dev Interrupts deaktiviert
   ets_delay_us(200000UL); // 200 ms
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(AP_IP, AP_IP, AP_SUBNET);

@@ -123,7 +123,7 @@ void IRAM_ATTR ESP8266SoftSerial::OnRXD() {
   }
   WAIT;
   int next = (m_inPos + 1) % m_bufferSize;
-  if (next != m_inPos) {
+  if ((unsigned int)next != m_inPos) {
     m_buffer[m_inPos] = rec;
     m_inPos = next;
   }

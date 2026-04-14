@@ -950,7 +950,7 @@ m_webserver.on("/save_options", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
   const char* keys[] = {"UseWiFi","UseMDNS","SendAnalog","UAnalog1023","PRD","debug"};
   String info = SaveSelectedKeys(keys, 6, false);
-  DebugHelper::setEnabled(mwebserver.arg("debug") == "true");
+  DebugHelper::setEnabled(m_webserver.arg("debug") == "true");
 
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; Optionen gespeichert</h3><p>") +
