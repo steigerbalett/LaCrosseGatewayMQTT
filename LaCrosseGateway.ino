@@ -1362,7 +1362,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
     if (rssi != -999) {
       logger.println("Connecting to bssid");
-      WiFi.begin(ctSSID.c_str(), ctPass.c_str(), channel, bssid, false);
+      WiFi.begin(ctSSID.c_str(), ctPass.c_str(), channel, bssid, true);
     }
     else {
       logger.println("Connecting to ssid");
@@ -1584,7 +1584,7 @@ static bool StartWifi(Settings &settings) {
     logger.print(F(", rssi: ")); logger.println(String(rssi));
 
     if (rssi != -999) {
-      WiFi.begin(ctSSID.c_str(), ctPASS.c_str(), channel, bssid, false);
+      WiFi.begin(ctSSID.c_str(), ctPASS.c_str(), channel, bssid, true);
     } else {
       WiFi.begin(ctSSID.c_str(), ctPASS.c_str());
     }
@@ -1658,15 +1658,14 @@ static bool StartWifi(Settings &settings) {
       return true;
 
     } else {
-      logger.println(F(""));
       logger.println(F("Verbindung fehlgeschlagen - starte CaptivePortal"));
-      // SSID loeschen damit naechster Start wieder Portal zeigt
-      settings.Add("ctSSID", "---");
-      settings.Write();
-    }
-  } else {
-    logger.println(F("Keine SSID konfiguriert - starte CaptivePortal"));
-  }
+      if (WiFi.status() == WL_WRONG_PASSWORD) {
+        logger.println(F("Falsches Passwort - SSID geloescht"));
+        settings.Add("ctSSID", "---");
+        settings.Write();
+      } else {
+        logger.println(F("Timeout - SSID bleibt vorerst erhalten"));
+      }
 
   // ── Kein SSID oder Verbindung fehlgeschlagen: CaptivePortal starten ──────
   if (display.IsConnected()) {
@@ -1679,7 +1678,11 @@ static bool StartWifi(Settings &settings) {
     apName.c_str(), ESP.getFreeHeap(), ESP.getFreeContStack());
   Serial.flush();
 
-  captivePortal.Begin(&settings, &logger, apName, 0); // 0 = kein Timeout
+  settings.Add("ctSSID", "---");
+  settings.Write();
+  logger.println(F("SSID auf '---' vorgemerkt - Portal-Timeout -> erneutes Portal beim naechsten Boot"));
+
+  captivePortal.Begin(&settings, &logger, apName, 300); // 300s = 5 Minuten Timeout
 
   dbgStep(11, "Nach captivePortal.Begin() - Webserver laeuft");
   logger.println(F("CaptivePortal aktiv - warte auf WLAN-Konfiguration..."));
