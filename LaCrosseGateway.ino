@@ -1854,14 +1854,6 @@ void setup(void) {
   pinMode(D7, OUTPUT);
   digitalWrite(D7, HIGH);
 
-  if (!settings.GetBool("UseWiFi", true)) {
-    if (lastBootWasCrash) {
-        logger.println(F("UseWiFi=false, aber letzter Boot war Crash -> WiFi wird trotzdem versucht"));
-    } else {
-        USE_WIFI = false;
-        logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
-    }
-}
   if (!USE_WIFI) {
     logger.Disable();
     esp.Blink(20);
