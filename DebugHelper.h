@@ -52,7 +52,7 @@ public:
       Serial.println(F("[DBG] *** LETZTER BOOT WAR EIN CRASH! ***"));
       uint32_t crashStep = 0;
       ESP.rtcUserMemoryRead(1, &crashStep, sizeof(crashStep));
-      Serial.printf("[DBG] Crash nach Schritt: %lu\n", crashStep);
+      Serial.printf("[DBG] Crash nach Schritt: %u\n", crashStep);
       Serial.flush();
 
       // Flag zurücksetzen
@@ -83,7 +83,7 @@ public:
 
     if (!enabled) return;
 
-    Serial.printf("[DBG] >>> STEP %lu", stepNumber);
+    Serial.printf("[DBG] >>> STEP %u", stepNumber);
     if (description) Serial.printf(": %s", description);
     Serial.printf("  Heap=%u  Stack=%u\n",
                   ESP.getFreeHeap(),
@@ -95,7 +95,7 @@ public:
   static void stepDone(uint32_t stepNumber) {
     if (!enabled) return;
 
-    Serial.printf("[DBG] <<< STEP %lu done\n", stepNumber);
+    Serial.printf("[DBG] <<< STEP %u done\n", stepNumber);
     Serial.flush();
   }
 
