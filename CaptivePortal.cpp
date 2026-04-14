@@ -1,19 +1,5 @@
 #include "CaptivePortal.h"
 
-// ============================================================
-//  CaptivePortal.cpp  –  v4  (ESP8266WebServer, synchron)
-//
-//  Kein ESPAsyncWebServer / ESPAsyncTCP mehr!
-//  Spart ~4-6 KB BSS/IRAM → Crash vor Serial.begin() behoben.
-//
-//  ESP8266WebServer ist synchron: m_server->handleClient() muss
-//  im Loop (Handle()) regelmäßig aufgerufen werden. Das macht
-//  die bestehende while-Schleife im INO bereits (ruft Handle() auf).
-//
-//  WiFi-Init-Phase: ets_delay_us() statt yield()/delay() –
-//  verhindert panic(__yield) wenn SDK Interrupts deaktiviert hat.
-// ============================================================
-
 #define CP_DBG(msg)       do { Serial.print(F("[CP] ")); Serial.println(F(msg)); Serial.flush(); } while(0)
 #define CP_DBGF(fmt, ...) do { Serial.printf("[CP] " fmt "\n", ##__VA_ARGS__); Serial.flush(); } while(0)
 #define CP_HEAP()         do { Serial.printf("[CP] Heap=%u ContStack=%u\n", \
@@ -52,24 +38,18 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   m_logger->println("[CaptivePortal] Starting AP: " + m_apSSID);
   CP_DBGF("AP-SSID: %s", m_apSSID.c_str());
 
-  // ── 1. WiFi reset ───────────────────────────────────────────
-  // FIX: ets_delay_us statt yield()/delay() → kein panic(__yield)
-  //      wenn SDK Interrupts waehrend WiFi-AP-Beacon deaktiviert
   CP_DBG("WiFi reset");
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.disconnect(true);
-  ets_delay_us(200000UL);   // 200 ms – kein yield
+  ets_delay_us(200000UL);
   ESP.wdtFeed();
 
-  // ── 2. AP+STA Modus ─────────────────────────────────────────
-  // AP+STA: AP sichtbar UND Scan moeglich
   CP_DBG("WiFi mode WIFI_AP_STA");
   WiFi.mode(WIFI_AP_STA);
   ets_delay_us(100000UL);   // 100 ms
   ESP.wdtFeed();
 
-  // ── 3. SoftAP konfigurieren ─────────────────────────────────
   IPAddress apIP(192, 168, 4, 1);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
 
@@ -79,7 +59,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
           apOk ? "OK" : "FAILED",
           WiFi.softAPIP().toString().c_str());
 
-  ets_delay_us(600000UL);   // 600 ms – AP braucht Zeit bis Beacons laufen
+  ets_delay_us(600000UL);
   ESP.wdtFeed();
   CP_HEAP();
 
@@ -91,8 +71,6 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
     return;
   }
 
-  // ── 4. DNS-Server – leitet alle Domains auf AP-IP ───────────
-  // Ermoeglicht Captive-Portal-Popup auf iOS/Android/Windows
   CP_DBG("DNS server start");
   if (!m_dns) m_dns = new DNSServer();
   m_dns->setErrorReplyCode(DNSReplyCode::NoError);
@@ -100,14 +78,13 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   m_dnsActive = m_dns->start(53, "*", apIP);
   CP_DBGF("DNS: %s", m_dnsActive ? "OK" : "FAILED");
 
-  // ── 5. WiFi-Scan (AP+STA Modus: Scan funktioniert) ──────────
   CP_DBG("WiFi scan");
   m_logger->println("[CaptivePortal] Scanning WiFi...");
   WiFi.scanNetworks(true, false);
 
   uint32_t scanStart = millis();
   while (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
-    ets_delay_us(200000UL);   // 200 ms – kein yield
+    delay(200); 
     ESP.wdtFeed();
     if (millis() - scanStart > 8000UL) { CP_DBG("Scan timeout"); break; }
   }
@@ -115,7 +92,6 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   m_scanHtml = buildScanHtml();
   WiFi.scanDelete();
 
-  // ── 6. Webserver starten ────────────────────────────────────
   if (!m_server) m_server = new ESP8266WebServer(80);
   registerRoutes();
   m_server->begin();
@@ -126,7 +102,6 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 }
 
 void CaptivePortal::registerRoutes() {
-  // Captive-Portal-Detect-Endpunkte fuer iOS / Android / Windows
   auto redirect = [this]() {
     m_server->sendHeader(F("Location"), F("http://192.168.4.1/"));
     m_server->send(302, "text/plain", "");
@@ -254,15 +229,32 @@ void CaptivePortal::End() {
 String CaptivePortal::buildScanHtml() {
   int n = WiFi.scanComplete();
   if (n <= 0) return "";
+
   String html = F("<ul class='nets'>");
   for (int i = 0; i < n; i++) {
-    int r = WiFi.RSSI(i);
-    int b = (r >= -55) ? 4 : (r >= -65) ? 3 : (r >= -75) ? 2 : 1;
+    int  r   = WiFi.RSSI(i);
+    int  b   = (r >= -55) ? 4 : (r >= -65) ? 3 : (r >= -75) ? 2 : 1;
     bool sec = WiFi.encryptionType(i) != ENC_TYPE_NONE;
+
+    // SSID für sicheres Einbetten in HTML-Attribut escapen
+    String ssid = WiFi.SSID(i);
+    String safeAttr = ssid;
+    safeAttr.replace("&",  "&amp;");
+    safeAttr.replace("\"", "&quot;");
+    safeAttr.replace("'",  "&#39;");
+    safeAttr.replace("<",  "&lt;");
+    safeAttr.replace(">",  "&gt;");
+    safeAttr.replace("\\", "\\\\");
+
+    String safeDisplay = ssid;
+    safeDisplay.replace("&",  "&amp;");
+    safeDisplay.replace("<",  "&lt;");
+    safeDisplay.replace(">",  "&gt;");
+
     html += F("<li onclick=\"document.querySelector('[name=ssid]').value='");
-    html += WiFi.SSID(i);
+    html += safeAttr;
     html += F("'\">");
-    html += WiFi.SSID(i);
+    html += safeDisplay;
     if (sec) html += F(" &#x1F512;");
     html += F(" <small>");
     for (int j = 0; j < 4; j++) html += (j < b) ? '|' : '.';
