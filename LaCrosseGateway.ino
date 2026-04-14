@@ -381,7 +381,11 @@ void SetDebugMode(boolean mode) {
 
 void Dispatch(String data, String raw="") {
   if(USE_SERIAL) {
-    if (DebugHelper::enabled) Serial.println(data);
+    if (DebugHelper::enabled) {
+      Serial.println(data);
+    } else if (data.startsWith("OK ")) {
+      Serial.println(data);
+    }
   }
   
   if (USE_WIFI) {
@@ -1800,7 +1804,6 @@ void setup(void) {
   // ================================================================
   //  DEBUG: Letzten Crash-Schritt aus RTC-RAM lesen (ueberlebt Reset)
   // ================================================================
-  bool lastBootWasCrash = false;
   {
     uint32_t crashFlag = 0, crashStep = 0;
     ESP.rtcUserMemoryRead(0, &crashFlag, sizeof(crashFlag));

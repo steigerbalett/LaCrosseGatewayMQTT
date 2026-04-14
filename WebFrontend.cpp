@@ -475,6 +475,13 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   return result;
 }
 
+static String pwToggleBtn(const char* fieldName) {
+  String s = F("<button type='button' onclick=\"var f=document.querySelector(\\\"[name='");
+  s += fieldName;
+  s += F("']\\\");f.type=f.type=='password'?'text':'password';this.textContent=f.type=='password'?'👁':'🙈';\" style='margin-left:4px;cursor:pointer;background:none;border:1px solid #aaa;border-radius:3px;padding:1px 5px;'>👁</button>");
+  return s;
+}
+
 // ===================================================
 // Begin() - alle Routen
 // ===================================================
@@ -1086,13 +1093,6 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
 
   m_webserver.send(200, "text/html", html);
 });
-
-static String pwToggleBtn(const char* fieldName) {
-  String s = F("<button type='button' onclick=\"var f=document.querySelector(\\\"[name='");
-  s += fieldName;
-  s += F("']\\\");f.type=f.type=='password'?'text':'password';this.textContent=f.type=='password'?'👁':'🙈';\" style='margin-left:4px;cursor:pointer;background:none;border:1px solid #aaa;border-radius:3px;padding:1px 5px;'>👁</button>");
-  return s;
-}
 
 // -- /setup ------------------------------------------------------------------
 m_webserver.on("/setup", [this]() {
