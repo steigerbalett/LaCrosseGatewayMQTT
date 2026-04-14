@@ -1385,7 +1385,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     while (retryCounter < timeout * 2 && WiFi.status() != WL_CONNECTED) {
       retryCounter++;
       delay(500);
-      ESP.wdtFeed();  // FIX 2: prevent HW-WDT reset during long WiFi connect timeout
+      ESP.wdtFeed();
       yield();
       logger.print(".");
       esp.SwitchLed(retryCounter % 2 == 0, true);
@@ -1571,7 +1571,7 @@ static bool StartWifi(Settings &settings) {
   bool isFirstSetup = (ctSSID.length() == 0 || ctSSID == "---");
 
   if (!isFirstSetup) {
-    // ── Verbindungsversuch mit gespeicherter SSID ──────────────────────────
+    // FIX 1: WiFi.begin mit true statt false
     logger.println("Verbinde mit SSID: " + ctSSID);
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
@@ -1579,7 +1579,7 @@ static bool StartWifi(Settings &settings) {
 
     int numSsid = scanWifi(ctSSID);
     logger.println(F(""));
-    logger.print(F("SSID search - #: "));    logger.print(String(numSsid));
+    logger.print(F("SSID search - #: ")); logger.print(String(numSsid));
     logger.print(F(", ch: ")); logger.print(String(channel));
     logger.print(F(", rssi: ")); logger.println(String(rssi));
 
@@ -1617,7 +1617,6 @@ static bool StartWifi(Settings &settings) {
       WiFi.hostname(hn);
       stateManager.SetHostname(hn);
 
-      // Statische IP
       String staticIP   = settings.Get("staticIP",   "");
       String staticMask = settings.Get("staticMask",  "");
       String staticGW   = settings.Get("staticGW",    "");
@@ -1658,16 +1657,20 @@ static bool StartWifi(Settings &settings) {
       return true;
 
     } else {
+      logger.println(F(""));
       logger.println(F("Verbindung fehlgeschlagen - starte CaptivePortal"));
       if (WiFi.status() == WL_WRONG_PASSWORD) {
         logger.println(F("Falsches Passwort - SSID geloescht"));
         settings.Add("ctSSID", "---");
         settings.Write();
-      } else {
-        logger.println(F("Timeout - SSID bleibt vorerst erhalten"));
       }
     }
-  // ── Kein SSID oder Verbindung fehlgeschlagen: CaptivePortal starten ──────
+
+  } else {
+    logger.println(F("Keine SSID konfiguriert - starte CaptivePortal"));
+  }
+
+  // ── CaptivePortal starten ─────────────────────────────────────────────────
   if (display.IsConnected()) {
     display.Print("WiFi Setup", DisplayArea_Line1, OLED::Alignments::Center);
     display.Print("192.168.4.1", DisplayArea_Line2, OLED::Alignments::Center);
@@ -1680,24 +1683,20 @@ static bool StartWifi(Settings &settings) {
 
   settings.Add("ctSSID", "---");
   settings.Write();
-  logger.println(F("SSID auf '---' vorgemerkt - Portal-Timeout -> erneutes Portal beim naechsten Boot"));
+  logger.println(F("SSID auf '---' vorgemerkt - Portal-Timeout fuehrt zu erneutem Portal"));
 
-  captivePortal.Begin(&settings, &logger, apName, 300); // 300s = 5 Minuten Timeout
+  captivePortal.Begin(&settings, &logger, apName, 300); // 300s = 5 Min Timeout
 
   dbgStep(11, "Nach captivePortal.Begin() - Webserver laeuft");
   logger.println(F("CaptivePortal aktiv - warte auf WLAN-Konfiguration..."));
   logger.println(F("Oeffne http://192.168.4.1 im Browser"));
 
   while (!captivePortal.IsDone()) {
-    // Handle() verarbeitet DNS-Anfragen fuer Captive-Portal auto-detect
     captivePortal.Handle();
     ESP.wdtFeed();
-    // Mit CONT_STACKSIZE=8192 (platformio.ini) ist yield() sicher.
-    // Erlaubt dem WiFi-Stack Hintergrundarbeit (TCP, Beacons usw.)
     yield();
   }
 
-  // Hier nur erreichbar bei Timeout (kein Restart durch handleSave)
   captivePortal.End();
   USE_WIFI = 0;
   return false;
