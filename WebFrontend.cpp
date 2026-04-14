@@ -1311,9 +1311,33 @@ m_webserver.on("/setup", [this]() {
     data += F("<input name='SendAnalog' type='checkbox' value='true' "); data += settings->Get("SendAnalog", "") == "true" ? "checked" : ""; data += F("> Analog&nbsp;");
     data += F("U@1023: <input name='UAnalog1023' maxlength='5' size='7' value='"); data += settings->Get("UAnalog1023", "1000"); data += F("'> mV&nbsp;");
     data += F("<input name='PRD' type='checkbox' value='true' "); data += settings->Get("PRD", "false") == "true" ? "checked" : ""; data += F("> Druck mit Dezimalen");
-    data += F("&nbsp;"); data += F("<input name='debug' type='checkbox' value='true'"); data += settings->GetBool("debug") ? " checked" : ""; data += F("> Debug-Ausgaben");
     data += F("</td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Optionen speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // -- Debug --
+    data += F("<form method='post' action='/save_options'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128029; Debug</h2>");
+    data += F("<table>");
+    data += F("<tr><td><label>Debug-Ausgaben:</label></td><td>");
+    data += F("<label style='display:inline-flex;align-items:center;gap:8px;cursor:pointer'>");
+    data += F("<input name='debug' type='checkbox' value='true'");
+    data += settings->GetBool("debug") ? F(" checked") : F("");
+    data += F(" onchange='this.form.submit()'>");
+    data += F("<span>Serielle Debug-Ausgaben aktivieren</span>");
+    data += F("</label>");
+    data += F("<p class='info' style='margin-top:8px'>&#9888;&#65039; Nur aktivieren zur Fehlersuche.");
+    data += F(" Erh&ouml;ht CPU-Last und verlangsamt den Betrieb.</p>");
+    data += F("</td></tr>");
+    data += F("<tr><td><label>Debug-Status:</label></td><td>");
+    data += F("<span style='font-weight:600;color:");
+    data += settings->GetBool("debug") ? F("var(--err)'>&#128308; AKTIV") : F("var(--ok)'>&#128994; INAKTIV");
+    data += F("</span>");
+    data += F("</td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; Debug speichern'>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
