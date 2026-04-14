@@ -475,6 +475,13 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
   return result;
 }
 
+static String pwToggleBtn(const char* fieldName) {
+  String s = F("<button type='button' onclick=\"var f=document.querySelector(\\\"[name='");
+  s += fieldName;
+  s += F("']\\\");f.type=f.type=='password'?'text':'password';this.textContent=f.type=='password'?'&#128065;':'&#128584';\" style='margin-left:4px;cursor:pointer;background:none;border:1px solid #aaa;border-radius:3px;padding:1px 5px;'>&#128065;</button>");
+  return s;
+}
+
 // ===================================================
 // Begin() - alle Routen
 // ===================================================
@@ -1117,7 +1124,9 @@ m_webserver.on("/setup", [this]() {
   data += settings->Get("ctSSID", "");
   data += F("'> <input type='password' name='ctPASS' size='30' maxlength='63' value='");
   data += settings->Get("ctPASS", "");
-  data += F("'> <input name='Timeout1' size='5' maxlength='4' value='");
+  data += F("'>");
+  data += pwToggleBtn("ctPASS");
+  data += F("<input name='Timeout1' size='5' maxlength='4' value='");
   data += settings->Get("Timeout1", "15");
   data += F("'></td></tr>");
   data += F("<tr><td><label>SSID2 / Passwort2:</label></td><td>");
@@ -1125,7 +1134,9 @@ m_webserver.on("/setup", [this]() {
   data += settings->Get("ctSSID2", "");
   data += F("'> <input type='password' name='ctPASS2' size='30' maxlength='63' value='");
   data += settings->Get("ctPASS2", "");
-  data += F("'> <input name='Timeout2' size='5' maxlength='4' value='");
+  data += F("'>");
+  data += pwToggleBtn("ctPASS2");
+  data += F("<input name='Timeout2' size='5' maxlength='4' value='");
   data += settings->Get("Timeout2", "15");
   data += F("'></td></tr>");
   data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");

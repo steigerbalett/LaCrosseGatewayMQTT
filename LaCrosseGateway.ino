@@ -381,7 +381,11 @@ void SetDebugMode(boolean mode) {
 
 void Dispatch(String data, String raw="") {
   if(USE_SERIAL) {
-    if (DebugHelper::enabled) Serial.println(data);
+    if (DebugHelper::enabled) {
+      Serial.println(data);
+    } else if (data.startsWith("OK ")) {
+      Serial.println(data);
+    }
   }
   
   if (USE_WIFI) {
@@ -1169,11 +1173,13 @@ bool HandleReceivedData(RFMxx *rfm) {
     }
 
     if(PASS_PAYLOAD == 1) {
-      for(int i = 0; i < payloadSize; i++) {
-        Serial.print(payload[i], HEX);
-        Serial.print(" ");
+      if (DebugHelper::enabled) {
+          for(int i = 0; i < payloadSize; i++) {
+              Serial.print(payload[i], HEX);
+              Serial.print(" ");
+          }
+          Serial.println();
       }
-      Serial.println();
     }
     else {
       if (DebugHelper::enabled) {
@@ -1415,7 +1421,6 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
       stateManager.SetWiFiConnectTime((millis() - startMillis) / 1000.0);
     }
     
-
     esp.SwitchLed(false, true);
     if (display.IsConnected()) {
       display.HideProgress();
@@ -1423,9 +1428,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     if (nextion.IsConnected()) {
       ////nextion.HideProgress();
     }
-    
   }
-
 }
 
 static void RunConfigPortal(Settings &settings, const String &apName) {
@@ -1571,7 +1574,6 @@ static void dbgStep(uint32_t step, const char* desc) {
 }
 
 static CaptivePortal captivePortal;
-static bool          g_portalActive = false;
 
 static bool StartWifi(Settings &settings) {
 
@@ -1850,10 +1852,6 @@ void setup(void) {
   pinMode(D7, OUTPUT);
   digitalWrite(D7, HIGH);
 
-  if (!settings.GetBool("UseWiFi", true)) {
-    USE_WIFI = false;
-    logger.println(F("UseWiFi=false in Settings -> WiFi deaktiviert"));
-  }
   if (!USE_WIFI) {
     logger.Disable();
     esp.Blink(20);
