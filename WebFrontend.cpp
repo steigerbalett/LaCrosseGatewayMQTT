@@ -359,7 +359,7 @@ String WebFrontend::GetTop() {
   result += FPSTR(LGWMQTT_JS_THEME);
   result += F("</head><body>");
   result += F("<div class='hdr'>");
-  result += F("<h1>&#127921; LaCrosseGateway");
+  result += F("<h1>&#127777; LaCrosseGateway");
   result += F("<span style='font-size:14px;font-weight:400;margin-left:12px;color:var(--txt2)'>V");
   result += m_stateManager->GetVersion();
   result += F(" &mdash; "); result += GetDisplayName(); result += F("</span></h1>");
@@ -1373,7 +1373,7 @@ m_webserver.on("/setup", [this]() {
     content += F("<style>"); content += FPSTR(LGWMQTT_CSS); content += F("</style></head><body>");
     content += F("<div style='display:flex;justify-content:center;align-items:center;min-height:80vh'>");
     content += F("<div class='card' style='min-width:320px;text-align:center'>");
-    content += F("<h2>&#127921; LaCrosseGateway V"); content += m_stateManager->GetVersion(); content += F("</h2>");
+    content += F("<h2>&#127777; LaCrosseGateway V"); content += m_stateManager->GetVersion(); content += F("</h2>");
     content += F("<form action='/login' method='POST' style='box-shadow:none;padding:0'>");
     content += F("<label>Passwort:</label>");
     content += F("<input type='password' name='PASSWORD' placeholder='Passwort eingeben'>");

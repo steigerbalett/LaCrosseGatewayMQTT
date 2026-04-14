@@ -310,6 +310,7 @@ bool mqttEnabled = false;
 
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
+  if (DebugHelper::enabled) {
   Serial.print("Message arrived [");
   Serial.print(topic);
   Serial.print("] ");
@@ -317,7 +318,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.print((char)payload[i]);
   }
   Serial.println();
-
+  }
   // Switch on the LED if an 1 was received as first character
   if ((char)payload[0] == '1') {
     //digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
@@ -331,8 +332,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 void reconnectMqtt() {
   // Loop until we're reconnected
+  if (DebugHelper::enabled) {
   Serial.print("MQTT disconnected - Attempting MQTT connection...");
-
+  }
   // Attempt to connect
   logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
   String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
@@ -379,7 +381,7 @@ void SetDebugMode(boolean mode) {
 
 void Dispatch(String data, String raw="") {
   if(USE_SERIAL) {
-    Serial.println(data);
+    if (DebugHelper::enabled) Serial.println(data);
   }
   
   if (USE_WIFI) {
