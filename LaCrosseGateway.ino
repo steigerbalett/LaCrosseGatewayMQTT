@@ -379,7 +379,7 @@ void SetDebugMode(boolean mode) {
   for (int i = 0; i < 5; i++) rfms[i]->SetDebugMode(mode);
 }
 
-void Dispatch(String data, String raw="") {
+void Dispatch(String data, String raw="", byte rfmNum=0) {
   if(USE_SERIAL) {
     String prefix = (rfmNum > 0) ? ("[RFM" + String(rfmNum) + "] ") : "";
     if (DebugHelper::enabled) Serial.println(prefix + data);
@@ -960,7 +960,6 @@ char bufTopic[160];
 
 // Ermittelt RFM-Nummer (1-5) aus SS-Pin, 0 = unbekannt
 static byte GetRfmNumber(RFMxx *rfm) {
-  byte ss = rfm->GetSS();
   for (byte i = 0; i < 5; i++) {
     if (rfms[i] == rfm) return i + 1;
   }
@@ -1438,7 +1437,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
   }
 }
 
-static void RunConfigPortal(Settings &settings, const String &apName) {
+[[maybe_unused]] static void RunConfigPortal(Settings &settings, const String &apName) {
   logger.println(F("Starte Konfigurations-Hotspot..."));
   logger.println("AP-Name: " + apName);
 
