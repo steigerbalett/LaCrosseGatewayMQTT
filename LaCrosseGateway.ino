@@ -2030,19 +2030,21 @@ void setup(void) {
     return def;
   };
 
-  // Radio-spezifische Default-Datenraten (Radio 2 = 9579, Radio 3 = 8842)
   static const unsigned long drDefaults[5] = { 17241ul, 9579ul, 8842ul, 17241ul, 17241ul };
 
   for (byte i = 0; i < 5; i++) {
-    unsigned long dr   = g_radio[i].enabled
-                         ? parseDataRateWithDefault(g_radio[i].fixedDataRate, drDefaults[i])
-                         : drDefaults[i];
-    long          freq = g_radio[i].enabled ? g_radio[i].freqKHz : 0;
+    if (!g_radio[i].enabled) {
+      if (rfms[i]->IsConnected()) {
+        rfms[i]->EnableReceiver(false);
+        logger.println("Radio #" + String(i + 1) + " deaktiviert (Settings)");
+      }
+      continue;
+    }
+    unsigned long dr   = parseDataRateWithDefault(g_radio[i].fixedDataRate, drDefaults[i]);
+    long          freq = g_radio[i].freqKHz;
     CheckRFM(i + 1, rfms[i], dr, &settings, freq);
   }
 
-  // ToggleMode / ToggleInterval NACH CheckRFM setzen,
-  // da InitializeLaCrosse() diese Felder zuvor auf 0 zuruecksetzt.
   for (byte i = 0; i < 5; i++) {
     rfms[i]->ToggleMode     = g_radio[i].enabled ? g_radio[i].toggleMask      : 0;
     rfms[i]->ToggleInterval = g_radio[i].enabled ? g_radio[i].toggleIntervalS : 0;
@@ -2303,7 +2305,7 @@ void loop(void) {
     }
 
     ownSensors.Handle();
-    if (millis() < lastSensorMeasurement) lastSensorMeasurement = 0;
+    if (millis() < lastSensorMeasurement)  lastSensorMeasurement  = 0;
     if (millis() < lastSensorTransmission) lastSensorTransmission = 0;
 
     if (millis() > lastSensorMeasurement + 10000) {
