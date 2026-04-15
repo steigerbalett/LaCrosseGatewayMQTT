@@ -70,7 +70,9 @@ const char LGWMQTT_CSS[] PROGMEM =
   "td{padding:9px 8px;border-bottom:1px solid var(--div);color:var(--txt);font-size:14px}"
   "tbody tr:hover{background:rgba(3,169,244,.08)}"
   "tbody tr:last-child td{border-bottom:none}"
-  "label{display:block;margin:10px 0 5px;color:var(--txt);font-weight:500;font-size:13px}"
+  "label{display:block;margin:4px 0 3px;color:var(--txt);font-weight:500;font-size:13px}"
+  "td:first-child{vertical-align:middle;white-space:nowrap;width:1%;padding-right:16px}"
+  "td label{margin:0;display:inline}"
   "input:not([type=checkbox]):not([type=radio]):not([type=submit]),"
   "select,textarea{"
     "width:100%;padding:9px;margin:3px 0 10px;border:1px solid var(--div);"
@@ -81,6 +83,11 @@ const char LGWMQTT_CSS[] PROGMEM =
     "border:none;border-radius:4px;cursor:pointer;font-size:13px;"
     "font-weight:500;text-transform:uppercase;letter-spacing:.5px;transition:background .2s}"
   "input[type=submit]:hover,button:hover{background:#0288d1}"
+  "input:not([type=checkbox]):not([type=radio]):not([type=submit]):focus,"
+    "select:focus,textarea:focus{"
+    "outline:none;border-color:var(--pri)!important;"
+    "box-shadow:0 0 0 3px rgba(3,169,244,.35)!important}"
+  "::selection{background:rgba(3,169,244,.45);color:#fff}"
   ".badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:500;text-transform:uppercase}"
   ".ok{background:rgba(76,175,80,.15);color:var(--ok)}"
   ".err{background:rgba(244,67,54,.15);color:var(--err)}"
@@ -1162,7 +1169,7 @@ m_webserver.on("/setup", [this]() {
     data += F(" <label style='display:inline'>Passwort:</label> <input type='password' name='mqttPass' size='36' maxlength='63' value='");
     data += settings->Get("mqttPass", "");
     data += F("'>");
-    data += F("'></td></tr>");
+    data += F("</td></tr>");
     data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
     data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings->Get("pubInt", "20"); data += F("'>");
     data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings->Get("topic", ""); data += F("'>");
