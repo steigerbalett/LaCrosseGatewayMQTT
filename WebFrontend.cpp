@@ -32,7 +32,7 @@ const char LGWMQTT_CSS[] PROGMEM =
   ":root{"
     "--pri:#03a9f4;--acc:#ff9800;"
     "--bg:#111;--bg2:#1c1c1c;--card:#1c1c1c;"
-    "--txt:#e1e1e1;--txt2:#9b9b9b;--dis:#6f6f6f;"
+    "--txt:#e1e1e1;--txt2:#a8a7a5;--dis:#6f6f6f;"
     "--div:#2f2f2f;"
     "--ok:#4caf50;--warn:#ff9800;--err:#f44336;--info:#2196f3;"
   "}"
@@ -54,21 +54,21 @@ const char LGWMQTT_CSS[] PROGMEM =
   ".theme-btn{background:var(--card);border:1px solid var(--div);border-radius:24px;"
     "padding:6px 12px;cursor:pointer;display:flex;align-items:center;gap:6px;"
     "font-size:13px;color:var(--txt);transition:all .3s}"
-  ".theme-btn:hover{border-color:var(--pri)}"
+  ".theme-btn:hover{border-color:var(--pri);background:rgba(3,169,244,.15);color:var(--txt)}"
   ".card-grid{display:grid;grid-template-columns:1fr;gap:12px;margin:12px 0}"
   ".card{background:var(--card);border-radius:8px;padding:12px;margin:0;"
     "box-shadow:0 2px 4px rgba(0,0,0,.1);transition:background .3s}"
   ".card-full{grid-column:1/-1}"
   "nav a{display:inline-block;padding:8px 14px;text-decoration:none;"
     "color:var(--txt2);font-size:13px;border-radius:4px;margin:2px}"
-  "nav a:hover{background:rgba(3,169,244,.1);color:var(--pri)}"
+  "nav a:hover{background:rgba(3,169,244,.22);color:var(--pri);font-weight:600}"
   "table{border-collapse:collapse;width:100%;background:var(--card);"
     "border-radius:8px;overflow:hidden;box-shadow:0 2px 4px rgba(0,0,0,.1);font-size:14px}"
   "thead{background:var(--bg2)}"
   "th{padding:10px 8px;text-align:left;font-weight:500;color:var(--txt);"
     "text-transform:uppercase;font-size:11px;letter-spacing:.5px;border-bottom:1px solid var(--div)}"
   "td{padding:9px 8px;border-bottom:1px solid var(--div);color:var(--txt);font-size:14px}"
-  "tbody tr:hover{background:rgba(3,169,244,.08)}"
+  "tbody tr:hover{background:rgba(3,169,244,.18)}"
   "tbody tr:last-child td{border-bottom:none}"
   "label{display:block;margin:4px 0 3px;color:var(--txt);font-weight:500;font-size:13px}"
   "td:first-child{vertical-align:middle;white-space:nowrap;width:1%;padding-right:16px}"
@@ -82,7 +82,7 @@ const char LGWMQTT_CSS[] PROGMEM =
     "background:var(--pri);color:#fff;padding:9px 18px;margin:4px 4px 0 0;"
     "border:none;border-radius:4px;cursor:pointer;font-size:13px;"
     "font-weight:500;text-transform:uppercase;letter-spacing:.5px;transition:background .2s}"
-  "input[type=submit]:hover,button:hover{background:#0288d1}"
+  "input[type=submit]:hover,button:hover{background:#0277bd;box-shadow:0 2px 8px rgba(3,169,244,.4)}"
   "input:not([type=checkbox]):not([type=radio]):not([type=submit]):focus,"
     "select:focus,textarea:focus{"
     "outline:none;border-color:var(--pri)!important;"
@@ -473,7 +473,8 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "UseMDNS"         || key == "SendAnalog"      ||
                          key == "PRD"             || key == "IsNextion"       ||
                          key == "AddUnits"        || key == "AsDataFull"      ||
-                         key == "ToggleLed"       || key == "oled13");
+                         key == "ToggleLed"       || key == "oled13"          ||
+                         key == "debug");
       if (isCheckbox) merged->Add(key, "false");
     }
   }
@@ -1124,40 +1125,47 @@ m_webserver.on("/setup", [this]() {
             "&#x21BA; Netzwerke scannen</button></div>");
   data += F("<div id='scanDiv'><p class='info'>Klicke auf 'Netzwerke scannen' um verf&uuml;gbare SSIDs zu laden.</p></div>");
   data += F("<form method='post' action='/save_wlan'>");
+  data += F("<p class='info' style='margin-bottom:8px;padding:6px 8px;background:rgba(3,169,244,.1);border-radius:4px'>"
+          "&#8505; <strong>Timeout (s)</strong> = Zeit bis zum Wechsel auf SSID2 &ndash; gilt f&uuml;r SSID&nbsp;1 und SSID&nbsp;2</p>");
   data += F("<table>");
-  data += F("<tr><td></td><td><p class='info'>3. Parameter = Timeout (s) bis zu SSID2 gewechselt wird</p></td></tr>");
   data += F("<tr><td></td><td>");
-  data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>SSID 1</label>");
+  data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-bottom:2px'>SSID 1</label>");
   data += F("<input name='ctSSID' size='30' maxlength='32' placeholder='SSID 1' value='");
   data += settings->Get("ctSSID", "");
-  data += F("'> ");
-  data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Passwort 1</label>");
+  data += F("'><br>");
+  data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Passwort 1</label>");
   data += F("<input type='password' name='ctPASS' size='30' maxlength='63' placeholder='Passwort 1' value='");
   data += settings->Get("ctPASS", "");
   data += F("'>");
   data += pwToggleBtn("ctPASS");
+  data += F("<br><label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Timeout (s) bis SSID2:</label>");
   data += F("<input name='Timeout1' size='5' maxlength='4' value='");
   data += settings->Get("Timeout1", "15");
   data += F("'></td></tr>");
   data += F("<tr><td></td><td>");
-  data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>SSID 2</label>");
+  data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-bottom:2px'>SSID 2</label>");
   data += F("<input name='ctSSID2' size='30' maxlength='32' placeholder='SSID 2' value='");
   data += settings->Get("ctSSID2", "");
-  data += F("'> ");
-  data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Passwort 2</label>");
+  data += F("'><br>");
+  data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Passwort 2</label>");
   data += F("<input type='password' name='ctPASS2' size='30' maxlength='63' placeholder='Passwort 2' value='");
   data += settings->Get("ctPASS2", "");
   data += F("'>");
   data += pwToggleBtn("ctPASS2");
+  data += F("<br><label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Timeout (s) bis SSID2:</label>");
   data += F("<input name='Timeout2' size='5' maxlength='4' value='");
   data += settings->Get("Timeout2", "15");
   data += F("'></td></tr>");
-  data += F("<tr><td><label>Frontend-Passwort:</label></td><td>");
+  data += F("<tr><td></td><td>");
+  data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-bottom:2px'>Frontend-Passwort:</label>");
   data += F("<input name='frontPass' type='password' size='24' maxlength='60' value='");
   data += settings->Get("frontPass", "");
-  data += F("'> Wiederholen: <input name='frontPass2' type='password' size='24' maxlength='60' value='");
-  data += F("");
-  data += F("'> <span class='info'>(leer = kein Login)</span></td></tr>");
+  data += F("'>");
+  data += pwToggleBtn("frontPass");
+  data += F("<br><label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Wiederholen:</label>");
+  data += F("<input name='frontPass2' type='password' size='24' maxlength='60' value=''>");
+  data += pwToggleBtn("frontPass2");
+  data += F(" <span class='info'>(leer = kein Login)</span></td></tr>");
   data += F("</table>");
   data += F("<br><input type='submit' value='&#128190; WLAN speichern &amp; neu starten'>");
   data += F("</form></div>");
@@ -1167,21 +1175,23 @@ m_webserver.on("/setup", [this]() {
     data += F("<form method='post' action='/save_mqtt'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128225; MQTT-Einstellungen</h2><table>");
-    data += F("<tr><td><label>IP-Adresse:</label></td><td>");
-    data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings->Get("serverIpMqtt", ""); data += F("'>");
-    data += F(" <label style='display:inline'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings->Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
     data += F("<tr><td></td><td>");
-    data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Benutzername</label>");
+    data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-bottom:2px'>IP-Adresse:</label>");
+    data += F("<input name='serverIpMqtt' size='24' maxlength='15' value='"); data += settings->Get("serverIpMqtt", ""); data += F("'>");
+    data += F(" <label style='display:inline;font-size:.8rem;font-weight:500'>Port:</label> <input name='serverPortMqtt' size='8' maxlength='5' value='"); data += settings->Get("serverPortMqtt", "1883"); data += F("'></td></tr>");
+    data += F("<tr><td></td><td>");
+    data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-bottom:2px'>Benutzername</label>");
     data += F("<input name='mqttUser' size='36' maxlength='32' placeholder='Benutzername' value='"); data += settings->Get("mqttUser", ""); data += F("'>");
-    data += F(" ");
-    data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Passwort</label>");
+    data += F("<br>");
+    data += F("<label style='display:block;font-size:.8rem;color:var(--txt);font-weight:500;margin-top:4px;margin-bottom:2px'>Passwort</label>");
     data += F("<input type='password' name='mqttPass' size='36' maxlength='63' placeholder='Passwort' value='");
     data += settings->Get("mqttPass", "");
     data += F("'>");
+    data  += pwToggleBtn("mqttPass");
     data += F("</td></tr>");
     data += F("<tr><td><label>MQTT Intervall/Topic:</label></td><td>");
     data += F("Intervall: <input name='pubInt' size='5' maxlength='5' value='"); data += settings->Get("pubInt", "20"); data += F("'>");
-    data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings->Get("topic", ""); data += F("'>");
+    data += F(" Topic: <input name='topic' size='24' maxlength='63' value='"); data += settings->Get("topic", "LGW"); data += F("'>");
     data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings->Get("ext1", "0"); data += F("'>");
     data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings->Get("ext2", "0"); data += F("'>");
     data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings->Get("ext3", "0"); data += F("'></td></tr>");
@@ -1206,7 +1216,7 @@ m_webserver.on("/setup", [this]() {
     data += F("<input name='staticGW' size='24' maxlength='15' placeholder='Gateway' value='"); data += settings->Get("staticGW", ""); data += F("'></td></tr>");
     data += F("<tr><td></td><td>");
     data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Hostname</label>");
-    data += F("<input name='HostName' size='24' maxlength='63' placeholder='Hostname' value='"); data += settings->Get("HostName", "LaCrosseGateway"); data += F("'>");
+    data += F("<input name='HostName' size='24' maxlength='63' placeholder='Hostname' value='"); data += settings->Get("HostName", "LaCrosseGatewayMQTT"); data += F("'>");
     data += F(" ");
     data += F("<label style='display:block;font-size:.8rem;color:#888;margin-bottom:2px'>Startup-Delay (s)</label>");
     data += F("<input name='StartupDelay' size='5' maxlength='4' placeholder='Delay (s)' value='"); data += settings->Get("StartupDelay", "0"); data += F("'></td></tr>");
@@ -1403,7 +1413,11 @@ m_webserver.on("/setup", [this]() {
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128250; OLED-Display</h2><table>");
     data += F("<tr><td><label>OLED Start:</label></td><td>");
-    data += F("On/Off: <input name='oledStart' size='8' maxlength='6' value='"); data += settings->Get("oledStart", "on"); data += F("'>");
+    data += F("On/Off: <select name='oledStart' style='width:80px'>");
+    String oledStart = settings->Get("oledStart", "on");
+    data += F("<option value='on'"); if (oledStart == "on")  data += F(" selected"); data += F(">ON</option>");
+    data += F("<option value='off'"); if (oledStart == "off") data += F(" selected"); data += F(">OFF</option>");
+    data += F("</select>");
     data += F(" Modus: <input name='oledMode' size='12' maxlength='16' value='"); data += settings->Get("oledMode", ""); data += F("'>&nbsp;");
     data += F("<input name='oled13' type='checkbox' value='true' "); data += settings->Get("oled13", "false") == "true" ? "checked" : ""; data += F("> 1.3\"");
     data += F("</td></tr></table>");
