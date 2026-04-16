@@ -291,10 +291,15 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   // Typ
   result += F("<tr><td><label>Typ:</label></td><td>");
   result += F("<select name='"); result += p; result += F("Type'>");
-  result += GetOption("---",   typeVal);
+  {
+    String opt = F("<option value='---'");
+    if (typeVal == "---") opt += F(" selected");
+    opt += F(">--- (nicht verwendet)</option>");
+    result += opt;
+  }
   result += GetOption("RFM69", typeVal);
   result += GetOption("RFM95", typeVal);
-  result += F("</select> <span class='info'>--- = nicht verwendet</span></td></tr>");
+  result += F("</select></td></tr>");
 
   // Frequenz
   result += F("<tr><td><label>Frequenz (kHz):</label></td><td>");
@@ -1052,7 +1057,15 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
   if (n == 0) {
     html = F("<p class='info'>Keine Netzwerke gefunden.</p>");
   } else {
-    html = F("<ul style='list-style:none;padding:0;margin:8px 0'>");
+    html = F("<style>"
+    ".wifi-item{display:flex;justify-content:space-between;align-items:center;"
+      "padding:7px 10px;cursor:pointer;border-radius:5px;margin-bottom:3px;"
+      "background:var(--bg2);border:1px solid var(--div);transition:background .15s}"
+    ".wifi-item:hover{background:var(--card);border-color:var(--pri)}"
+    ".wifi-item.selected{background:rgba(3,169,244,.18);border-color:var(--pri)}"
+    ".wifi-rssi{font-size:.8rem;color:var(--txt2)}"
+    "</style>");
+    html += F("<ul style='list-style:none;padding:0;margin:8px 0'>");
 
     for (int i = 0; i < n; i++) {
       int rssi = WiFi.RSSI(i);
@@ -1079,17 +1092,17 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
         barStr += (b < bars) ? F("&#9608;") : F("&#9617;");
       }
 
-      html += F("<li style='display:flex;justify-content:space-between;align-items:center;");
-      html += F("padding:7px 10px;cursor:pointer;border-radius:5px;margin-bottom:3px;");
-      html += F("background:var(--surface-2,#f5f5f5)' ");
-      html += F("onclick=\"document.querySelector('[name=ctSSID]').value='");
+      html += F("<li class='wifi-item' ");
+      html += F("onclick=\"document.querySelectorAll('.wifi-item').forEach(function(e){e.classList.remove('selected')});");
+      html += F("this.classList.add('selected');");
+      html += F("document.querySelector('[name=ctSSID]').value='");
       html += safeAttr;
-      html += F("';this.style.background='#d0eaf5'\">");
+      html += F("'\">");
 
       html += F("<span>");
       html += safeText;
       if (sec) html += F(" &#x1F512;");
-      html += F("</span><span style='font-size:.8rem;color:#888'>");
+      html += F("</span><span class='wifi-rssi'>");
       html += barStr;
       html += ' ';
       html += String(rssi);
