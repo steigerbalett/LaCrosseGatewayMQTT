@@ -193,6 +193,12 @@ Logger logger;
   bool haDiscovery = true;                    // Home Assistant MQTT discovery
   #define HA_DISCOVERY_PREFIX "homeassistant"
   #define MQTT_BUFFER_SIZE 1024               // discovery messages are bigger than the default 256 bytes
+  #define MQTT_STATUS_INTERVAL_MS 300000UL    // <topic>/status every 5 minutes
+  unsigned int mqttConnects = 0;
+  bool mqttStatusPending = false;
+  bool gatewayDiscoveryPending = false;
+  unsigned long lastMqttStatus = 0;
+  String gatewayName = "LaCrosseGateway";
 #endif
 
 static String getLocalTimeString() {
@@ -343,9 +349,15 @@ void reconnectMqtt() {
   // Attempt to connect
   logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
   String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
-  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password )) {
+  // last will: the broker sets <topic>/availability to "offline" when the gateway disappears
+  String availabilityTopic = mqttTopicBaseGW + "/availability";
+  if (client.connect(clientId.c_str(), mqtt_user, mqtt_password, availabilityTopic.c_str(), 0, true, "offline")) {
       Serial.println("connected");
+      client.publish(availabilityTopic.c_str(), "online", true);
+      mqttConnects++;
+      mqttStatusPending = true;
       // the broker may have lost the retained discovery messages: send them again
+      gatewayDiscoveryPending = haDiscovery;
       ec3000Tracker.ResetDiscovery();
       // Subscribe
       client.subscribe("esp32/output");
@@ -1111,6 +1123,8 @@ static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
 #endif
 
 #ifdef USE_MQTT_Pubsub
+static char discoveryJson[MQTT_BUFFER_SIZE - 160];   // shared buffer for the discovery messages
+
 static String GatewayDeviceId() {
   return "lgw_" + String(ESP.getChipId(), HEX);
 }
@@ -1119,7 +1133,8 @@ static String GatewayDeviceId() {
 static void PublishEC3000DiscoveryEntity(word id, const char *component, const char *key, const char *name,
                                          const char *valueTemplate, const __FlashStringHelper *extraFlash) {
   String extra(extraFlash);
-  static char json[MQTT_BUFFER_SIZE - 160];
+  char *json = discoveryJson;
+  const size_t jsonSize = sizeof(discoveryJson);
   String idStr = EC3000IdString(id);
   String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
   unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
@@ -1127,15 +1142,80 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
   if (deviceName.length() == 0) {
     deviceName = "EC3000 " + idStr;
   }
-  snprintf_P(json, sizeof(json),
+  snprintf_P(json, jsonSize,
     PSTR("{\"name\":\"%s\",\"unique_id\":\"lgw_ec3000_%s_%s\",\"state_topic\":\"%s\","
-    "\"value_template\":\"{{ value_json.%s }}\",\"expire_after\":%lu,%s"
+    "\"value_template\":\"{{ value_json.%s }}\",\"expire_after\":%lu,\"availability_topic\":\"%s/availability\",%s"
     "\"device\":{\"identifiers\":[\"lgw_ec3000_%s\"],\"name\":\"%s\","
     "\"manufacturer\":\"Conrad\",\"model\":\"Energy Count 3000\",\"via_device\":\"%s\"}}"),
-    name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, extra.c_str(),
+    name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, mqttTopicBaseGW.c_str(), extra.c_str(),
     idStr.c_str(), deviceName.c_str(), GatewayDeviceId().c_str());
   String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_ec3000_" + idStr + "/" + key + "/config";
   client.publish(topic.c_str(), json, true);
+}
+
+// One Home Assistant diagnostic entity of the gateway itself, state from <topic>/status
+static void PublishGatewayDiscoveryEntity(const char *key, const char *name, const __FlashStringHelper *extraFlash) {
+  char *json = discoveryJson;
+  const size_t jsonSize = sizeof(discoveryJson);
+  String extra(extraFlash);
+  String id = GatewayDeviceId();
+  snprintf_P(json, jsonSize,
+    PSTR("{\"name\":\"%s\",\"unique_id\":\"%s_%s\",\"state_topic\":\"%s/status\","
+    "\"value_template\":\"{{ value_json.%s }}\",\"availability_topic\":\"%s/availability\","
+    "\"entity_category\":\"diagnostic\",%s"
+    "\"device\":{\"identifiers\":[\"%s\"],\"name\":\"%s\",\"manufacturer\":\"FHEM / HCS\","
+    "\"model\":\"LaCrosseGateway MQTT\",\"sw_version\":\"%s\",\"configuration_url\":\"http://%s/\"}}"),
+    name, id.c_str(), key, mqttTopicBaseGW.c_str(), key, mqttTopicBaseGW.c_str(), extra.c_str(),
+    id.c_str(), gatewayName.c_str(), PROGVERS, WiFi.localIP().toString().c_str());
+  String topic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + id + "/" + key + "/config";
+  client.publish(topic.c_str(), json, true);
+}
+
+static void PublishGatewayDiscovery() {
+  PublishGatewayDiscoveryEntity("uptime", "Uptime",
+    F("\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\","));
+  PublishGatewayDiscoveryEntity("wifi_rssi", "WiFi RSSI",
+    F("\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\","));
+  PublishGatewayDiscoveryEntity("free_heap", "Free heap",
+    F("\"unit_of_measurement\":\"B\",\"device_class\":\"data_size\",\"state_class\":\"measurement\","));
+  PublishGatewayDiscoveryEntity("mqtt_reconnects", "MQTT reconnects", F("\"state_class\":\"total_increasing\","));
+  PublishGatewayDiscoveryEntity("frames_per_minute", "Frames per minute",
+    F("\"unit_of_measurement\":\"1/min\",\"state_class\":\"measurement\","));
+  PublishGatewayDiscoveryEntity("reset_reason", "Reset reason", F(""));
+  PublishGatewayDiscoveryEntity("ip", "IP address", F(""));
+  gatewayDiscoveryPending = false;
+}
+
+// <topic>/status every 5 minutes and after every MQTT connect
+static void PublishGatewayStatus() {
+  byte ec3000Devices = 0;
+  for (byte i = 0; i < ec3000Tracker.GetCapacity(); i++) {
+    if (ec3000Tracker.GetAt(i)->Used && ec3000Tracker.GetAt(i)->Confirmed) ec3000Devices++;
+  }
+  char json[320];
+  snprintf_P(json, sizeof(json),
+    PSTR("{\"version\":\"%s\",\"uptime\":%lu,\"wifi_rssi\":%d,\"ip\":\"%s\",\"free_heap\":%u,"
+    "\"max_free_block\":%u,\"mqtt_reconnects\":%u,\"reset_reason\":\"%s\",\"frames_per_minute\":%u,"
+    "\"ec3000_devices\":%u}"),
+    PROGVERS, millis() / 1000, WiFi.RSSI(), WiFi.localIP().toString().c_str(), ESP.getFreeHeap(),
+    ESP.getMaxFreeBlockSize(), mqttConnects > 0 ? mqttConnects - 1 : 0, ESP.getResetReason().c_str(),
+    (unsigned int)stateManager.GetFramesPerMinute(), (unsigned int)ec3000Devices);
+  String topic = mqttTopicBaseGW + "/status";
+  client.publish(topic.c_str(), json, true);
+  lastMqttStatus = millis();
+  mqttStatusPending = false;
+}
+
+static void HandleGatewayStatus() {
+  if (!mqttEnabled || !client.connected()) {
+    return;
+  }
+  if (gatewayDiscoveryPending) {
+    PublishGatewayDiscovery();
+  }
+  if (mqttStatusPending || millis() - lastMqttStatus >= MQTT_STATUS_INTERVAL_MS) {
+    PublishGatewayStatus();
+  }
 }
 
 // Home Assistant MQTT discovery for one EC3000 (retained, once per MQTT connection)
@@ -2402,6 +2482,7 @@ void setup(void) {
     secBetweenPublish = atoi(settings.Get("pubInt", "20").c_str());
     mqttTopicBaseGW = settings.Get("topic", "esp8266_lacrossegateway");
     haDiscovery = settings.GetBool("haDiscovery", true);
+    gatewayName = settings.Get("HostName", "LaCrosseGateway");
 
     logger.println(F("MQTT aktiviert: ") + String(mqtt_server) + ":" + String(mqtt_port)
       + F(" Interval:") + String(secBetweenPublish) + F(" Topic:") + mqttTopicBaseGW);
@@ -2474,6 +2555,7 @@ void loop(void) {
       logger.println(F("Wifi disconnected!"));
     }
     client.loop();
+    HandleGatewayStatus();
   }
 #endif
 
