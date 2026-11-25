@@ -75,6 +75,7 @@ public:
   void Receive();
   void SetHFParameter(byte address, byte value);
   int GetRSSI(bool doTrigger = false);
+  int GetPacketRSSI() { return m_packetRssi; }  // RSSI (dBm) when the last payload was ready
   float GetSNR();
   void SetTxPower(int level);
   void SetSpreadingFactor(SpreadingFactor sf);
@@ -101,6 +102,7 @@ private:
   byte m_payloadPointer;
   unsigned long m_lastReceiveTime;
   bool m_payloadReady;
+  int m_packetRssi = -1024;
   byte m_payload[250];
   byte GetByteFromFifo();
   void ClearFifo();

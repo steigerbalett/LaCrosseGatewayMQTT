@@ -56,6 +56,7 @@
 #include "BH1750.h"
 #include "LM75.h"
 #include "EC3000.h"
+#include "EC3000Tracker.h"
 #include "ESP8266OTA.h"
 #include "SC16IS750.h"
 #include "SubProcessor.h"
@@ -1047,6 +1048,40 @@ static void PublishLaCrosseMqtt(byte *payload) {
 }
 #endif
 
+EC3000Tracker ec3000Tracker;
+
+static String EC3000IdString(word id) {
+  char buf[5];
+  snprintf(buf, sizeof(buf), "%04X", id);
+  return String(buf);
+}
+
+#ifdef USE_MQTT_Pubsub
+// Publishes one EC3000 energy monitor as JSON to <topic>/EC3000/<ID>
+static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
+  const EC3000::Frame &f = device->Last;
+  char json[220];
+  snprintf(json, sizeof(json),
+    "{\"power\":%.1f,\"energy\":%.3f,\"max_power\":%.1f,\"total_seconds\":%lu,\"on_seconds\":%lu,"
+    "\"resets\":%u,\"state\":\"%s\",\"rssi\":%d,\"rfm\":%u}",
+    f.Power, f.Consumption, f.MaximumPower, (unsigned long)f.TotalSeconds, (unsigned long)f.OnSeconds,
+    (unsigned int)f.NumberOfResets, f.IsOn ? "ON" : "OFF", device->RSSI, (unsigned int)device->Rfm);
+  String topic = mqttTopicBaseGW + "/EC3000/" + EC3000IdString(f.ID);
+  if (client.publish(topic.c_str(), json)) {
+    ec3000Tracker.SetPublished(device);
+  }
+}
+#endif
+
+static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
+  EC3000Tracker::Device *device = ec3000Tracker.Update(frame, rssi, rfmNum);
+#ifdef USE_MQTT_Pubsub
+  if (mqttEnabled && client.connected() && ec3000Tracker.ShouldPublish(device, secBetweenPublish * 1000UL)) {
+    PublishEC3000Mqtt(device);
+  }
+#endif
+}
+
 bool HandleReceivedData(RFMxx *rfm) {
   byte rfmNum = GetRfmNumber(rfm);
   bool result = false;
@@ -1147,8 +1182,12 @@ bool HandleReceivedData(RFMxx *rfm) {
 
       // Try EC3000
       if(data.length() == 0 && EC3000::IsValidDataRate(rfm->GetDataRate())) {
-        data = EC3000::GetFhemDataString(payload);
+        EC3000::Frame ec3000Frame;
+        data = EC3000::GetFhemDataString(payload, &ec3000Frame);
         frameLength = EC3000::FRAME_LENGTH;
+        if(data.length() > 0) {
+          HandleEC3000Frame(ec3000Frame, rfm->GetPacketRSSI(), rfmNum);
+        }
       }
 
       // Try TX22IT (WS 1600)

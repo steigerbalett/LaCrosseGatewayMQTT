@@ -76,6 +76,8 @@ void RFMxx::SetDataRate(unsigned long dataRate) {
 void RFMxx::Receive() {
   if(IsRFM69) {
     if(ReadReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY) {
+      // read the RSSI before the receiver is restarted
+      m_packetRssi = -(int)ReadReg(REG_RSSIVALUE) / 2;
       for(int i = 0; i < m_fifoSize; i++) {
         byte bt = GetByteFromFifo();
         m_payload[i] = bt;
