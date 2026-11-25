@@ -947,9 +947,6 @@ void HandleCommandV() {
 #define MAX_LACROSSE_SENSORS 64    
 #define ACTIVE_CH_LEN (MAX_LACROSSE_SENSORS/8)
 char activeChannel[ACTIVE_CH_LEN] = {0};
-unsigned int sensorChannelId = 0;
-unsigned int channelShift = 0;
-unsigned int channelShiftByte = 0;
 char activeChannelStr[2 + 2 * ACTIVE_CH_LEN + 1]; //leading '0x' - ...data... - tailing \0 byte
 char *activeChannelStrPtr;
 unsigned long sensorRxTime[MAX_LACROSSE_SENSORS] = {0};
@@ -966,13 +963,93 @@ static byte GetRfmNumber(RFMxx *rfm) {
   return 0;
 }
 
+#ifdef USE_MQTT_Pubsub
+static void PublishValue(const String &topic, const String &value) {
+  topic.toCharArray(bufTopic, sizeof(bufTopic));
+  value.toCharArray(bufData, sizeof(bufData));
+  client.publish(bufTopic, bufData);
+}
+
+// Publishes a LaCrosse frame (TX29DTH etc.) to MQTT.
+// Runs for every received frame, independent of the analyze mode (<n>z).
+// Topics and payloads are the same as before:
+//   <topic>/<ID>/newBat, /temp, /hum, /weakBat, /timeStamp, <topic>/lacrosse_ids, <topic>/lacrosse_newid
+static void PublishLaCrosseMqtt(byte *payload) {
+  if (!mqttEnabled) {
+    return;
+  }
+
+  LaCrosse::Frame frame;
+  LaCrosse::DecodeFrame(payload, &frame);
+  if (!frame.IsValid) {
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    logger.println(F("WiFi disconnected - skip MQTT publish"));
+    return;
+  }
+
+  unsigned long timeNow = millis();
+  unsigned int sensorId = frame.ID;
+  if (sensorId >= MAX_LACROSSE_SENSORS) {
+    logger.print("Error - Too big sensor ID received: ");
+    logger.println(sensorId);
+    // limit sensor ID to avoid memory overwrites!
+    sensorId = MAX_LACROSSE_SENSORS - 1;
+  }
+
+  // publish if the sensor was not published within the interval or is received for the first time
+  bool publishData = false;
+  if (client.connected() && ((timeNow - sensorRxTime[sensorId]) > (secBetweenPublish * 1000) || sensorRxTime[sensorId] == 0)) {
+    publishData = true;
+    sensorRxTime[sensorId] = timeNow;
+  }
+  else if (!client.connected()) {
+    logger.println("MQTT unconnected - skip to publish!");
+  }
+
+  // remember the sensor in the bit field of active IDs
+  activeChannel[(sensorId / 8) & 0x0F] |= (1 << (sensorId % 8));
+  char activeChannelStrNew[2 + 2 * ACTIVE_CH_LEN + 1]; // leading '0x' - ...data... - tailing \0 byte
+  activeChannelStrNew[0] = '0';
+  activeChannelStrNew[1] = 'x';
+  activeChannelStrPtr = &activeChannelStrNew[2];
+  for (int i = 0; i < ACTIVE_CH_LEN; i++) {
+    activeChannelStrPtr += sprintf(activeChannelStrPtr, "%02X", activeChannel[ACTIVE_CH_LEN - i - 1]);
+  }
+  bool newId = strcmp(activeChannelStrNew, activeChannelStr) != 0;
+  strcpy(activeChannelStr, activeChannelStrNew);
+
+  if (!publishData) {
+    return;
+  }
+
+  String id = String(frame.ID, HEX);
+  if (id.length() == 1) {
+    id = '0' + id;
+  }
+  id.toUpperCase();
+  String timeNowLocal = getLocalTimeString();
+  logger.println("Publishing LaCrosse " + id + " (" + timeNowLocal + ")");
+
+  if (newId) {
+    PublishValue(mqttTopicBaseGW + "/lacrosse_newid", id);
+  }
+  PublishValue(mqttTopicBaseGW + "/lacrosse_ids", activeChannelStr);
+
+  String topicBase = mqttTopicBaseGW + "/" + id;
+  PublishValue(topicBase + "/newBat", String(frame.NewBatteryFlag, DEC));
+  PublishValue(topicBase + "/temp", String(frame.Temperature));
+  PublishValue(topicBase + "/hum", String(frame.Humidity));
+  PublishValue(topicBase + "/weakBat", String(frame.WeakBatteryFlag, DEC));
+  PublishValue(topicBase + "/timeStamp", timeNowLocal);
+}
+#endif
+
 bool HandleReceivedData(RFMxx *rfm) {
   byte rfmNum = GetRfmNumber(rfm);
-  unsigned long timeNow = millis();
   bool result = false;
-  bool b_publishData = false;
-  char activeChannelStrNew[2 + 2 * ACTIVE_CH_LEN + 1]; //leading '0x' - ...data... - tailing \0 byte
-  String publishData;
 
   rfm->EnableReceiver(false);
   const size_t fifoSize = rfm->GetFiFoSize();
@@ -995,166 +1072,18 @@ bool HandleReceivedData(RFMxx *rfm) {
     return result;
   }
   else {
+#ifdef USE_MQTT_Pubsub
+    if(LaCrosse::IsValidDataRate(rfm->GetDataRate())) {
+      PublishLaCrosseMqtt(payload);
+    }
+#endif
+
     if(ANALYZE_FRAMES > 0) {
       unsigned long dataRate = rfm->GetDataRate();
       if(bitRead(ANALYZE_FRAMES, 0) && LaCrosse::IsValidDataRate(dataRate)) {
-        int startIdx, stopIdx;
-        
         String laCrosseAnalysisString = LaCrosse::AnalyzeFrame(payload);
         logger.println(laCrosseAnalysisString);
-
-#ifdef USE_MQTT_Pubsub
-  if (mqttEnabled) {
-    if(WiFi.status() != WL_CONNECTED){
-      logger.println(F("WiFi disconnected - skip MQTT publish"));
-    } else {
-      if(laCrosseAnalysisString.indexOf("CRC:OK")>=0){
-  
-            logger.print("Epoch time incl DST: ");
-            String timeNowLocal = getLocalTimeString();
-            logger.println(timeNowLocal);
-            
-            //Extract ID
-            startIdx = laCrosseAnalysisString.indexOf("ID:");
-            stopIdx = laCrosseAnalysisString.indexOf("NewBatt:");
-            publishData = laCrosseAnalysisString.substring(startIdx+3, stopIdx-1);
-            if (publishData.length() == 1){
-              publishData = '0' + publishData;
-            }
-            publishData.toUpperCase();
-            String newId = publishData;
-            
-            String mqttTopicBase = mqttTopicBaseGW + "/" + publishData;
-            String mqttTopic = mqttTopicBase;
-  
-            //calculate bit-position of received sensor ID
-            sensorChannelId = strtol(publishData.c_str(),0,16);
-            if (sensorChannelId >= MAX_LACROSSE_SENSORS){
-              logger.print("Error - Too big sensor ID received: ");
-              logger.println(sensorChannelId);  
-              //limit sensor ID to avoid memory overwrites!
-              sensorChannelId = (MAX_LACROSSE_SENSORS-1);          
-            }
-  
-            //use ID to add "last RxTime"
-            //if time passed since last publish of sensor is > TIME_SEC_BETWEEN_PUBLISH OR if sensor data has been received 1st time --> publish sensor data
-            if (client.connected()&&(((timeNow - sensorRxTime[sensorChannelId])>(secBetweenPublish*1000))||(sensorRxTime[sensorChannelId]==0))){
-              //use sensor data
-              b_publishData = true;
-              sensorRxTime[sensorChannelId] = millis();
-              logger.println("Publishing sensor data...");
-            }else if(!client.connected()){
-              logger.println("MQTT unconnected - skip to publish!");
-            }
-            else{
-              logger.println("Data received from same sensor with 10s - skip to publish!");
-            }
-            
-            channelShiftByte = (sensorChannelId / 8);             // ganzkommaTeil der Division = vievieltes byte der 8 bytes
-            channelShiftByte &= 0x0F;                             // sicherstellen dass es keinen Overflow gibt (sollte nicht vokommen)
-            channelShift = (sensorChannelId%8);                   // nachkommaanteil der Division = vievieltes bit in einem bytes
-            activeChannel[channelShiftByte] |= (1<<channelShift); //Bit setzen für neue Kanal-ID
-  
-            //output bit-position byte array as string 0x....
-            activeChannelStrNew[0]='0';
-            activeChannelStrNew[1]='x';
-            activeChannelStrPtr = &activeChannelStrNew[2];
-            for (int i = 0; i < ACTIVE_CH_LEN; i++) {
-              activeChannelStrPtr += sprintf(activeChannelStrPtr, "%02X", activeChannel[ACTIVE_CH_LEN-i-1]);
-            }
-            if(strcmp(activeChannelStrNew,activeChannelStr)){
-              //previousely, ID-string was only published if new ID was discovered (now copy-pasted outside strcmp)
-              /*
-              mqttTopic = mqttTopicBaseGW + "/lacrosse_ids";
-              mqttTopic.toCharArray(bufTopic, 100);
-              if (b_publishData){
-                client.publish(bufTopic, activeChannelStrNew);
-              } 
-              */           
-              mqttTopic = mqttTopicBaseGW + "/lacrosse_newid";
-              mqttTopic.toCharArray(bufTopic, 100);
-              newId.toCharArray(bufData, 30);
-              if (b_publishData){
-                client.publish(bufTopic, bufData);
-              }            
-            }
-            //publish ID-string (better to publish this everstime...)
-            mqttTopic = mqttTopicBaseGW + "/lacrosse_ids";
-            mqttTopic.toCharArray(bufTopic, 100);
-            if (b_publishData){
-              client.publish(bufTopic, activeChannelStrNew);
-            }
-
-            strcpy(activeChannelStr, activeChannelStrNew);
-            
-            logger.print("ID-string: ");
-            logger.println(activeChannelStr);
-            
-            //Extract NewBatt
-            startIdx = stopIdx;
-            stopIdx = laCrosseAnalysisString.indexOf("Bit12:");
-            publishData = laCrosseAnalysisString.substring(startIdx+8, stopIdx-1);
-            // logger.print("NewBatt: ");
-            // logger.println(publishData);
-  
-            mqttTopic = mqttTopicBase + "/newBat";
-            mqttTopic.toCharArray(bufTopic, 100);
-            publishData.toCharArray(bufData, 30);
-            if (b_publishData){
-              client.publish(bufTopic, bufData);
-            }
-  
-            //Extract Temp
-            startIdx = laCrosseAnalysisString.indexOf("Temp:");
-            stopIdx = laCrosseAnalysisString.indexOf("Hum:");
-            publishData = laCrosseAnalysisString.substring(startIdx+5, stopIdx-1);
-            // logger.print("Temp: ");
-            // logger.println(publishData);
-  
-            mqttTopic = mqttTopicBase + "/temp";
-            mqttTopic.toCharArray(bufTopic, 100);
-            publishData.toCharArray(bufData, 30);
-            if (b_publishData){
-              client.publish(bufTopic, bufData);
-            }
-  
-            //Extract Hum
-            startIdx = stopIdx;
-            stopIdx = laCrosseAnalysisString.indexOf("WeakBatt:");
-            publishData = laCrosseAnalysisString.substring(startIdx+4, stopIdx-1);
-            // logger.print("Hum: ");
-            // logger.println(publishData);
-  
-            mqttTopic = mqttTopicBase + "/hum";
-            mqttTopic.toCharArray(bufTopic, 100);
-            publishData.toCharArray(bufData, 30);
-            if (b_publishData){
-              client.publish(bufTopic, bufData);
-            }
-            //Extract WeakBatt
-            startIdx = stopIdx;
-            publishData = laCrosseAnalysisString.substring(startIdx+9, startIdx+10);
-            // logger.print("WeakBatt: ");
-            // logger.println(publishData);
-  
-            mqttTopic = mqttTopicBase + "/weakBat";
-            mqttTopic.toCharArray(bufTopic, 100);
-            publishData.toCharArray(bufData, 30);
-            if (b_publishData){
-              client.publish(bufTopic, bufData);
-            }
-  
-            mqttTopic = mqttTopicBase + "/timeStamp";
-            mqttTopic.toCharArray(bufTopic, 100);
-            timeNowLocal.toCharArray(bufData, 30);
-            if (b_publishData){
-              client.publish(bufTopic, bufData);        
-            }
-          }
-        }
       }
-    }
-  #endif
       if(bitRead(ANALYZE_FRAMES, 1) && TX22IT::IsValidDataRate(dataRate)) {
         logger.println(TX22IT::AnalyzeFrame(payload));
       }
