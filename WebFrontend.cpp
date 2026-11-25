@@ -1569,7 +1569,26 @@ m_webserver.on("/setup", [this]() {
       result += F("<div id='uprogwrap' class='progress-wrap' style='display:none'>");
       result += F("<div class='progress-bar-bg'><div id='uprog' class='progress-bar' style='width:2%'>0%</div></div>");
       result += F("<p id='uprogstat' class='info'>Uploading...</p></div>");
-      result += F("<script>document.getElementById('upform').addEventListener('submit',function(e){e.preventDefault();var f=document.getElementById('upfile').files[0];if(!f){alert('Bitte .bin auswaehlen');return;}document.getElementById('upbtn').disabled=true;document.getElementById('uprogwrap').style.display='block';var fd=new FormData();fd.append('firmware',f);var xhr=new XMLHttpRequest();xhr.upload.onprogress=function(ev){if(ev.lengthComputable){var pct=Math.round(ev.loaded*100/ev.total);document.getElementById('uprog').style.width=pct+'%';document.getElementById('uprog').textContent=pct+'%';document.getElementById('uprogstat').textContent='Uploading: '+ev.loaded+'/'+ev.total+' Bytes';}};xhr.onload=function(){document.getElementById('uprogstat').textContent='Flash OK - Neustart...';document.getElementById('uprog').style.width='100%';document.getElementById('uprog').textContent='100%';setTimeout(function(){location.href='/';},3000);};xhr.onerror=function(){document.getElementById('uprogstat').textContent='Upload-Fehler!';};xhr.open('POST','/update_do');xhr.send(fd);});</script></div>");
+      result += F("<script>"
+        "function upEl(i){return document.getElementById(i);}"
+        "function upSet(p,t,err){var b=upEl('uprog');b.style.width=p+'%';b.textContent=p+'%';"
+          "b.style.background=err?'var(--err)':'';upEl('uprogstat').textContent=t;}"
+        "function upWait(n){fetch('/state',{cache:'no-store'}).then(function(r){if(r.ok)location.href='/';else throw 0;})"
+          ".catch(function(){if(n>0)setTimeout(function(){upWait(n-1);},2000);"
+          "else upEl('uprogstat').textContent='Gateway antwortet nicht. Bitte Seite neu laden.';});}"
+        "upEl('upform').addEventListener('submit',function(e){e.preventDefault();var f=upEl('upfile').files[0];"
+          "if(!f){alert('Bitte .bin auswaehlen');return;}"
+          "f.slice(0,2).arrayBuffer().then(function(h){var b=new Uint8Array(h);"
+            "if(!(b[0]==0xE9||(b[0]==0x1F&&b[1]==0x8B))){alert('Das ist keine ESP8266-Firmware (.bin oder .bin.gz).');return;}"
+            "upEl('upbtn').disabled=true;upEl('uprogwrap').style.display='block';upSet(0,'Lade hoch ...');"
+            "var fd=new FormData();fd.append('firmware',f);var x=new XMLHttpRequest();"
+            "x.upload.onprogress=function(ev){if(!ev.lengthComputable)return;var p=Math.round(ev.loaded*100/ev.total);"
+              "upSet(p,p<100?'Lade hoch: '+Math.round(ev.loaded/1024)+' von '+Math.round(ev.total/1024)+' KB':'Firmware wird geschrieben ...');};"
+            "x.onload=function(){if(x.status==200){upSet(100,'Update OK, Gateway startet neu ...');setTimeout(function(){upWait(30);},4000);}"
+              "else{upSet(100,'Fehler: '+(x.responseText||x.status),true);upEl('upbtn').disabled=false;}};"
+            "x.onerror=function(){upSet(0,'Verbindung unterbrochen, Update nicht abgeschlossen.',true);upEl('upbtn').disabled=false;};"
+            "x.open('POST','/update_do');x.send(fd);});"
+        "});</script></div>");
       result += GetBottom();
       m_webserver.send(200, "text/html", result);
     }
@@ -1593,6 +1612,9 @@ m_webserver.on("/setup", [this]() {
       } else if (upload.status == UPLOAD_FILE_END) {
         if (Update.end(true)) m_logger->println("Update OK, Groesse: " + String(upload.totalSize));
         else m_logger->println("Update.end Fehler: " + String(Update.getErrorString()));
+      } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        Update.end(false);
+        m_logger->println(F("Firmware-Update abgebrochen"));
       }
     }
   );
