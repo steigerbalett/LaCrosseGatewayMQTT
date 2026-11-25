@@ -12,10 +12,10 @@ public:
     word  ID;
     uint32_t TotalSeconds;
     uint32_t OnSeconds;
-    float Consumption;
+    double Consumption;   // kWh
     float Power;
     float MaximumPower;
-    byte NumberOfResets;
+    word NumberOfResets;  // 12 bit
     byte Reception;
     bool IsOn;
     word  CRC;
@@ -27,6 +27,7 @@ public:
   static void DecodeFrame(byte *payload, struct EC3000::Frame *frame);
   static String AnalyzeFrame(byte *payload);
   static String GetFhemDataString(byte *payload);
+  static String GetFhemDataString(byte *payload, struct EC3000::Frame *frame);
   static bool TryHandleData(byte *payload);
   static bool IsValidDataRate(unsigned long dataRate);
 

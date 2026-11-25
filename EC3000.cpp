@@ -42,20 +42,32 @@ bool EC3000::TryHandleData(byte *payload) {
 }
 
 String EC3000::GetFhemDataString(byte *payload) {
-  String fhemString = "";
   struct Frame frame;
+  return GetFhemDataString(payload, &frame);
+}
 
-  DecodeFrame(payload, &frame);
-  if(frame.IsValid) {
-    fhemString = BuildFhemDataString(&frame);
+// Decodes a copy of the payload, so the caller's buffer stays untouched
+// (DecodeFrame works in place) and returns the FHEM string or "" if invalid.
+String EC3000::GetFhemDataString(byte *payload, struct Frame *frame) {
+  byte data[PAYLOAD_SIZE];
+  memcpy(data, payload, PAYLOAD_SIZE);
+  DecodeFrame(data, frame);
+
+  String fhemString = "";
+  if(frame->IsValid) {
+    fhemString = BuildFhemDataString(frame);
   }
 
   return fhemString;
 }
 
-String EC3000::AnalyzeFrame(byte *payload) {
+String EC3000::AnalyzeFrame(byte *data) {
   String result;
   struct Frame frame;
+  // DecodeFrame works in place: analyze a copy, otherwise the normal
+  // decoding after the analysis would see an already descrambled payload
+  byte payload[PAYLOAD_SIZE];
+  memcpy(payload, data, PAYLOAD_SIZE);
   DecodeFrame(payload, &frame);
 
   // Show the raw data bytes
@@ -188,7 +200,8 @@ String EC3000::BuildFhemDataString(struct Frame *frame) {
   result += " ";
   result += (byte)(maximumPower10);
   result += " ";
-  result += (frame->NumberOfResets);
+  // FHEM expects one byte here, as before
+  result += (byte)(frame->NumberOfResets);
   result += " ";
   result += (frame->Reception);
   
@@ -309,11 +322,13 @@ void EC3000::DecodeFrame(byte *payload, struct Frame *frame) {
   
   uint32_t mustBeZero = payload[4] + payload[5] + payload[8] + payload[9] + payload[10] + payload[31] + payload[32];
   
+  // the ID must be set before it is checked
+  frame->ID = (payload[0] << 8) | payload[1];
+
   if (frame->CRC == 0xF0B8 && mustBeZero == 0 && frame->ID != 0x00) {
     frame->IsValid = true;
   }
 
-  frame->ID = (payload[0] << 8) | payload[1];
   frame->TotalSeconds = (uint32_t)payload[29] << 20 | (uint32_t)payload[30] << 12 | (uint32_t)payload[2] << 8 | (uint32_t)payload[3];
   frame->OnSeconds = (uint32_t)payload[35] << 20 | (uint32_t)payload[36] << 12 | (uint32_t)payload[6] << 8 | (uint32_t)payload[7];
 
@@ -328,8 +343,8 @@ void EC3000::DecodeFrame(byte *payload, struct Frame *frame) {
 
   frame->Power = ((word)payload[15] << 8 | (word)payload[16]) / 10.0;
   frame->MaximumPower = ((word)payload[17] << 8 | (word)payload[18]) / 10.0;
-  frame->NumberOfResets = (payload[36] << 4) | (payload[37] >> 4);
-  frame->IsOn = payload[37] & 0x08;
+  frame->NumberOfResets = ((word)payload[36] << 4) | (payload[37] >> 4);
+  frame->IsOn = (payload[37] & 0x08) != 0;
   frame->Reception = 0;
   
 }
