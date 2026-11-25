@@ -374,9 +374,9 @@ const uint8_t RFMxx::GetFiFoSize() {
 void RFMxx::SetHFParameter(byte address, byte value) {
   WriteReg(address, value);
   if(m_debug) {
-    Serial.print("WriteReg:");
+    Serial.print(F("WriteReg:"));
     Serial.print(address);
-    Serial.print("->");
+    Serial.print(F("->"));
     Serial.print(value);
   }
 }
@@ -487,10 +487,10 @@ void RFMxx::SendArray(byte *data, byte length) {
   }
  
   if(m_debug) {
-    Serial.print("Sending data: ");
+    Serial.print(F("Sending data: "));
     for(int p = 0; p < length; p++) {
       Serial.print(data[p], DEC);
-      Serial.print(" ");
+      Serial.print(F(" "));
     }
     Serial.println();
   }

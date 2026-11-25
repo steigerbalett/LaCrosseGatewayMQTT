@@ -62,27 +62,27 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
   static uint lastOtaProgress;
   ArduinoOTA.onStart([]() {
     lastOtaProgress = 0;
-    Serial.println("Starting OTA update");
+    Serial.println(F("Starting OTA update"));
     webServer->stop();
   });
   ArduinoOTA.onEnd([]() {
     Serial.println();
-    Serial.println("OTA update finished");
+    Serial.println(F("OTA update finished"));
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
     if (progress / (total / 100) == lastOtaProgress + 2) {
-      Serial.print(".");
+      Serial.print(F("."));
       lastOtaProgress += 2;
     }
   });
   ArduinoOTA.onError([](ota_error_t error) {
     Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    if (error == OTA_AUTH_ERROR) Serial.println(F("Auth Failed"));
+    else if (error == OTA_BEGIN_ERROR) Serial.println(F("Begin Failed"));
+    else if (error == OTA_CONNECT_ERROR) Serial.println(F("Connect Failed"));
+    else if (error == OTA_RECEIVE_ERROR) Serial.println(F("Receive Failed"));
+    else if (error == OTA_END_ERROR) Serial.println(F("End Failed"));
   });
 
   ArduinoOTA.setPort(8266);

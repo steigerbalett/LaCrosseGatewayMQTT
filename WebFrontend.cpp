@@ -532,7 +532,7 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_webserver.on("/command", [this]() {
     if (IsAuthentified() && m_commandCallback != nullptr) {
       String command = m_webserver.arg("cmd");
-      m_logger->println("Command from frontend: '" + command + "'");
+      m_logger->println(String(F("Command from frontend: '")) + command + F("'"));
       m_commandCallback(command);
       m_webserver.send(200, "text/html", "OK");
     }
@@ -1617,16 +1617,16 @@ m_webserver.on("/setup", [this]() {
     [this]() {
       HTTPUpload& upload = m_webserver.upload();
       if (upload.status == UPLOAD_FILE_START) {
-        m_logger->println("Firmware-Update: " + upload.filename);
+        m_logger->println(String(F("Firmware-Update: ")) + upload.filename);
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
         if (!Update.begin(maxSketchSpace, U_FLASH))
-          m_logger->println("Update.begin Fehler: " + String(Update.getErrorString()));
+          m_logger->println(String(F("Update.begin Fehler: ")) + String(Update.getErrorString()));
       } else if (upload.status == UPLOAD_FILE_WRITE) {
         if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
-          m_logger->println("Update.write Fehler: " + String(Update.getErrorString()));
+          m_logger->println(String(F("Update.write Fehler: ")) + String(Update.getErrorString()));
       } else if (upload.status == UPLOAD_FILE_END) {
-        if (Update.end(true)) m_logger->println("Update OK, Groesse: " + String(upload.totalSize));
-        else m_logger->println("Update.end Fehler: " + String(Update.getErrorString()));
+        if (Update.end(true)) m_logger->println(String(F("Update OK, Groesse: ")) + String(upload.totalSize));
+        else m_logger->println(String(F("Update.end Fehler: ")) + String(Update.getErrorString()));
       } else if (upload.status == UPLOAD_FILE_ABORTED) {
         Update.end(false);
         m_logger->println(F("Firmware-Update abgebrochen"));

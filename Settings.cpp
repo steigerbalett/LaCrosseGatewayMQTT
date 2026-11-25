@@ -20,7 +20,7 @@ void Settings::Read(Logger *logger) {
   }
   EEPROM.end();
 
-  logger->print("Read bytes from EEPROM: ");
+  logger->print(F("Read bytes from EEPROM: "));
   logger->println(i);
 
   if (rawData[0] == 1) {

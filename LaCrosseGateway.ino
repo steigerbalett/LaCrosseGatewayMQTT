@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.54b6"
+#define PROGVERS         "1.39.54b7"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -214,7 +214,7 @@ static void LogBssid(uint8_t *b) {
   for (int i = 0; i < 6; i++) {
     itoa(b[i], obuf, 16);
     logger.print(String(obuf));
-    if (i < 5) logger.print(":");
+    if (i < 5) logger.print(F(":"));
   }
   logger.println("");
 }
@@ -238,21 +238,21 @@ byte scanWifi(String ctSSID) {
   int corrSsidCnt = 0;
   uint8_t *thisBssid;
   
-  logger.println("Number of all SSIDs: " + String(numSsid));
+  logger.println(String(F("Number of all SSIDs: ")) + String(numSsid));
   for (int thisNet = 0; thisNet<numSsid; thisNet++) {
-    logger.println("SSID found: " + WiFi.SSID(thisNet));
+    logger.println(String(F("SSID found: ")) + WiFi.SSID(thisNet));
     if (!strcmp(WiFi.SSID(thisNet).c_str(), ctSSID.c_str())) {
       corrSsidCnt++;
       
       thisBssid = WiFi.BSSID(thisNet);
       (void)thisBssid;
-      logger.print("SSID " + ctSSID + " found on ch: " + String(WiFi.channel(thisNet)) + ", rssi: " + String(WiFi.RSSI(thisNet))+ ", bssid: ");
+      logger.print(String(F("SSID ")) + ctSSID + F(" found on ch: ") + String(WiFi.channel(thisNet)) + F(", rssi: ") + String(WiFi.RSSI(thisNet))+ F(", bssid: "));
       LogBssid(WiFi.BSSID(thisNet));
       logger.println(F(" ,thisNet: ") + String(thisNet));
-      logger.print("Last rssi: " + String(rssi));
+      logger.print(String(F("Last rssi: ")) + String(rssi));
   
       if (WiFi.RSSI(thisNet) > rssi) {
-        logger.println("New bssid copied!");
+        logger.println(F("New bssid copied!"));
         memcpy(bssid, WiFi.BSSID(thisNet), 6);
         channel = WiFi.channel(thisNet);
         rssi = WiFi.RSSI(thisNet);
@@ -322,9 +322,9 @@ EC3000Tracker ec3000Tracker;
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
   if (DebugHelper::enabled) {
-  Serial.print("Message arrived [");
+  Serial.print(F("Message arrived ["));
   Serial.print(topic);
-  Serial.print("] ");
+  Serial.print(F("] "));
   for (unsigned int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
   }
@@ -344,15 +344,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
 void reconnectMqtt() {
   // Loop until we're reconnected
   if (DebugHelper::enabled) {
-  Serial.print("MQTT disconnected - Attempting MQTT connection...");
+  Serial.print(F("MQTT disconnected - Attempting MQTT connection..."));
   }
   // Attempt to connect
-  logger.println("Connecting to MQTT - User/PW (eeprom setting):" + String(mqtt_user) + "/" + String(mqtt_password));
+  logger.println(String(F("Connecting to MQTT - user (eeprom setting): ")) + String(mqtt_user));
   String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
   // last will: the broker sets <topic>/availability to "offline" when the gateway disappears
   String availabilityTopic = mqttTopicBaseGW + "/availability";
   if (client.connect(clientId.c_str(), mqtt_user, mqtt_password, availabilityTopic.c_str(), 0, true, "offline")) {
-      Serial.println("connected");
+      Serial.println(F("connected"));
       client.publish(availabilityTopic.c_str(), "online", true);
       mqttConnects++;
       mqttStatusPending = true;
@@ -362,9 +362,9 @@ void reconnectMqtt() {
       // Subscribe
       client.subscribe("esp32/output");
   } else {
-      Serial.print("failed, rc=");
+      Serial.print(F("failed, rc="));
       Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
+      Serial.println(F(" try again in 5 seconds"));
       // Wait 5 seconds before retrying
       //delay(5000);
   }
@@ -1045,7 +1045,7 @@ static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
   unsigned long timeNow = millis();
   unsigned int sensorId = frame.ID;
   if (sensorId >= MAX_LACROSSE_SENSORS) {
-    logger.print("Error - Too big sensor ID received: ");
+    logger.print(F("Error - Too big sensor ID received: "));
     logger.println(sensorId);
     // limit sensor ID to avoid memory overwrites!
     sensorId = MAX_LACROSSE_SENSORS - 1;
@@ -1058,7 +1058,7 @@ static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
     sensorRxTime[sensorId] = timeNow;
   }
   else if (!client.connected()) {
-    logger.println("MQTT unconnected - skip to publish!");
+    logger.println(F("MQTT unconnected - skip to publish!"));
   }
 
   // remember the sensor in the bit field of active IDs
@@ -1083,7 +1083,7 @@ static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
   }
   id.toUpperCase();
   String timeNowLocal = getLocalTimeString();
-  logger.println("Publishing LaCrosse " + id + " (" + timeNowLocal + ")");
+  logger.println(String(F("Publishing LaCrosse ")) + id + F(" (") + timeNowLocal + F(")"));
 
   if (newId) {
     PublishValue(mqttTopicBaseGW + "/lacrosse_newid", id);
@@ -1247,7 +1247,7 @@ static void PublishEC3000Discovery(EC3000Tracker::Device *device) {
   PublishEC3000DiscoveryEntity(id, "sensor", "rssi", "RSSI", "rssi",
     F("\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\","));
   device->Discovered = true;
-  logger.println("Home Assistant discovery sent for EC3000 " + EC3000IdString(id));
+  logger.println(String(F("Home Assistant discovery sent for EC3000 ")) + EC3000IdString(id));
 }
 #endif
 
@@ -1416,17 +1416,17 @@ bool HandleReceivedData(RFMxx *rfm) {
       if (DebugHelper::enabled) {
           for(int i = 0; i < payloadSize; i++) {
               Serial.print(payload[i], HEX);
-              Serial.print(" ");
+              Serial.print(F(" "));
           }
           Serial.println();
       }
     }
     else {
       if (DebugHelper::enabled) {
-        Serial.print("\r\nEnd receiving, HEX raw data: ");
+        Serial.print(F("\r\nEnd receiving, HEX raw data: "));
         for(int i = 0; i < 16; i++) {
           Serial.print(payload[i], HEX);
-          Serial.print(" ");
+          Serial.print(F(" "));
         }
         Serial.println();
 
@@ -1626,11 +1626,11 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     LogBssid(bssid);;
 
     if (rssi != -999) {
-      logger.println("Connecting to bssid");
+      logger.println(F("Connecting to bssid"));
       WiFi.begin(ctSSID.c_str(), ctPass.c_str(), channel, bssid, true);
     }
     else {
-      logger.println("Connecting to ssid");
+      logger.println(F("Connecting to ssid"));
       WiFi.begin(ctSSID.c_str(), ctPass.c_str());
     }
 
@@ -1638,7 +1638,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
       + F(", rssi: ") + String(WiFi.RSSI()) + F(", bssid: "));
     LogBssid(WiFi.BSSID());
 
-    logger.println("Connect " + String(timeout) + " seconds to an AP (SSID " + String(nbr) + ")");
+    logger.println(String(F("Connect ")) + String(timeout) + F(" seconds to an AP (SSID ") + String(nbr) + F(")"));
     esp.SwitchLed(true, true);
     if (display.IsConnected()) {
       display.ShowProgress(timeout * 2, "Connect WiFi (" + String(nbr) + ")");
@@ -1652,7 +1652,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
       delay(500);
       ESP.wdtFeed();
       yield();
-      logger.print(".");
+      logger.print(F("."));
       esp.SwitchLed(retryCounter % 2 == 0, true);
       if (display.IsConnected()) {
         display.MoveProgress();
@@ -1677,7 +1677,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
 
 [[maybe_unused]] static void RunConfigPortal(Settings &settings, const String &apName) {
   logger.println(F("Starte Konfigurations-Hotspot..."));
-  logger.println("AP-Name: " + apName);
+  logger.println(String(F("AP-Name: ")) + apName);
 
   WiFi.persistent(false);
   WiFi.disconnect(true);
@@ -1797,7 +1797,7 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
   settings.Add("ctSSID", newSSID);
   settings.Add("ctPASS", newPass);
   settings.Write();
-  logger.println("WiFi-Daten gespeichert: SSID='" + newSSID + "'");
+  logger.println(String(F("WiFi-Daten gespeichert: SSID='")) + newSSID + F("'"));
 
   WiFi.softAPdisconnect(true);
   delay(200);
@@ -1832,7 +1832,7 @@ static bool StartWifi(Settings &settings) {
 
   if (!isFirstSetup) {
     // FIX 1: WiFi.begin mit true statt false
-    logger.println("Verbinde mit SSID: " + ctSSID);
+    logger.println(String(F("Verbinde mit SSID: ")) + ctSSID);
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
@@ -1859,7 +1859,7 @@ static bool StartWifi(Settings &settings) {
       delay(500);
       ESP.wdtFeed();
       yield();
-      logger.print(".");
+      logger.print(F("."));
       if (display.IsConnected()) display.MoveProgress();
       if (nextion.IsConnected())  nextion.MoveProgress();
     }
@@ -1885,7 +1885,7 @@ static bool StartWifi(Settings &settings) {
       if (!useStaticIP) {
         logger.println(F("Using DHCP"));
       } else {
-        logger.println("Static IP: " + staticIP + " / " + staticMask + " GW " + staticGW);
+        logger.println(String(F("Static IP: ")) + staticIP + F(" / ") + staticMask + F(" GW ") + staticGW);
         IPAddress dnsIP = staticDNS.length() >= 7
           ? HTML::IPAddressFromString(staticDNS)
           : HTML::IPAddressFromString(staticGW);
@@ -2071,7 +2071,7 @@ void setup(void) {
   logger.SetBufferSize(40);
 
   logger.Clear();
-  logger.println("***CLEARLOG***");
+  logger.println(F("***CLEARLOG***"));
 
   SetDebugMode(DEBUG);
 
@@ -2102,17 +2102,17 @@ void setup(void) {
   }
 
   logger.print(PROGNAME);
-  logger.print(" V");
+  logger.print(F(" V"));
   logger.println(PROGVERS);
-  logger.print("Free heap: ");
+  logger.print(F("Free heap: "));
   logger.print(ESP.getFreeHeap());
-  logger.print(" Flash size: ");
+  logger.print(F(" Flash size: "));
   logger.print(ESP.getFlashChipSizeByChipId());
-  logger.print(" Core: ");
+  logger.print(F(" Core: "));
   logger.print(ESP.getCoreVersion());
-  logger.print(" SDK: ");
+  logger.print(F(" SDK: "));
   logger.println(ESP.getSdkVersion());
-  logger.print("Reset: ");
+  logger.print(F("Reset: "));
   logger.println(ESP.getResetReason());
   logger.println(ESP.getResetInfo());
 
@@ -2129,9 +2129,9 @@ void setup(void) {
   SPI.begin();
 
   dbgStep(2, "I2C init");
-  logger.print("Starting I2C with ");
+  logger.print(F("Starting I2C with "));
   logger.print(String(i2cClock / 1000));
-  logger.println(" kHz");
+  logger.println(F(" kHz"));
   Wire.begin();
   Wire.setClock(i2cClock);
   Wire.setClockStretchLimit(1000);
@@ -2167,14 +2167,14 @@ void setup(void) {
 
   if (display.Begin(&stateManager, displayStartMode,
       settings.GetBool("oled13", false) ? OLED::Controllers::SH1106 : OLED::Controllers::SSD1306)) {
-    logger.println("OLED found");
+    logger.println(F("OLED found"));
     delay(500);
   }
 
   delay(250);
   sc16is750.Begin(57600, false);
   if (sc16is750.IsConnected()) {
-    logger.println("SC16IS750 (0x90) found");
+    logger.println(F("SC16IS750 (0x90) found"));
     if (!useSerialBridge) {
       subProcessor.SetLogItemCallback([](String logItem, bool newLine) {
         if (newLine) logger.println(logItem); else logger.print(logItem);
@@ -2182,7 +2182,7 @@ void setup(void) {
       subProcessor.SetProgressCallback([](byte action, unsigned long currentValue, unsigned long maxValue, String message) {
         HandleProgressRequest(action, currentValue, maxValue, message);
       });
-      logger.println("SubProcessor vorgemerkt");
+      logger.println(F("SubProcessor vorgemerkt"));
     }
     serialBridge.SetLogItemCallback([](String logItem, bool newLine) {
       if (newLine) logger.println(logItem); else logger.print(logItem);
@@ -2199,7 +2199,7 @@ void setup(void) {
 
   sc16is750_2.Begin(57600, false);
   if (sc16is750_2.IsConnected()) {
-    logger.println("SC16IS750 (0x92) found");
+    logger.println(F("SC16IS750 (0x92) found"));
     if (!useSerialBridge2) {
       subProcessor2.SetLogItemCallback([](String logItem, bool newLine) {
         if (newLine) logger.println(logItem); else logger.print(logItem);
@@ -2220,11 +2220,11 @@ void setup(void) {
   rfms[4] = &rfm5;
 
   rfm1.Begin();
-  logger.println("rfm1 connected: " + String(rfm1.IsConnected()));
+  logger.println(String(F("rfm1 connected: ")) + String(rfm1.IsConnected()));
   rfm2.Begin();
-  logger.println("rfm2 connected: " + String(rfm2.IsConnected()));
+  logger.println(String(F("rfm2 connected: ")) + String(rfm2.IsConnected()));
   rfm3.Begin();
-  logger.println("rfm3 connected: " + String(rfm3.IsConnected()));
+  logger.println(String(F("rfm3 connected: ")) + String(rfm3.IsConnected()));
   if (sc16is750.IsConnected()) {
     rfm4.Begin();
     rfm5.Begin();
@@ -2233,18 +2233,18 @@ void setup(void) {
   ownSensors.TryInitialize(!rfm3.IsConnected(), !rfm2.IsConnected() && !rfm3.IsConnected(), settings.GetBool("PRD", false));
 
   int altitude = settings.GetInt("Altitude", 0);
-  logger.println("Configured altitude: " + String(altitude));
+  logger.println(String(F("Configured altitude: ")) + String(altitude));
   ownSensors.SetAltitudeAboveSeaLevel(altitude);
   ownSensors.SetCorrections(settings.Get("CorrT", "0"), settings.Get("CorrH", "0"));
 
-  if (ownSensors.HasBMP180()) logger.println("BMP180 found");
-  if (ownSensors.HasBMP280()) logger.println("BMP280 found");
-  if (ownSensors.HasBME280()) logger.println("BME280 found");
-  if (ownSensors.HasBME680()) logger.println("BME680 found");
-  if (ownSensors.HasDHT22())  logger.println("DHT22 found");
-  if (ownSensors.HasLM75())   logger.println("LM75 found");
-  if (ownSensors.HasSHT75())  logger.println("SHT75 found");
-  if (ownSensors.HasBH1750()) logger.println("BH1750 found");
+  if (ownSensors.HasBMP180()) logger.println(F("BMP180 found"));
+  if (ownSensors.HasBMP280()) logger.println(F("BMP280 found"));
+  if (ownSensors.HasBME280()) logger.println(F("BME280 found"));
+  if (ownSensors.HasBME680()) logger.println(F("BME680 found"));
+  if (ownSensors.HasDHT22())  logger.println(F("DHT22 found"));
+  if (ownSensors.HasLM75())   logger.println(F("LM75 found"));
+  if (ownSensors.HasSHT75())  logger.println(F("SHT75 found"));
+  if (ownSensors.HasBH1750()) logger.println(F("BH1750 found"));
 
   KVINTERVAL = settings.GetInt("KVInterval", KVINTERVAL);
   OSINTERVAL = settings.GetInt("ISIV", OSINTERVAL) * 1000;
@@ -2260,25 +2260,25 @@ void setup(void) {
   esp.Blink(5, true);
 
   accessPoint.SetLogItemCallback([](String logItem) {
-    logger.println("AccessPoint: " + logItem);
+    logger.println(String(F("AccessPoint: ")) + logItem);
   });
 
   if (settings.Get("Flags", "").indexOf("LOG.PCA301") != -1) {
     pca301.EnableLogging(true);
   }
   pca301.SetLogItemCallback([](String logItem) {
-    logger.println("PCA301: " + logItem);
+    logger.println(String(F("PCA301: ")) + logItem);
   });
 
   if (digitalPorts.Begin(
       [](String data)    { Dispatch(data); },
       [](String command) { CommandHandler(command); },
       settings)) {
-    logger.println("MCP23008 found");
+    logger.println(F("MCP23008 found"));
   }
 
   dbgStep(3, "Searching RFMs and Sensors");
-  logger.println("Searching RFMs and Sensors");
+  logger.println(F("Searching RFMs and Sensors"));
 
   auto parseDataRateWithDefault = [](const String &s, unsigned long def) -> unsigned long {
     if (s == "17.241") return 17241ul;
@@ -2297,7 +2297,7 @@ void setup(void) {
     if (!g_radio[i].enabled) {
       if (rfms[i]->IsConnected()) {
         rfms[i]->EnableReceiver(false);
-        logger.println("Radio #" + String(i + 1) + " deaktiviert (Settings)");
+        logger.println(String(F("Radio #")) + String(i + 1) + F(" deaktiviert (Settings)"));
       }
       continue;
     }
@@ -2322,10 +2322,10 @@ void setup(void) {
   if (USE_WIFI) {
     int startupDelay = settings.GetInt("StartupDelay", 0);
     if (startupDelay > 0) {
-      logger.println("Startup delay: " + String(startupDelay) + " seconds");
+      logger.println(String(F("Startup delay: ")) + String(startupDelay) + F(" seconds"));
       for (int _sd = 0; _sd < startupDelay * 2; _sd++) { delay(500); ESP.wdtFeed(); yield(); }
     }
-    logger.println("Starting wifi");
+    logger.println(F("Starting wifi"));
     dbgStep(5, "vor StartWifi()");
     frontend = new WebFrontend(FRONTEND_PORT);
     dbgStep(6, "WebFrontend alloziert, rufe StartWifi()");
@@ -2357,7 +2357,7 @@ void setup(void) {
         subProcessor2.Reset();
       }
 
-      logger.println("Starting OTA");
+      logger.println(F("Starting OTA"));
       ota.Begin(frontend->WebServer());
       frontend->WebServer()->on("/api/data", HTTP_GET, []() {
         HandleApiData(frontend->WebServer());
@@ -2367,17 +2367,17 @@ void setup(void) {
       uint16_t p2 = settings.GetInt("DataPort2", 0);
       uint16_t p3 = settings.GetInt("DataPort3", 0);
       if (p1 > 0) {
-        logger.print("Starting data port 1 on "); logger.println(p1);
+        logger.print(F("Starting data port 1 on ")); logger.println(p1);
         dataPort1.Begin(p1);
         dataPort1.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
       if (p2 > 0) {
-        logger.print("Starting data port 2 on "); logger.println(p2);
+        logger.print(F("Starting data port 2 on ")); logger.println(p2);
         dataPort2.Begin(p2);
         dataPort2.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
       if (p3 > 0) {
-        logger.print("Starting data port 3 on "); logger.println(p3);
+        logger.print(F("Starting data port 3 on ")); logger.println(p3);
         dataPort3.Begin(p3);
         dataPort3.SetLogItemCallback([](String logItem) { logger.println(logItem); });
       }
@@ -2389,7 +2389,7 @@ void setup(void) {
           serialBridge.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
             HandleProgressRequest(action, cur, max, msg);
           });
-          logger.println("Starting serial bridge on port " + String(sbPort) + " with " + sbBaud + " baud");
+          logger.println(String(F("Starting serial bridge on port ")) + String(sbPort) + F(" with ") + sbBaud + F(" baud"));
           serialBridge.Begin(sbPort, frontend->WebServer());
           serialBridge.SetBaudrate(sbBaud);
         }
@@ -2401,7 +2401,7 @@ void setup(void) {
           serialBridge2.SetProgressCallback([](byte action, unsigned long cur, unsigned long max, String msg) {
             HandleProgressRequest(action, cur, max, msg);
           });
-          logger.println("Starting serial bridge 2 on port " + String(sbPort) + " with " + sbBaud + " baud");
+          logger.println(String(F("Starting serial bridge 2 on port ")) + String(sbPort) + F(" with ") + sbBaud + F(" baud"));
           serialBridge2.Begin(sbPort, frontend->WebServer());
           serialBridge2.SetBaudrate(sbBaud);
         }
@@ -2418,10 +2418,10 @@ void setup(void) {
           softSerialBridge.SetConnectCallback([](bool isConnected) {
             bridge2Connected = isConnected;
             if (display.IsConnected()) display.SetAddonFlag(isConnected);
-            logger.println("SoftSerialBridge Connect: " + String(isConnected));
+            logger.println(String(F("SoftSerialBridge Connect: ")) + String(isConnected));
           });
 
-          logger.println("Soft serial bridge port:" + String(softSerialBridgePort) + " baud:" + softSerialBridgeBaud);
+          logger.println(String(F("Soft serial bridge port:")) + String(softSerialBridgePort) + F(" baud:") + softSerialBridgeBaud);
           softSerialBridge.Begin(softSerialBridgePort, softSerialBridgeBaud, frontend->WebServer());
 
           if (settings.GetBool("IsNextion", false)) {
@@ -2430,7 +2430,7 @@ void setup(void) {
             });
             if (nextion.Begin(frontend->WebServer(), softSerialBridge.GetSoftSerial(), softSerialBridgeBaud,
                               settings.GetBool("AddUnits", false), settings.GetBool("PRD", false))) {
-              logger.println("Nextion initialized");
+              logger.println(F("Nextion initialized"));
             }
           }
         }
@@ -2495,7 +2495,7 @@ void setup(void) {
     haDiscovery = settings.GetBool("haDiscovery", true);
     gatewayName = settings.Get("HostName", "LaCrosseGateway");
 
-    logger.println(F("MQTT aktiviert: ") + String(mqtt_server) + ":" + String(mqtt_port)
+    logger.println(F("MQTT aktiviert: ") + String(mqtt_server) + F(":") + String(mqtt_port)
       + F(" Interval:") + String(secBetweenPublish) + F(" Topic:") + mqttTopicBaseGW);
 
     client.setServer(mqtt_server, mqtt_port);
@@ -2511,10 +2511,10 @@ void setup(void) {
 #endif
 
   delay(1000);
-  logger.println("Sending init String to FHEM");
+  logger.println(F("Sending init String to FHEM"));
   HandleCommandV();
 
-  logger.println("Setup completely done");
+  logger.println(F("Setup completely done"));
   // the settings are only needed during setup: free the heap they hold (several KB)
   delete pSettings;
   pSettings = nullptr;
@@ -2595,13 +2595,13 @@ void loop(void) {
 
         WSBase::Frame actOwnData;
         actOwnData = ownSensors.GetDataFrame();
-        logger.print("Current Temperature: ");
+        logger.print(F("Current Temperature: "));
         logger.println(actOwnData.Temperature);
-        logger.print("Current Humidity: ");
+        logger.print(F("Current Humidity: "));
         logger.println(actOwnData.Humidity);
 
         if (mqttEnabled && client.connected() && (WiFi.status() == WL_CONNECTED)) {
-          logger.println("Publishing sensor data...");
+          logger.println(F("Publishing sensor data..."));
 
           ltoa(WiFi.RSSI(), bufData, 10);
           mqttTopic = mqttTopicBaseGW + "/rssi";
@@ -2625,7 +2625,7 @@ void loop(void) {
           client.publish(bufTopic, bufData);
 
         } else {
-          logger.println("MQTT unconnected and or Wifi unconnected - skip to publish!");
+          logger.println(F("MQTT unconnected and or Wifi unconnected - skip to publish!"));
         }
 
         if (data.length() > 0) {

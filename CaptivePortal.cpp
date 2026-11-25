@@ -35,7 +35,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
     ? "LaCrosseGW-" + String(ESP.getChipId(), HEX)
     : apSSID;
 
-  m_logger->println("[CaptivePortal] Starting AP: " + m_apSSID);
+  m_logger->println(String(F("[CaptivePortal] Starting AP: ")) + m_apSSID);
   CP_DBGF("AP-SSID: %s", m_apSSID.c_str());
 
   CP_DBG("WiFi reset");
@@ -65,7 +65,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
   if (!apOk) {
     CP_DBG("ERROR: softAP failed");
-    m_logger->println("[CaptivePortal] ERROR: softAP failed");
+    m_logger->println(F("[CaptivePortal] ERROR: softAP failed"));
     ets_delay_us(3000000UL);
     ESP.restart();
     return;
@@ -79,7 +79,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
   CP_DBGF("DNS: %s", m_dnsActive ? "OK" : "FAILED");
 
   CP_DBG("WiFi scan");
-  m_logger->println("[CaptivePortal] Scanning WiFi...");
+  m_logger->println(F("[CaptivePortal] Scanning WiFi..."));
   WiFi.scanNetworks(true, false);
 
   uint32_t scanStart = millis();
@@ -101,7 +101,7 @@ void CaptivePortal::Begin(Settings *settings, Logger *logger,
 
   CP_DBG("Webserver started – http://192.168.4.1");
   CP_HEAP();
-  m_logger->println("[CaptivePortal] Webserver ready – http://192.168.4.1");
+  m_logger->println(F("[CaptivePortal] Webserver ready – http://192.168.4.1"));
 }
 
 void CaptivePortal::registerRoutes() {
@@ -195,7 +195,7 @@ void CaptivePortal::Handle() {
     if (m_restartPending && m_doneSince > 0 &&
         (millis() - m_doneSince) > 1500UL) {
       CP_DBG("Restarting...");
-      m_logger->println("[CaptivePortal] Restarting...");
+      m_logger->println(F("[CaptivePortal] Restarting..."));
       End();
       ESP.restart();
     }
@@ -205,7 +205,7 @@ void CaptivePortal::Handle() {
   if (m_timeoutS > 0 &&
       (millis() - m_startMs) > (uint32_t)m_timeoutS * 1000UL) {
     CP_DBGF("Timeout nach %ds", m_timeoutS);
-    m_logger->println("[CaptivePortal] Timeout");
+    m_logger->println(F("[CaptivePortal] Timeout"));
     m_restartPending = false;
     m_doneSince      = millis();
     m_done           = true;
@@ -226,7 +226,7 @@ void CaptivePortal::End() {
   WiFi.mode(WIFI_STA);
   ets_delay_us(100000UL);
   ESP.wdtFeed();
-  m_logger->println("[CaptivePortal] Closed");
+  m_logger->println(F("[CaptivePortal] Closed"));
 }
 
 String CaptivePortal::buildScanHtml() {

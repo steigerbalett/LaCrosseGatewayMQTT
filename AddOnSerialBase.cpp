@@ -43,7 +43,7 @@ void AddOnSerialBase::Begin() {
       Log("Start receiving '", false);
       Log(upload.filename, false);
       Log("'");
-      ////Serial.println("==== STOP ====");
+      ////Serial.println(F("==== STOP ===="));
       ////m_server->stop();
       String path = "/" + upload.filename;
       LittleFS.begin();
@@ -60,7 +60,7 @@ void AddOnSerialBase::Begin() {
         m_uploadFile.close();
       }
       ////m_server->begin();
-      ////Serial.println("==== BEGIN ====");
+      ////Serial.println(F("==== BEGIN ===="));
     }
     yield();
   });
