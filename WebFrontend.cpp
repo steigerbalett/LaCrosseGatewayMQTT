@@ -389,7 +389,9 @@ String WebFrontend::GetTop() {
   result += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
   result += F("<head><title>"); result += GetDisplayName(); result += F("</title>");
   result += FPSTR(LGWMQTT_FAVICON);
-  result += F("<style>"); result += FPSTR(LGWMQTT_CSS); result += F("</style>");
+  // CSS as its own file: copying 4.5 KB into every page needs a large free heap block,
+  // without it the String concatenation silently drops the CSS
+  result += F("<link rel='stylesheet' href='/lgw.css?v="); result += m_stateManager->GetVersion(); result += F("'>");
   result += FPSTR(LGWMQTT_JS_THEME);
   result += F("</head><body>");
   result += F("<div class='hdr'>");
@@ -533,6 +535,13 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 
   m_webserver.on("/state", [this]() {
     m_webserver.send(200, "text/xml", m_stateManager->GetXML());
+  });
+
+  // stylesheet of all pages (no login, also needed by the login page), cached by the browser;
+  // ?v=<version> in the links makes the browser load it again after an update
+  m_webserver.on("/lgw.css", HTTP_GET, [this]() {
+    m_webserver.sendHeader("Cache-Control", "public, max-age=604800");
+    m_webserver.send_P(200, "text/css", LGWMQTT_CSS);
   });
 
   m_webserver.on("/live", [this]() {
@@ -1543,7 +1552,7 @@ m_webserver.on("/setup", [this]() {
     content += F("<!DOCTYPE HTML><html><head><meta charset='utf-8'>");
     content += F("<meta name='viewport' content='width=device-width,initial-scale=1'>");
     content += FPSTR(LGWMQTT_FAVICON);
-    content += F("<style>"); content += FPSTR(LGWMQTT_CSS); content += F("</style></head><body>");
+    content += F("<link rel='stylesheet' href='/lgw.css?v="); content += m_stateManager->GetVersion(); content += F("'></head><body>");
     content += F("<div style='display:flex;justify-content:center;align-items:center;min-height:80vh'>");
     content += F("<div class='card' style='min-width:320px;text-align:center'>");
     content += F("<h2>&#127777; LaCrosseGateway V"); content += m_stateManager->GetVersion(); content += F("</h2>");
