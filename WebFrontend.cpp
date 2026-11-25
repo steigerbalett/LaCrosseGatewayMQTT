@@ -479,7 +479,7 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "PRD"             || key == "IsNextion"       ||
                          key == "AddUnits"        || key == "AsDataFull"      ||
                          key == "ToggleLed"       || key == "oled13"          ||
-                         key == "debug");
+                         key == "debug"           || key == "haDiscovery");
       if (isCheckbox) merged->Add(key, "false");
     }
   }
@@ -841,8 +841,8 @@ m_webserver.on("/save_wlan", HTTP_POST, [this]() {
 m_webserver.on("/save_mqtt", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
   const char* keys[] = {"serverIpMqtt","serverPortMqtt","mqttUser","mqttPass",
-                         "topic","pubInt","ext1","ext2","ext3"};
-  String info = SaveSelectedKeys(keys, 9, false);
+                         "topic","pubInt","ext1","ext2","ext3","haDiscovery"};
+  String info = SaveSelectedKeys(keys, 10, false);
   m_webserver.send(200, "text/html", GetTop() +
     F("<div class='card'><h3 style='color:var(--ok)'>&#10003; MQTT gespeichert</h3><p>") +
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
@@ -1208,6 +1208,10 @@ m_webserver.on("/setup", [this]() {
     data += F(" Ext1: <input name='ext1' size='5' maxlength='4' value='"); data += settings->Get("ext1", "0"); data += F("'>");
     data += F(" Ext2: <input name='ext2' size='5' maxlength='5' value='"); data += settings->Get("ext2", "0"); data += F("'>");
     data += F(" Ext3: <input name='ext3' size='5' maxlength='5' value='"); data += settings->Get("ext3", "0"); data += F("'></td></tr>");
+    data += F("<tr><td><label>Home Assistant:</label></td><td>");
+    data += F("<input type='checkbox' name='haDiscovery' value='true'");
+    data += settings->GetBool("haDiscovery", true) ? F(" checked") : F("");
+    data += F("> MQTT-Discovery senden <span class='info'>(EC3000 erscheinen automatisch als Ger&auml;te, Neustart n&ouml;tig)</span></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; MQTT speichern'>");
     data += F("</div></form>");

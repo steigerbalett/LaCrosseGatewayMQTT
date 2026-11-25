@@ -34,6 +34,7 @@ public:
     unsigned long LastSeen;
     unsigned long LastPublish;
     bool Published;
+    bool Discovered;         // Home Assistant discovery sent on the current MQTT connection
     byte Discards;           // consecutive discarded frames
     unsigned long Accepted;  // accepted frames since boot
     unsigned long Rejected;  // discarded frames since boot
@@ -47,6 +48,8 @@ public:
   // true if the device is confirmed and was never published or the interval has passed
   bool ShouldPublish(Device *device, unsigned long intervalMs);
   void SetPublished(Device *device);
+  // after a new MQTT connection the discovery has to be sent again
+  void ResetDiscovery();
 
   byte GetCapacity() { return MAX_DEVICES; }
   Device *GetAt(byte index) { return index < MAX_DEVICES ? &m_devices[index] : nullptr; }

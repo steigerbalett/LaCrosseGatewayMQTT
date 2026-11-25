@@ -190,6 +190,9 @@ Logger logger;
   char mqtt_user[40] = "";
   char mqtt_password[64] = "";
   String mqttTopicBaseGW = "lacrossegateway";
+  bool haDiscovery = true;                    // Home Assistant MQTT discovery
+  #define HA_DISCOVERY_PREFIX "homeassistant"
+  #define MQTT_BUFFER_SIZE 1024               // discovery messages are bigger than the default 256 bytes
 #endif
 
 static String getLocalTimeString() {
@@ -308,6 +311,7 @@ SerialPortFlasher serialPortFlasher;
 AnalogPort analogPort;
 bool logIsCleared = false;
 bool mqttEnabled = false;
+EC3000Tracker ec3000Tracker;
 
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -341,6 +345,8 @@ void reconnectMqtt() {
   String clientId = "LaCrosseGW_" + String(ESP.getChipId(), HEX);
   if (client.connect(clientId.c_str(), mqtt_user, mqtt_password )) {
       Serial.println("connected");
+      // the broker may have lost the retained discovery messages: send them again
+      ec3000Tracker.ResetDiscovery();
       // Subscribe
       client.subscribe("esp32/output");
   } else {
@@ -1048,8 +1054,6 @@ static void PublishLaCrosseMqtt(byte *payload) {
 }
 #endif
 
-EC3000Tracker ec3000Tracker;
-
 static String EC3000IdString(word id) {
   char buf[5];
   snprintf(buf, sizeof(buf), "%04X", id);
@@ -1073,6 +1077,53 @@ static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
 }
 #endif
 
+#ifdef USE_MQTT_Pubsub
+static String GatewayDeviceId() {
+  return "lgw_" + String(ESP.getChipId(), HEX);
+}
+
+// One Home Assistant entity of an EC3000 device
+static void PublishEC3000DiscoveryEntity(word id, const char *component, const char *key, const char *name,
+                                         const char *valueTemplate, const char *extra) {
+  static char json[MQTT_BUFFER_SIZE - 160];
+  String idStr = EC3000IdString(id);
+  String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
+  unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
+  snprintf(json, sizeof(json),
+    "{\"name\":\"%s\",\"unique_id\":\"lgw_ec3000_%s_%s\",\"state_topic\":\"%s\","
+    "\"value_template\":\"{{ value_json.%s }}\",\"expire_after\":%lu,%s"
+    "\"device\":{\"identifiers\":[\"lgw_ec3000_%s\"],\"name\":\"EC3000 %s\","
+    "\"manufacturer\":\"Conrad\",\"model\":\"Energy Count 3000\",\"via_device\":\"%s\"}}",
+    name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, extra,
+    idStr.c_str(), idStr.c_str(), GatewayDeviceId().c_str());
+  String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_ec3000_" + idStr + "/" + key + "/config";
+  client.publish(topic.c_str(), json, true);
+}
+
+// Home Assistant MQTT discovery for one EC3000 (retained, once per MQTT connection)
+static void PublishEC3000Discovery(EC3000Tracker::Device *device) {
+  word id = device->ID;
+  PublishEC3000DiscoveryEntity(id, "sensor", "power", "Power", "power",
+    "\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"state_class\":\"measurement\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "energy", "Energy", "energy",
+    "\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total_increasing\",");
+  PublishEC3000DiscoveryEntity(id, "binary_sensor", "state", "State", "state",
+    "\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"device_class\":\"power\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "max_power", "Maximum power", "max_power",
+    "\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"entity_category\":\"diagnostic\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "on_seconds", "On time", "on_seconds",
+    "\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "total_seconds", "Total time", "total_seconds",
+    "\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "resets", "Resets", "resets",
+    "\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+  PublishEC3000DiscoveryEntity(id, "sensor", "rssi", "RSSI", "rssi",
+    "\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\",");
+  device->Discovered = true;
+  logger.println("Home Assistant discovery sent for EC3000 " + EC3000IdString(id));
+}
+#endif
+
 static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
   bool accepted;
   String reason;
@@ -1090,6 +1141,9 @@ static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum)
   }
 #ifdef USE_MQTT_Pubsub
   if (accepted && mqttEnabled && client.connected() && ec3000Tracker.ShouldPublish(device, secBetweenPublish * 1000UL)) {
+    if (haDiscovery && !device->Discovered) {
+      PublishEC3000Discovery(device);
+    }
     PublishEC3000Mqtt(device);
   }
 #endif
@@ -2228,11 +2282,13 @@ void setup(void) {
     strcpy(mqtt_password, settings.Get("mqttPass", "").c_str());
     secBetweenPublish = atoi(settings.Get("pubInt", "20").c_str());
     mqttTopicBaseGW = settings.Get("topic", "esp8266_lacrossegateway");
+    haDiscovery = settings.GetBool("haDiscovery", true);
 
     logger.println(F("MQTT aktiviert: ") + String(mqtt_server) + ":" + String(mqtt_port)
       + F(" Interval:") + String(secBetweenPublish) + F(" Topic:") + mqttTopicBaseGW);
 
     client.setServer(mqtt_server, mqtt_port);
+    client.setBufferSize(MQTT_BUFFER_SIZE);
     client.setCallback(callback);
     delay(500);
 

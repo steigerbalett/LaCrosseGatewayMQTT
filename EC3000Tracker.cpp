@@ -138,3 +138,9 @@ void EC3000Tracker::SetPublished(Device *device) {
   device->Published = true;
   device->LastPublish = millis();
 }
+
+void EC3000Tracker::ResetDiscovery() {
+  for (byte i = 0; i < MAX_DEVICES; i++) {
+    m_devices[i].Discovered = false;
+  }
+}
