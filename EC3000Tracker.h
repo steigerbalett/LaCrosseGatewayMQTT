@@ -23,6 +23,8 @@ public:
   static constexpr float MAX_POWER_W = 3700.0;      // 16 A at 230 V
   static const byte MAX_RESET_STEP = 5;
   static const byte REBASE_AFTER_DISCARDS = 3;      // consecutive discards until a new baseline is taken
+  static const byte HISTORY_LEN = 30;               // power values for the live page
+  static const unsigned long HISTORY_STEP_MS = 10000; // at most one value every 10 s (30 values = 5 min)
 
   struct Device {
     bool Used;
@@ -38,7 +40,14 @@ public:
     byte Discards;           // consecutive discarded frames
     unsigned long Accepted;  // accepted frames since boot
     unsigned long Rejected;  // discarded frames since boot
+    word History[HISTORY_LEN];  // power * 10, oldest first starting at HistoryHead
+    byte HistoryCount;
+    byte HistoryHead;
+    unsigned long LastHistory;
   };
+
+  // power history in chronological order (W), returns the number of values
+  byte GetHistory(Device *device, float *values);
 
   // Checks the frame and stores it if it is plausible.
   // Returns the device slot (never nullptr), accepted tells if the frame was taken,

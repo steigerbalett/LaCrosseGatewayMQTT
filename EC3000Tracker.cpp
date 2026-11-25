@@ -38,6 +38,25 @@ void EC3000Tracker::Store(Device *device, const EC3000::Frame &frame, int rssi, 
   device->LastSeen = millis();
   device->Discards = 0;
   device->Accepted++;
+
+  if (device->HistoryCount == 0 || millis() - device->LastHistory >= HISTORY_STEP_MS) {
+    float power = frame.Power < 0 ? 0 : frame.Power;
+    device->History[(device->HistoryHead + device->HistoryCount) % HISTORY_LEN] = (word)(power * 10 + 0.5);
+    if (device->HistoryCount < HISTORY_LEN) {
+      device->HistoryCount++;
+    }
+    else {
+      device->HistoryHead = (device->HistoryHead + 1) % HISTORY_LEN;
+    }
+    device->LastHistory = millis();
+  }
+}
+
+byte EC3000Tracker::GetHistory(Device *device, float *values) {
+  for (byte i = 0; i < device->HistoryCount; i++) {
+    values[i] = device->History[(device->HistoryHead + i) % HISTORY_LEN] / 10.0;
+  }
+  return device->HistoryCount;
 }
 
 String EC3000Tracker::CheckFrame(const EC3000::Frame &frame) {

@@ -1,5 +1,6 @@
 //attr myLaCrosseGateway1 initCommands 1,868950,17241#r1 9579#2r 8842#3r v
 #include "WebFrontend.h"
+#include "LivePage.h"
 #include "DebugHelper.h"
 #include <EEPROM.h>
 #include "Settings.h"
@@ -404,6 +405,7 @@ String WebFrontend::GetTop() {
 String WebFrontend::GetNavigation() {
   String result = F("<nav style='margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--div)'>");
   result += F("<a href='/'>&#127968; Home</a>");
+  result += F("<a href='live'>&#128200; Live</a>");
   result += F("<a href='setup'>&#9881;&#65039; Setup</a>");
   result += F("<a href='hardware'>&#128296; Hardware</a>");
   result += F("<a href='ota'>&#8593;&#65039; OTA-Update</a>");
@@ -531,6 +533,17 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 
   m_webserver.on("/state", [this]() {
     m_webserver.send(200, "text/xml", m_stateManager->GetXML());
+  });
+
+  m_webserver.on("/live", [this]() {
+    if (IsAuthentified()) {
+      m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
+      m_webserver.send(200, "text/html", "");
+      m_webserver.sendContent(GetTop() + GetNavigation());
+      m_webserver.sendContent_P(LIVE_PAGE_HTML);
+      m_webserver.sendContent(GetBottom());
+      m_webserver.sendContent("");
+    }
   });
 
   m_webserver.on("/help", [this]() {

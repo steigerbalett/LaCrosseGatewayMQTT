@@ -970,6 +970,45 @@ static byte GetRfmNumber(RFMxx *rfm) {
   return 0;
 }
 
+// Last values of the LaCrosse sensors for /api/data and the live page
+struct LaCrosseEntry {
+  bool Used;
+  byte ID;
+  float Temperature;
+  byte Humidity;
+  bool NewBattery;
+  bool WeakBattery;
+  int RSSI;
+  unsigned long LastSeen;
+};
+#define MAX_LACROSSE_ENTRIES 24
+LaCrosseEntry laCrosseEntries[MAX_LACROSSE_ENTRIES] = {};
+
+static void RecordLaCrosse(const LaCrosse::Frame &frame, int rssi) {
+  // same ID, else a free slot, else the sensor not seen for the longest time
+  LaCrosseEntry *slot = nullptr;
+  for (byte i = 0; i < MAX_LACROSSE_ENTRIES && slot == nullptr; i++) {
+    if (laCrosseEntries[i].Used && laCrosseEntries[i].ID == frame.ID) slot = &laCrosseEntries[i];
+  }
+  for (byte i = 0; i < MAX_LACROSSE_ENTRIES && slot == nullptr; i++) {
+    if (!laCrosseEntries[i].Used) slot = &laCrosseEntries[i];
+  }
+  if (slot == nullptr) {
+    slot = &laCrosseEntries[0];
+    for (byte i = 1; i < MAX_LACROSSE_ENTRIES; i++) {
+      if (millis() - laCrosseEntries[i].LastSeen > millis() - slot->LastSeen) slot = &laCrosseEntries[i];
+    }
+  }
+  slot->Used = true;
+  slot->ID = frame.ID;
+  slot->Temperature = frame.Temperature;
+  slot->Humidity = frame.Humidity;
+  slot->NewBattery = frame.NewBatteryFlag;
+  slot->WeakBattery = frame.WeakBatteryFlag;
+  slot->RSSI = rssi;
+  slot->LastSeen = millis();
+}
+
 #ifdef USE_MQTT_Pubsub
 static void PublishValue(const String &topic, const String &value) {
   topic.toCharArray(bufTopic, sizeof(bufTopic));
@@ -981,14 +1020,8 @@ static void PublishValue(const String &topic, const String &value) {
 // Runs for every received frame, independent of the analyze mode (<n>z).
 // Topics and payloads are the same as before:
 //   <topic>/<ID>/newBat, /temp, /hum, /weakBat, /timeStamp, <topic>/lacrosse_ids, <topic>/lacrosse_newid
-static void PublishLaCrosseMqtt(byte *payload) {
+static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
   if (!mqttEnabled) {
-    return;
-  }
-
-  LaCrosse::Frame frame;
-  LaCrosse::DecodeFrame(payload, &frame);
-  if (!frame.IsValid) {
     return;
   }
 
@@ -1065,9 +1098,9 @@ static String EC3000IdString(word id) {
 static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
   const EC3000::Frame &f = device->Last;
   char json[220];
-  snprintf(json, sizeof(json),
-    "{\"power\":%.1f,\"energy\":%.3f,\"max_power\":%.1f,\"total_seconds\":%lu,\"on_seconds\":%lu,"
-    "\"resets\":%u,\"state\":\"%s\",\"rssi\":%d,\"rfm\":%u}",
+  snprintf_P(json, sizeof(json),
+    PSTR("{\"power\":%.1f,\"energy\":%.3f,\"max_power\":%.1f,\"total_seconds\":%lu,\"on_seconds\":%lu,"
+    "\"resets\":%u,\"state\":\"%s\",\"rssi\":%d,\"rfm\":%u}"),
     f.Power, f.Consumption, f.MaximumPower, (unsigned long)f.TotalSeconds, (unsigned long)f.OnSeconds,
     (unsigned int)f.NumberOfResets, f.IsOn ? "ON" : "OFF", device->RSSI, (unsigned int)device->Rfm);
   String topic = mqttTopicBaseGW + "/EC3000/" + EC3000IdString(f.ID);
@@ -1084,7 +1117,8 @@ static String GatewayDeviceId() {
 
 // One Home Assistant entity of an EC3000 device
 static void PublishEC3000DiscoveryEntity(word id, const char *component, const char *key, const char *name,
-                                         const char *valueTemplate, const char *extra) {
+                                         const char *valueTemplate, const __FlashStringHelper *extraFlash) {
+  String extra(extraFlash);
   static char json[MQTT_BUFFER_SIZE - 160];
   String idStr = EC3000IdString(id);
   String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
@@ -1093,12 +1127,12 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
   if (deviceName.length() == 0) {
     deviceName = "EC3000 " + idStr;
   }
-  snprintf(json, sizeof(json),
-    "{\"name\":\"%s\",\"unique_id\":\"lgw_ec3000_%s_%s\",\"state_topic\":\"%s\","
+  snprintf_P(json, sizeof(json),
+    PSTR("{\"name\":\"%s\",\"unique_id\":\"lgw_ec3000_%s_%s\",\"state_topic\":\"%s\","
     "\"value_template\":\"{{ value_json.%s }}\",\"expire_after\":%lu,%s"
     "\"device\":{\"identifiers\":[\"lgw_ec3000_%s\"],\"name\":\"%s\","
-    "\"manufacturer\":\"Conrad\",\"model\":\"Energy Count 3000\",\"via_device\":\"%s\"}}",
-    name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, extra,
+    "\"manufacturer\":\"Conrad\",\"model\":\"Energy Count 3000\",\"via_device\":\"%s\"}}"),
+    name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, extra.c_str(),
     idStr.c_str(), deviceName.c_str(), GatewayDeviceId().c_str());
   String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_ec3000_" + idStr + "/" + key + "/config";
   client.publish(topic.c_str(), json, true);
@@ -1108,25 +1142,92 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
 static void PublishEC3000Discovery(EC3000Tracker::Device *device) {
   word id = device->ID;
   PublishEC3000DiscoveryEntity(id, "sensor", "power", "Power", "power",
-    "\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"state_class\":\"measurement\",");
+    F("\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"state_class\":\"measurement\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "energy", "Energy", "energy",
-    "\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total_increasing\",");
+    F("\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total_increasing\","));
   PublishEC3000DiscoveryEntity(id, "binary_sensor", "state", "State", "state",
-    "\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"device_class\":\"power\",");
+    F("\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"device_class\":\"power\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "max_power", "Maximum power", "max_power",
-    "\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"entity_category\":\"diagnostic\",");
+    F("\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"entity_category\":\"diagnostic\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "on_seconds", "On time", "on_seconds",
-    "\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+    F("\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "total_seconds", "Total time", "total_seconds",
-    "\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+    F("\"unit_of_measurement\":\"s\",\"device_class\":\"duration\",\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "resets", "Resets", "resets",
-    "\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\",");
+    F("\"state_class\":\"total_increasing\",\"entity_category\":\"diagnostic\","));
   PublishEC3000DiscoveryEntity(id, "sensor", "rssi", "RSSI", "rssi",
-    "\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\",");
+    F("\"unit_of_measurement\":\"dBm\",\"device_class\":\"signal_strength\",\"state_class\":\"measurement\",\"entity_category\":\"diagnostic\","));
   device->Discovered = true;
   logger.println("Home Assistant discovery sent for EC3000 " + EC3000IdString(id));
 }
 #endif
+
+// GET /api/data: state of the gateway, the EC3000 and the LaCrosse sensors as JSON
+static void HandleApiData(ESP8266WebServer *server) {
+  server->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server->sendHeader("Cache-Control", "no-cache");
+  server->send(200, "application/json", "");
+
+  char buf[400];
+  bool mqttConnected = false;
+#ifdef USE_MQTT_Pubsub
+  mqttConnected = mqttEnabled && client.connected();
+#endif
+  snprintf_P(buf, sizeof(buf),
+    PSTR("{\"version\":\"%s\",\"uptime\":%lu,\"wifiRssi\":%d,\"ip\":\"%s\",\"mqttEnabled\":%s,\"mqtt\":%s,"
+    "\"freeHeap\":%u,\"maxFreeBlock\":%u,\"resetReason\":\"%s\",\"framesPerMinute\":%u,\"ec3000\":["),
+    PROGVERS, millis() / 1000, WiFi.RSSI(), WiFi.localIP().toString().c_str(),
+    mqttEnabled ? "true" : "false", mqttConnected ? "true" : "false",
+    ESP.getFreeHeap(), ESP.getMaxFreeBlockSize(), ESP.getResetReason().c_str(),
+    (unsigned int)stateManager.GetFramesPerMinute());
+  server->sendContent(buf);
+
+  bool first = true;
+  float history[EC3000Tracker::HISTORY_LEN];
+  for (byte i = 0; i < ec3000Tracker.GetCapacity(); i++) {
+    EC3000Tracker::Device *d = ec3000Tracker.GetAt(i);
+    if (!d->Used || !d->Confirmed) {
+      continue;
+    }
+    const EC3000::Frame &f = d->Last;
+    snprintf_P(buf, sizeof(buf),
+      PSTR("%s{\"id\":\"%s\",\"name\":\"%s\",\"power\":%.1f,\"maxPower\":%.1f,\"energy\":%.3f,"
+      "\"onSeconds\":%lu,\"totalSeconds\":%lu,\"resets\":%u,\"on\":%s,\"rssi\":%d,\"rfm\":%u,"
+      "\"age\":%lu,\"accepted\":%lu,\"rejected\":%lu,\"history\":["),
+      first ? "" : ",", EC3000IdString(d->ID).c_str(), ec3000Tracker.GetName(d->ID).c_str(),
+      f.Power, f.MaximumPower, f.Consumption, (unsigned long)f.OnSeconds, (unsigned long)f.TotalSeconds,
+      (unsigned int)f.NumberOfResets, f.IsOn ? "true" : "false", d->RSSI, (unsigned int)d->Rfm,
+      (millis() - d->LastSeen) / 1000, d->Accepted, d->Rejected);
+    first = false;
+    String values = buf;
+    byte count = ec3000Tracker.GetHistory(d, history);
+    for (byte h = 0; h < count; h++) {
+      if (h > 0) {
+        values += ',';
+      }
+      values += String(history[h], 1);
+    }
+    values += "]}";
+    server->sendContent(values);
+  }
+
+  server->sendContent("],\"lacrosse\":[");
+  first = true;
+  for (byte i = 0; i < MAX_LACROSSE_ENTRIES; i++) {
+    LaCrosseEntry *e = &laCrosseEntries[i];
+    if (!e->Used) {
+      continue;
+    }
+    snprintf_P(buf, sizeof(buf),
+      PSTR("%s{\"id\":\"%02X\",\"temperature\":%.1f,\"humidity\":%u,\"newBattery\":%s,\"weakBattery\":%s,\"rssi\":%d,\"age\":%lu}"),
+      first ? "" : ",", e->ID, e->Temperature, (unsigned int)e->Humidity,
+      e->NewBattery ? "true" : "false", e->WeakBattery ? "true" : "false", e->RSSI, (millis() - e->LastSeen) / 1000);
+    first = false;
+    server->sendContent(buf);
+  }
+  server->sendContent("]}");
+  server->sendContent("");
+}
 
 static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
   if (!ec3000Tracker.IsAllowed(frame.ID)) {
@@ -1182,11 +1283,16 @@ bool HandleReceivedData(RFMxx *rfm) {
     return result;
   }
   else {
-#ifdef USE_MQTT_Pubsub
     if(LaCrosse::IsValidDataRate(rfm->GetDataRate())) {
-      PublishLaCrosseMqtt(payload);
-    }
+      LaCrosse::Frame laCrosseFrame;
+      LaCrosse::DecodeFrame(payload, &laCrosseFrame);
+      if(laCrosseFrame.IsValid) {
+        RecordLaCrosse(laCrosseFrame, rfm->GetPacketRSSI());
+#ifdef USE_MQTT_Pubsub
+        PublishLaCrosseMqtt(laCrosseFrame);
 #endif
+      }
+    }
 
     if(ANALYZE_FRAMES > 0) {
       unsigned long dataRate = rfm->GetDataRate();
@@ -2162,6 +2268,9 @@ void setup(void) {
 
       logger.println("Starting OTA");
       ota.Begin(frontend->WebServer());
+      frontend->WebServer()->on("/api/data", HTTP_GET, []() {
+        HandleApiData(frontend->WebServer());
+      });
 
       uint16_t p1 = settings.GetInt("DataPort1", 81);
       uint16_t p2 = settings.GetInt("DataPort2", 0);
