@@ -1074,9 +1074,22 @@ static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
 #endif
 
 static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
-  EC3000Tracker::Device *device = ec3000Tracker.Update(frame, rssi, rfmNum);
+  bool accepted;
+  String reason;
+  EC3000Tracker::Device *device = ec3000Tracker.Update(frame, rssi, rfmNum, accepted, reason);
+  if (reason.length() > 0) {
+    // frame has a valid CRC but implausible values
+    String message = "EC3000 " + EC3000IdString(frame.ID) + " discarded: " + reason;
+    logger.println(message);
 #ifdef USE_MQTT_Pubsub
-  if (mqttEnabled && client.connected() && ec3000Tracker.ShouldPublish(device, secBetweenPublish * 1000UL)) {
+    if (mqttEnabled && client.connected()) {
+      String topic = mqttTopicBaseGW + "/EC3000/debug";
+      client.publish(topic.c_str(), message.c_str());
+    }
+#endif
+  }
+#ifdef USE_MQTT_Pubsub
+  if (accepted && mqttEnabled && client.connected() && ec3000Tracker.ShouldPublish(device, secBetweenPublish * 1000UL)) {
     PublishEC3000Mqtt(device);
   }
 #endif

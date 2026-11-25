@@ -10,14 +10,19 @@ EC3000Tracker::Device *EC3000Tracker::Find(word id) {
 }
 
 EC3000Tracker::Device *EC3000Tracker::Allocate(word id) {
+  // free slot first, then an unconfirmed one, then the one not seen for the longest time
   Device *slot = nullptr;
+  unsigned long now = millis();
   for (byte i = 0; i < MAX_DEVICES; i++) {
-    if (!m_devices[i].Used) {
-      slot = &m_devices[i];
+    Device *d = &m_devices[i];
+    if (!d->Used) {
+      slot = d;
       break;
     }
-    if (slot == nullptr || (millis() - m_devices[i].LastSeen) > (millis() - slot->LastSeen)) {
-      slot = &m_devices[i];
+    if (slot == nullptr
+        || (!d->Confirmed && slot->Confirmed)
+        || (d->Confirmed == slot->Confirmed && (now - d->LastSeen) > (now - slot->LastSeen))) {
+      slot = d;
     }
   }
   *slot = Device();
@@ -26,20 +31,107 @@ EC3000Tracker::Device *EC3000Tracker::Allocate(word id) {
   return slot;
 }
 
-EC3000Tracker::Device *EC3000Tracker::Update(const EC3000::Frame &frame, int rssi, byte rfm) {
-  Device *device = Find(frame.ID);
-  if (device == nullptr) {
-    device = Allocate(frame.ID);
-  }
+void EC3000Tracker::Store(Device *device, const EC3000::Frame &frame, int rssi, byte rfm) {
   device->Last = frame;
   device->RSSI = rssi;
   device->Rfm = rfm;
   device->LastSeen = millis();
+  device->Discards = 0;
+  device->Accepted++;
+}
+
+String EC3000Tracker::CheckFrame(const EC3000::Frame &frame) {
+  String reason;
+  if (frame.OnSeconds > frame.TotalSeconds) {
+    reason += F("OnSeconds > TotalSeconds; ");
+  }
+  if (!frame.IsOn && frame.Power > 0) {
+    reason += F("off but power > 0; ");
+  }
+  if (frame.Power > MAX_POWER_W) {
+    reason += F("power too high; ");
+  }
+  return reason;
+}
+
+String EC3000Tracker::CheckSequence(const EC3000::Frame &last, const EC3000::Frame &frame, unsigned long elapsedMs) {
+  String reason;
+  // allowed rise of the counters: real time since the last accepted frame plus some slack
+  float elapsedS = elapsedMs / 1000.0 + 60.0;
+
+  if (frame.TotalSeconds < last.TotalSeconds) {
+    // manual reset of the device: everything starts at 0 again
+    float maxKwh = MAX_POWER_W * frame.TotalSeconds / 3600000.0 + 0.01;
+    if (frame.TotalSeconds > elapsedS || frame.Consumption > maxKwh) {
+      reason += F("total seconds went back; ");
+    }
+    return reason;
+  }
+
+  unsigned long deviceS = frame.TotalSeconds - last.TotalSeconds;
+  if (deviceS > elapsedS) {
+    reason += F("total seconds jumped; ");
+  }
+
+  double delta = frame.Consumption - last.Consumption;
+  double maxDelta = MAX_POWER_W * elapsedS / 3600000.0 + 0.002;
+  if (delta < -0.0005) {
+    reason += F("consumption went back; ");
+  }
+  else if (delta > maxDelta) {
+    reason += F("consumption jumped; ");
+  }
+
+  if (frame.NumberOfResets < last.NumberOfResets) {
+    reason += F("resets went back; ");
+  }
+  else if (frame.NumberOfResets > last.NumberOfResets + MAX_RESET_STEP) {
+    reason += F("resets jumped; ");
+  }
+  return reason;
+}
+
+EC3000Tracker::Device *EC3000Tracker::Update(const EC3000::Frame &frame, int rssi, byte rfm, bool &accepted, String &reason) {
+  accepted = false;
+  Device *device = Find(frame.ID);
+  bool isNew = device == nullptr;
+  if (isNew) {
+    device = Allocate(frame.ID);
+  }
+
+  reason = CheckFrame(frame);
+  if (reason.length() == 0 && !isNew) {
+    reason = CheckSequence(device->Last, frame, millis() - device->LastSeen);
+  }
+
+  if (reason.length() == 0) {
+    if (!isNew) {
+      device->Confirmed = true;
+    }
+    Store(device, frame, rssi, rfm);
+    accepted = true;
+    return device;
+  }
+
+  device->Rejected++;
+  if (isNew) {
+    // nothing to compare with: forget the slot again
+    device->Used = false;
+    return device;
+  }
+
+  device->Discards++;
+  if (device->Discards >= REBASE_AFTER_DISCARDS && CheckFrame(frame).length() == 0) {
+    // the stored values were probably wrong: start again with this frame (unconfirmed)
+    device->Confirmed = false;
+    Store(device, frame, rssi, rfm);
+    reason += F("new baseline; ");
+  }
   return device;
 }
 
 bool EC3000Tracker::ShouldPublish(Device *device, unsigned long intervalMs) {
-  return !device->Published || (millis() - device->LastPublish) >= intervalMs;
+  return device->Confirmed && (!device->Published || (millis() - device->LastPublish) >= intervalMs);
 }
 
 void EC3000Tracker::SetPublished(Device *device) {
