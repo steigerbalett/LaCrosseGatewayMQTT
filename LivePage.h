@@ -25,10 +25,10 @@ const char LIVE_PAGE_HTML[] PROGMEM = R"rawliteral(
 <div class='card' style='margin-bottom:12px'>
 <h2>&#128200; Live</h2>
 <div class='lv-pills' id='lvSys'><div class='lv-pill'>Lade ...</div></div>
+<h3>LaCrosse</h3>
+<div id='lvLc' style='margin-bottom:12px'><p class='info'>Noch keine LaCrosse-Sensoren empfangen.</p></div>
 <h3>EC3000</h3>
 <div class='lv-grid' id='lvEc'><p class='info'>Noch keine EC3000 empfangen (RFM69 mit Datenrate 20000 n&ouml;tig).</p></div>
-<h3>LaCrosse</h3>
-<div id='lvLc'><p class='info'>Noch keine LaCrosse-Sensoren empfangen.</p></div>
 <p class='info'>Die Daten gibt es als JSON unter <a href='/api/data'>/api/data</a>.</p>
 </div>
 <script>

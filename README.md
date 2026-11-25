@@ -83,5 +83,5 @@ ist es offline, werden alle seine Entitäten „nicht verfügbar“.
 
 ## Live-Seite und JSON
 
-Im Menü „Live“ zeigt das Gateway alle 5 Sekunden die EC3000 mit Leistungsverlauf der letzten 5 Minuten
-und die LaCrosse-Sensoren. Dieselben Daten liefert `http://<gateway>/api/data` als JSON (wie `/state` ohne Login).
+Im Menü „Live“ zeigt das Gateway alle 5 Sekunden die LaCrosse-Sensoren und darunter die EC3000 mit Leistungsverlauf der letzten 4 Minuten
+Dieselben Daten liefert `http://<gateway>/api/data` als JSON (wie `/state` ohne Login).

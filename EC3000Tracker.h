@@ -19,12 +19,12 @@
 // broken frame does not create a ghost device.
 class EC3000Tracker {
 public:
-  static const byte MAX_DEVICES = 16;
+  static const byte MAX_DEVICES = 12;
   static constexpr float MAX_POWER_W = 3700.0;      // 16 A at 230 V
   static const byte MAX_RESET_STEP = 5;
   static const byte REBASE_AFTER_DISCARDS = 3;      // consecutive discards until a new baseline is taken
-  static const byte HISTORY_LEN = 30;               // power values for the live page
-  static const unsigned long HISTORY_STEP_MS = 10000; // at most one value every 10 s (30 values = 5 min)
+  static const byte HISTORY_LEN = 24;               // power values for the live page
+  static const unsigned long HISTORY_STEP_MS = 10000; // at most one value every 10 s (24 values = 4 min)
 
   struct Device {
     bool Used;
@@ -80,7 +80,7 @@ private:
     word ID;
     String Name;
   };
-  static const byte MAX_NAMES = 24;
+  static const byte MAX_NAMES = 16;
   NameEntry m_names[MAX_NAMES];
   byte m_nameCount = 0;
   bool m_onlyKnown = false;

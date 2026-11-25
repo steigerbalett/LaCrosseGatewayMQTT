@@ -512,11 +512,16 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
 
   m_webserver.on("/", [this]() {
     if (IsAuthentified()) {
-      String result;
-      result += GetTop(); result += GetNavigation();
-      result += F("<div class='card' style='margin-bottom:12px'>"); result += m_stateManager->GetHTML(); result += F("</div>");
-      result += GetBottom();
-      m_webserver.send(200, "text/html", result);
+      // streamed in parts: one big String needs a large free heap block
+      m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
+      m_webserver.send(200, "text/html", "");
+      m_webserver.sendContent(GetTop());
+      m_webserver.sendContent(GetNavigation());
+      m_webserver.sendContent(F("<div class='card' style='margin-bottom:12px'>"));
+      m_webserver.sendContent(m_stateManager->GetHTML());
+      m_webserver.sendContent(F("</div>"));
+      m_webserver.sendContent(GetBottom());
+      m_webserver.sendContent("");
     }
   });
 
@@ -548,7 +553,8 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     if (IsAuthentified()) {
       m_webserver.setContentLength(CONTENT_LENGTH_UNKNOWN);
       m_webserver.send(200, "text/html", "");
-      m_webserver.sendContent(GetTop() + GetNavigation());
+      m_webserver.sendContent(GetTop());
+      m_webserver.sendContent(GetNavigation());
       m_webserver.sendContent_P(LIVE_PAGE_HTML);
       m_webserver.sendContent(GetBottom());
       m_webserver.sendContent("");

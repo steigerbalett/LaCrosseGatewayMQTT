@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.54b4"
+#define PROGVERS         "1.39.54b5"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -192,7 +192,7 @@ Logger logger;
   String mqttTopicBaseGW = "lacrossegateway";
   bool haDiscovery = true;                    // Home Assistant MQTT discovery
   #define HA_DISCOVERY_PREFIX "homeassistant"
-  #define MQTT_BUFFER_SIZE 1024               // discovery messages are bigger than the default 256 bytes
+  #define MQTT_JSON_SIZE 640                  // discovery and status messages, built on the stack
   #define MQTT_STATUS_INTERVAL_MS 300000UL    // <topic>/status every 5 minutes
   unsigned int mqttConnects = 0;
   bool mqttStatusPending = false;
@@ -993,7 +993,7 @@ struct LaCrosseEntry {
   int RSSI;
   unsigned long LastSeen;
 };
-#define MAX_LACROSSE_ENTRIES 24
+#define MAX_LACROSSE_ENTRIES 16
 LaCrosseEntry laCrosseEntries[MAX_LACROSSE_ENTRIES] = {};
 
 static void RecordLaCrosse(const LaCrosse::Frame &frame, int rssi) {
@@ -1116,14 +1116,23 @@ static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
     f.Power, f.Consumption, f.MaximumPower, (unsigned long)f.TotalSeconds, (unsigned long)f.OnSeconds,
     (unsigned int)f.NumberOfResets, f.IsOn ? "ON" : "OFF", device->RSSI, (unsigned int)device->Rfm);
   String topic = mqttTopicBaseGW + "/EC3000/" + EC3000IdString(f.ID);
-  if (client.publish(topic.c_str(), json)) {
+  if (PublishStream(topic, json, false)) {
     ec3000Tracker.SetPublished(device);
   }
 }
 #endif
 
 #ifdef USE_MQTT_Pubsub
-static char discoveryJson[MQTT_BUFFER_SIZE - 160];   // shared buffer for the discovery messages
+// Publishes without the PubSubClient buffer (default 256 bytes): the payload is streamed,
+// so the buffer does not have to be enlarged and no heap is kept for it
+static bool PublishStream(const String &topic, const char *payload, bool retained) {
+  size_t length = strlen(payload);
+  if (!client.beginPublish(topic.c_str(), length, retained)) {
+    return false;
+  }
+  client.write((const uint8_t *)payload, length);
+  return client.endPublish();
+}
 
 static String GatewayDeviceId() {
   return "lgw_" + String(ESP.getChipId(), HEX);
@@ -1133,8 +1142,8 @@ static String GatewayDeviceId() {
 static void PublishEC3000DiscoveryEntity(word id, const char *component, const char *key, const char *name,
                                          const char *valueTemplate, const __FlashStringHelper *extraFlash) {
   String extra(extraFlash);
-  char *json = discoveryJson;
-  const size_t jsonSize = sizeof(discoveryJson);
+  char json[MQTT_JSON_SIZE];
+  const size_t jsonSize = sizeof(json);
   String idStr = EC3000IdString(id);
   String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
   unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
@@ -1150,13 +1159,13 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
     name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, mqttTopicBaseGW.c_str(), extra.c_str(),
     idStr.c_str(), deviceName.c_str(), GatewayDeviceId().c_str());
   String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_ec3000_" + idStr + "/" + key + "/config";
-  client.publish(topic.c_str(), json, true);
+  PublishStream(topic, json, true);
 }
 
 // One Home Assistant diagnostic entity of the gateway itself, state from <topic>/status
 static void PublishGatewayDiscoveryEntity(const char *key, const char *name, const __FlashStringHelper *extraFlash) {
-  char *json = discoveryJson;
-  const size_t jsonSize = sizeof(discoveryJson);
+  char json[MQTT_JSON_SIZE];
+  const size_t jsonSize = sizeof(json);
   String extra(extraFlash);
   String id = GatewayDeviceId();
   snprintf_P(json, jsonSize,
@@ -1168,7 +1177,7 @@ static void PublishGatewayDiscoveryEntity(const char *key, const char *name, con
     name, id.c_str(), key, mqttTopicBaseGW.c_str(), key, mqttTopicBaseGW.c_str(), extra.c_str(),
     id.c_str(), gatewayName.c_str(), PROGVERS, WiFi.localIP().toString().c_str());
   String topic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + id + "/" + key + "/config";
-  client.publish(topic.c_str(), json, true);
+  PublishStream(topic, json, true);
 }
 
 static void PublishGatewayDiscovery() {
@@ -1201,7 +1210,7 @@ static void PublishGatewayStatus() {
     ESP.getMaxFreeBlockSize(), mqttConnects > 0 ? mqttConnects - 1 : 0, ESP.getResetReason().c_str(),
     (unsigned int)stateManager.GetFramesPerMinute(), (unsigned int)ec3000Devices);
   String topic = mqttTopicBaseGW + "/status";
-  client.publish(topic.c_str(), json, true);
+  PublishStream(topic, json, true);
   lastMqttStatus = millis();
   mqttStatusPending = false;
 }
@@ -2490,7 +2499,6 @@ void setup(void) {
       + F(" Interval:") + String(secBetweenPublish) + F(" Topic:") + mqttTopicBaseGW);
 
     client.setServer(mqtt_server, mqtt_port);
-    client.setBufferSize(MQTT_BUFFER_SIZE);
     client.setCallback(callback);
     delay(500);
 
