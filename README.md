@@ -63,6 +63,8 @@ Die FHEM-Ausgabe (`OK 22 ...`) über Serial und TCP bleibt unverändert.
 
 Unter Setup → „EC3000 Energiezähler“ lassen sich Namen vergeben (`BA3D=Waschmaschine;BF2C=Trockner`).
 Mit „Nur diese IDs verwenden“ werden alle anderen IDs für MQTT und die Live-Seite ignoriert, FHEM bekommt weiter alle.
+„Automatische Frequenzkorrektur (AFC)“ (Standard: aus) lässt den RFM69 bei jedem Empfangsstart die Frequenz
+nachführen. Das kann bei Steckdosen mit schlechtem Empfang helfen; zum Vergleichen RSSI und „verworfen“ auf der Live-Seite ansehen.
 
 ### Gateway-Status
 
