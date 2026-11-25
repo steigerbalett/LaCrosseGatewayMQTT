@@ -8,7 +8,7 @@ bool DigitalPorts::IsConnected() {
   return m_isConnected;
 }
 
-bool DigitalPorts::Begin(DigitalPorts::TDataCallback dataHandler, DigitalPorts::TCommandCallback commandHandler, Settings settings) {
+bool DigitalPorts::Begin(DigitalPorts::TDataCallback dataHandler, DigitalPorts::TCommandCallback commandHandler, Settings &settings) {
   m_dataCallback = dataHandler;
   m_commandCallback = commandHandler;
   m_identity = settings.Get("KVIdentity", String(ESP.getChipId()));

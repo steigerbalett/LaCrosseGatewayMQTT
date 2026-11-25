@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.54b5"
+#define PROGVERS         "1.39.54b6"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -2515,6 +2515,9 @@ void setup(void) {
   HandleCommandV();
 
   logger.println("Setup completely done");
+  // the settings are only needed during setup: free the heap they hold (several KB)
+  delete pSettings;
+  pSettings = nullptr;
   ESP.wdtEnable(WDTO_8S);
   logger.SetBufferSize(10);
 }

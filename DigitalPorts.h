@@ -9,7 +9,7 @@ public:
   typedef void TDataCallback(String data);
   typedef void TCommandCallback(String command);
   DigitalPorts();
-  bool Begin(DigitalPorts::TDataCallback dataHandler, DigitalPorts::TCommandCallback commandHandler, Settings settings);
+  bool Begin(DigitalPorts::TDataCallback dataHandler, DigitalPorts::TCommandCallback commandHandler, Settings &settings);
   bool IsConnected();
   void Handle();
   void Command(String command);
