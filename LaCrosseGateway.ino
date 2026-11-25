@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.54b7"
+#define PROGVERS         "1.39.54b8"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -317,7 +317,10 @@ SerialPortFlasher serialPortFlasher;
 AnalogPort analogPort;
 bool logIsCleared = false;
 bool mqttEnabled = false;
-EC3000Tracker ec3000Tracker;
+// created on the first EC3000 frame: without EC3000 the tables need no memory
+EC3000Tracker *ec3000Tracker = nullptr;
+String ec3000NamesSetting;
+bool ec3000OnlyKnownSetting = false;
 
 #ifdef USE_MQTT_Pubsub
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -358,7 +361,7 @@ void reconnectMqtt() {
       mqttStatusPending = true;
       // the broker may have lost the retained discovery messages: send them again
       gatewayDiscoveryPending = haDiscovery;
-      ec3000Tracker.ResetDiscovery();
+      if (ec3000Tracker != nullptr) ec3000Tracker->ResetDiscovery();
       // Subscribe
       client.subscribe("esp32/output");
   } else {
@@ -1117,7 +1120,7 @@ static void PublishEC3000Mqtt(EC3000Tracker::Device *device) {
     (unsigned int)f.NumberOfResets, f.IsOn ? "ON" : "OFF", device->RSSI, (unsigned int)device->Rfm);
   String topic = mqttTopicBaseGW + "/EC3000/" + EC3000IdString(f.ID);
   if (PublishStream(topic, json, false)) {
-    ec3000Tracker.SetPublished(device);
+    ec3000Tracker->SetPublished(device);
   }
 }
 #endif
@@ -1147,7 +1150,7 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
   String idStr = EC3000IdString(id);
   String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
   unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
-  String deviceName = ec3000Tracker.GetName(id);
+  String deviceName = ec3000Tracker->GetName(id);
   if (deviceName.length() == 0) {
     deviceName = "EC3000 " + idStr;
   }
@@ -1198,8 +1201,8 @@ static void PublishGatewayDiscovery() {
 // <topic>/status every 5 minutes and after every MQTT connect
 static void PublishGatewayStatus() {
   byte ec3000Devices = 0;
-  for (byte i = 0; i < ec3000Tracker.GetCapacity(); i++) {
-    if (ec3000Tracker.GetAt(i)->Used && ec3000Tracker.GetAt(i)->Confirmed) ec3000Devices++;
+  for (byte i = 0; ec3000Tracker != nullptr && i < ec3000Tracker->GetCapacity(); i++) {
+    if (ec3000Tracker->GetAt(i)->Used && ec3000Tracker->GetAt(i)->Confirmed) ec3000Devices++;
   }
   char json[320];
   snprintf_P(json, sizeof(json),
@@ -1273,8 +1276,8 @@ static void HandleApiData(ESP8266WebServer *server) {
 
   bool first = true;
   float history[EC3000Tracker::HISTORY_LEN];
-  for (byte i = 0; i < ec3000Tracker.GetCapacity(); i++) {
-    EC3000Tracker::Device *d = ec3000Tracker.GetAt(i);
+  for (byte i = 0; ec3000Tracker != nullptr && i < ec3000Tracker->GetCapacity(); i++) {
+    EC3000Tracker::Device *d = ec3000Tracker->GetAt(i);
     if (!d->Used || !d->Confirmed) {
       continue;
     }
@@ -1283,13 +1286,13 @@ static void HandleApiData(ESP8266WebServer *server) {
       PSTR("%s{\"id\":\"%s\",\"name\":\"%s\",\"power\":%.1f,\"maxPower\":%.1f,\"energy\":%.3f,"
       "\"onSeconds\":%lu,\"totalSeconds\":%lu,\"resets\":%u,\"on\":%s,\"rssi\":%d,\"rfm\":%u,"
       "\"age\":%lu,\"accepted\":%lu,\"rejected\":%lu,\"history\":["),
-      first ? "" : ",", EC3000IdString(d->ID).c_str(), ec3000Tracker.GetName(d->ID).c_str(),
+      first ? "" : ",", EC3000IdString(d->ID).c_str(), ec3000Tracker->GetName(d->ID).c_str(),
       f.Power, f.MaximumPower, f.Consumption, (unsigned long)f.OnSeconds, (unsigned long)f.TotalSeconds,
       (unsigned int)f.NumberOfResets, f.IsOn ? "true" : "false", d->RSSI, (unsigned int)d->Rfm,
       (millis() - d->LastSeen) / 1000, d->Accepted, d->Rejected);
     first = false;
     String values = buf;
-    byte count = ec3000Tracker.GetHistory(d, history);
+    byte count = ec3000Tracker->GetHistory(d, history);
     for (byte h = 0; h < count; h++) {
       if (h > 0) {
         values += ',';
@@ -1319,13 +1322,19 @@ static void HandleApiData(ESP8266WebServer *server) {
 }
 
 static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
-  if (!ec3000Tracker.IsAllowed(frame.ID)) {
+  if (ec3000Tracker == nullptr) {
+    ec3000Tracker = new EC3000Tracker();
+    ec3000Tracker->SetNames(ec3000NamesSetting, ec3000OnlyKnownSetting);
+    ec3000NamesSetting = String();
+    logger.println(F("First EC3000 frame: EC3000 tracking started"));
+  }
+  if (!ec3000Tracker->IsAllowed(frame.ID)) {
     // "only known IDs" is set and this ID is not in the list
     return;
   }
   bool accepted;
   String reason;
-  EC3000Tracker::Device *device = ec3000Tracker.Update(frame, rssi, rfmNum, accepted, reason);
+  EC3000Tracker::Device *device = ec3000Tracker->Update(frame, rssi, rfmNum, accepted, reason);
   if (reason.length() > 0) {
     // frame has a valid CRC but implausible values
     String message = "EC3000 " + EC3000IdString(frame.ID) + " discarded: " + reason;
@@ -1338,7 +1347,7 @@ static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum)
 #endif
   }
 #ifdef USE_MQTT_Pubsub
-  if (accepted && mqttEnabled && client.connected() && ec3000Tracker.ShouldPublish(device, secBetweenPublish * 1000UL)) {
+  if (accepted && mqttEnabled && client.connected() && ec3000Tracker->ShouldPublish(device, secBetweenPublish * 1000UL)) {
     if (haDiscovery && !device->Discovered) {
       PublishEC3000Discovery(device);
     }
@@ -2480,7 +2489,8 @@ void setup(void) {
     Dispatch(message);
   });
 
-  ec3000Tracker.SetNames(settings.Get("ec3000Names", ""), settings.GetBool("ec3000OnlyKnown", false));
+  ec3000NamesSetting = settings.Get("ec3000Names", "");
+  ec3000OnlyKnownSetting = settings.GetBool("ec3000OnlyKnown", false);
 
 #ifdef USE_MQTT_Pubsub
   mqttEnabled = IsMqttConfigured(settings);
