@@ -323,7 +323,7 @@ jobs:
             ### ⚡ Flash-Befehl (per web gui)
             [https://esptool.spacehuhn.com](https://esptool.spacehuhn.com)
 
-            * Öffne [esptool.huhn.com](https://esptool.spacehuhn.com) in Chrome oder Edge
+            * Öffne [esptool.spacehuhn.com](https://esptool.spacehuhn.com) in Chrome oder Edge
             * ESP8266 per USB anschließen
             * Klicke Connect → COM-Port auswählen
             * .bin-Datei hochladen

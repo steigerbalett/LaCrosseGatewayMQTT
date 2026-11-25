@@ -1,4 +1,5 @@
 #include "OTAUpdate.h"
+#include "FirmwareInfo.h"
 #include "Settings.h"
 #include "Logger.h"
 #include <ESP8266WiFi.h>
@@ -53,6 +54,7 @@ String OTAUpdate::Start(Logger *logger) {
       break;
     case HTTP_UPDATE_OK:
       result = "OK";
+      FirmwareInfo::RecordFlash(otaURL);
       delay(500);
       ESP.restart();
       break;

@@ -1,4 +1,5 @@
 #include "ESP8266OTA.h"
+#include "FirmwareInfo.h"
 
 
 ESP8266OTA::ESP8266OTA() {
@@ -12,6 +13,7 @@ void ESP8266OTA::Log(String text, bool newLine) {
 }
 
 static ESP8266WebServer *webServer;
+static String uploadFileName;
 void ESP8266OTA::Begin(ESP8266WebServer *server) {
   m_server = server;
   m_log = "";
@@ -22,6 +24,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
     m_server->sendHeader("Access-Control-Allow-Origin", "*");
     Log("");
     Log(Update.hasError() ? "ERROR: OTA update failed" : "OTA update finished");
+    if (!Update.hasError()) FirmwareInfo::RecordFlash(uploadFileName);
     m_server->send(200, "text/plain", m_log);
     delay(1000);
     ESP.restart();
@@ -31,6 +34,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
       m_log = "";
       Log("Start receiving '", false);
       Log(upload.filename, false);
+      uploadFileName = upload.filename;
       Log("'");
       uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
       if (!Update.begin(maxSketchSpace)){
@@ -68,6 +72,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
   ArduinoOTA.onEnd([]() {
     Serial.println();
     Serial.println(F("OTA update finished"));
+    FirmwareInfo::RecordFlash(F("ArduinoOTA"));
   });
 
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {

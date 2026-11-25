@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.55"
+#define PROGVERS         "1.39.56b1"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -80,6 +80,7 @@
 #include "Settings.h"
 #include "StateManager.h"
 #include "OTAUpdate.h"
+#include "FirmwareInfo.h"
 #include "OwnSensors.h"
 #include "SerialBridge.h"
 #include "SoftSerialBridge.h"
@@ -2900,6 +2901,7 @@ void setup(void) {
     Dispatch(message);
   });
 
+  FirmwareInfo::CheckAtBoot(settings, PROGVERS);
   ec3000NamesSetting = settings.Get("ec3000Names", "");
   ec3000OnlyKnownSetting = settings.GetBool("ec3000OnlyKnown", false);
   lacrosseNamesSetting = settings.Get("lacrosseNames", "");

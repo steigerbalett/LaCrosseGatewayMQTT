@@ -7,6 +7,7 @@
 #include <ESP8266httpUpdate.h>
 #include "HTML.h"
 #include "OTAUpdate.h"
+#include "FirmwareInfo.h"
 #include "Help.h"
 #include "ESP8266WiFiType.h"
 #include "ESPTools.h"
@@ -612,7 +613,36 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
                     "<tbody>");
   m_webserver.sendContent(result);
 
-  // Zeile 1: ESP8266
+  // MCU und Flash
+  {
+    const char *board =
+#if defined(ARDUINO_ESP8266_NODEMCU_ESP12E) || defined(ARDUINO_ESP8266_NODEMCU)
+      "NodeMCU v2 (ESP-12E)";
+#elif defined(ARDUINO_ESP8266_WEMOS_D1MINI)
+      "Wemos D1 mini";
+#elif defined(ARDUINO_ESP8266_ESP12)
+      "ESP-12E";
+#else
+      "ESP8266";
+#endif
+    String mcu = esp_is_8285() ? F("ESP8285") : F("ESP8266EX");
+    mcu += F("&nbsp;@&nbsp;"); mcu += String(ESP.getCpuFreqMHz()); mcu += F("&nbsp;MHz");
+    String mcuDetails = F("Chip-ID:&nbsp;"); mcuDetails += String(ESP.getChipId(), HEX);
+    mcuDetails += F("&nbsp;Firmware&nbsp;f&uuml;r:&nbsp;"); mcuDetails += board;
+    m_webserver.sendContent(BuildHardwareRow("MCU", mcu, mcuDetails));
+
+    FlashMode_t fm = ESP.getFlashChipMode();
+    const char *modeName = fm == FM_QIO ? "QIO" : fm == FM_QOUT ? "QOUT" : fm == FM_DIO ? "DIO" : fm == FM_DOUT ? "DOUT" : "?";
+    String flash = String(ESP.getFlashChipRealSize() / 1048576.0, 1); flash += F("&nbsp;MB&nbsp;");
+    flash += modeName; flash += F("&nbsp;"); flash += String(ESP.getFlashChipSpeed() / 1000000); flash += F("&nbsp;MHz");
+    String flashDetails = F("Konfiguriert:&nbsp;"); flashDetails += String(ESP.getFlashChipSize() / 1048576.0, 1);
+    flashDetails += F("&nbsp;MB&nbsp;Sketch:&nbsp;"); flashDetails += String(ESP.getSketchSize() / 1024);
+    flashDetails += F("&nbsp;KB&nbsp;frei:&nbsp;"); flashDetails += String(ESP.getFreeSketchSpace() / 1024); flashDetails += F("&nbsp;KB");
+    if (ESP.getFlashChipRealSize() != ESP.getFlashChipSize()) flashDetails += F("&nbsp;&#9888;&nbsp;Gr&ouml;&szlig;e passt nicht");
+    m_webserver.sendContent(BuildHardwareRow("Flash", flash, flashDetails));
+  }
+
+  // ESP8266 Core
   m_webserver.sendContent(BuildHardwareRow(
     "ESP8266",
     "Core:&nbsp;" + String(ESP.getCoreVersion()) +
@@ -672,7 +702,9 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
     result += F("<h2>&#127381; Firmware-Info</h2><table>");
     result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V");
     result += m_stateManager->GetVersion();
-    result += F("</span></td></tr></table></div>");
+    result += F("</span></td></tr>");
+    result += FirmwareInfo::BuildRows();
+    result += F("</table></div>");
 
     result += F("<div class='card' style='margin-bottom:12px'>");
     result += F("<h2>&#128190; Verf&uuml;gbare Releases</h2>");
@@ -1637,6 +1669,10 @@ m_webserver.on("/setup", [this]() {
   m_webserver.on("/update", HTTP_GET, [this]() {
     if (IsAuthentified()) {
       String result; result += GetTop(); result += GetNavigation();
+      result += F("<div class='card' style='margin-bottom:12px'><h2>&#127381; Firmware-Info</h2><table>");
+      result += F("<tr><td>Installierte Version:</td><td><span class='badge ok'>V"); result += m_stateManager->GetVersion(); result += F("</span></td></tr>");
+      result += FirmwareInfo::BuildRows();
+      result += F("</table></div>");
       result += F("<div class='card'><h2>&#128190; Firmware Update (BIN-Upload)</h2>");
       result += F("<p class='info'>Lade eine <code>.bin</code>-Datei vom Computer hoch.</p>");
       result += F("<form method='POST' action='/update_do' enctype='multipart/form-data' id='upform'>");
@@ -1674,12 +1710,13 @@ m_webserver.on("/setup", [this]() {
   m_webserver.on("/update_do", HTTP_POST,
     [this]() {
       if (Update.hasError()) m_webserver.send(500, "text/plain", "Update fehlgeschlagen: " + String(Update.getErrorString()));
-      else { m_webserver.send(200, "text/plain", "OK"); delay(1000); ESP.restart(); }
+      else { FirmwareInfo::RecordFlash(m_uploadFileName); m_webserver.send(200, "text/plain", "OK"); delay(1000); ESP.restart(); }
     },
     [this]() {
       HTTPUpload& upload = m_webserver.upload();
       if (upload.status == UPLOAD_FILE_START) {
         m_logger->println(String(F("Firmware-Update: ")) + upload.filename);
+        m_uploadFileName = upload.filename;
         uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
         if (!Update.begin(maxSketchSpace, U_FLASH))
           m_logger->println(String(F("Update.begin Fehler: ")) + String(Update.getErrorString()));

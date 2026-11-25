@@ -30,6 +30,7 @@ private:
   ESP8266WebServer    m_webserver;
   int                 m_port;
   String              m_password;
+  String              m_uploadFileName;   // /update_do: name of the uploaded .bin
   StateManager       *m_stateManager = nullptr;
   Logger             *m_logger       = nullptr;
   WFCommandCallbackType  m_commandCallback  = nullptr;
