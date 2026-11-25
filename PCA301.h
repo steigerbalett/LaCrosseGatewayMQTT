@@ -59,6 +59,8 @@ public:
   void SetLogItemCallback(LogItemCallbackType* callback);
   String AnalyzeFrame(byte *payload);
   void EnableLogging(bool enabled);
+  // values of the last measure frame of a known plug (for MQTT), true once per frame
+  bool TakeValues(struct PCA301::Frame &frame);
 
 protected:
   static const byte FRAME_LENGTH = 12;
@@ -78,6 +80,8 @@ protected:
   void Log(String logItem, bool force=false);
   String GetPlugIdentifier(byte id1, byte id2, byte id3, byte channel);
   TSettingsCallback *m_settingsCallback;
+  struct PCA301::Frame m_values;
+  bool m_hasValues = false;
 };
 
 

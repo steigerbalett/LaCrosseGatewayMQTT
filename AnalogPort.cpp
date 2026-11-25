@@ -19,7 +19,7 @@ String AnalogPort::GetFhemDataString(){
 
    if (millis() >= m_lastMeasurement + 4000) {
      m_lastMeasurement = millis();
-     result += "LGW ANALOG";
+     result += F("LGW ANALOG");
 
      m_lastValue = analogRead(A0);
      result += " ";

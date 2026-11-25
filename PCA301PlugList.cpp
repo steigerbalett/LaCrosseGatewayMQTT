@@ -108,13 +108,13 @@ void PCA301PlugList::Poll() {
 
         if (m_sendPayloadCallback != 0) {
           String logItem = "Poll ";
-          logItem += " [ID=";
+          logItem += F(" [ID=");
           logItem += String(plug->ID[0], HEX);
           logItem += " ";
           logItem += String(plug->ID[1], HEX);
           logItem += " ";
           logItem += String(plug->ID[2], HEX);
-          logItem += " Channel=";
+          logItem += F(" Channel=");
           logItem += String(payload[0]);
           logItem += "]";
           Log(logItem);

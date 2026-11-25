@@ -33,8 +33,8 @@ public:
 private:
    Controllers m_controller;
    int m_address;
-   byte m_buffer[OLED_BUFFER_SIZE];
-   byte m_stack[OLED_BUFFER_SIZE];
+   byte *m_buffer = nullptr;   // allocated in Begin() only if a display answers (saves 1 KB without display)
+   byte *m_stack = nullptr;    // allocated only between PushContent() and PopContent()
    const char *m_font = Roboto_Light_11;
    bool m_isOn;
    Orientations m_orientation;

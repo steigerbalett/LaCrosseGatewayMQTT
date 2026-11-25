@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.54"
+#define PROGVERS         "1.39.55"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -228,6 +228,8 @@ struct RadioToggleState {
   uint32_t toggleIntervalS;
   uint8_t  toggleIndex;
   uint32_t lastToggleMs;
+  byte     mode;             // 0 = LaCrosse (data rates), 1 = EC3000, 2 = PCA301
+  word     pcaIntervalS;
 };
 RadioToggleState g_radio[5];
 
@@ -289,7 +291,17 @@ DataPort dataPort2;
 DataPort dataPort3;
 AccessPoint accessPoint (AP_IP, AP_IP, AP_SUBNET, "LaCrosseGateway");
 StateManager stateManager;
-PCA301 pca301;
+PCA301 *pca301 = nullptr;                  // created by the PCA301 init command (<n>x), saves ~0.7 KB without PCA301
+bool pca301Logging = false;
+// PCA301 plugs seen with values (channel for switching via MQTT), table created with the first values
+#define MAX_PCA301_ENTRIES 16
+struct Pca301Entry { byte ID[3]; byte Channel; bool Discovered; };
+Pca301Entry *pca301Entries = nullptr;
+byte pca301EntryCount = 0;
+
+static bool Pca301Active() {
+  return pca301 != nullptr && pca301->IsInitialized();
+}
 ESP8266OTA ota;
 unsigned int lastOtaProgress;
 SubProcessor subProcessor(&sc16is750, 5, "addon.hex");
@@ -320,10 +332,26 @@ bool mqttEnabled = false;
 // created on the first EC3000 frame: without EC3000 the tables need no memory
 EC3000Tracker *ec3000Tracker = nullptr;
 String ec3000NamesSetting;
+uint32_t laCrosseDiscovered[2] = {0, 0};   // LaCrosse IDs 0-63: Home Assistant discovery sent in this MQTT connection
+String lacrosseNamesSetting;               // "1A=Wohnzimmer, 2B=Keller", parsed on demand
+bool lacrosseNameTopics = false;           // MQTT topics <topic>/<name>/... instead of <topic>/<ID>/... for named sensors
+
+// Battery change: a LaCrosse sensor gets a new random ID with new batteries.
+// The ID received from the radio is mapped to the ID the sensor had before ("new=old", setting lacrosseMap).
+#define MAX_LACROSSE_MAP 16
+#define BATTERY_CHANGE_WINDOW_MS 300000UL   // 5 minutes
+struct LaCrosseMapEntry { byte From; byte To; };
+LaCrosseMapEntry laCrosseMap[MAX_LACROSSE_MAP];
+byte laCrosseMapCount = 0;
+int batteryChangeId = -1;                  // sensor waiting for its new ID, -1 = none
+unsigned long batteryChangeStart = 0;
 bool ec3000OnlyKnownSetting = false;
 
 #ifdef USE_MQTT_Pubsub
+static void HandlePca301Command(const char *topic, const byte *payload, unsigned int length);
+
 void callback(char* topic, byte* payload, unsigned int length) {
+  HandlePca301Command(topic, payload, length);
   if (DebugHelper::enabled) {
   Serial.print(F("Message arrived ["));
   Serial.print(topic);
@@ -344,6 +372,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 }
 
+static void ResetPca301Discovery();
+
 void reconnectMqtt() {
   // Loop until we're reconnected
   if (DebugHelper::enabled) {
@@ -362,8 +392,12 @@ void reconnectMqtt() {
       // the broker may have lost the retained discovery messages: send them again
       gatewayDiscoveryPending = haDiscovery;
       if (ec3000Tracker != nullptr) ec3000Tracker->ResetDiscovery();
+      ResetPca301Discovery();
+      memset(laCrosseDiscovered, 0, sizeof(laCrosseDiscovered));
       // Subscribe
       client.subscribe("esp32/output");
+      // PCA301 switching: <topic>/PCA301/<ID>/set ON|OFF
+      client.subscribe((mqttTopicBaseGW + F("/PCA301/+/set")).c_str());
   } else {
       Serial.print(F("failed, rc="));
       Serial.print(client.state());
@@ -705,6 +739,15 @@ void LoadRadioSettings(Settings &settings) {
     g_radio[i].toggleIntervalS = (uint32_t)settings.GetInt(p + "ToggleInterval", i == 0 ? 30 : 0);
     g_radio[i].toggleIndex  = 0;
     g_radio[i].lastToggleMs = 0;
+    String mode = settings.Get(p + "Mode", "lacrosse");
+    g_radio[i].mode         = mode == "ec3000" ? 1 : mode == "pca301" ? 2 : 0;
+    g_radio[i].pcaIntervalS = (word)settings.GetInt(p + "PcaInterval", 60);
+    if (g_radio[i].mode != 0) {
+      // fixed operating mode: no data rate toggling
+      g_radio[i].toggleMask      = 0;
+      g_radio[i].toggleIntervalS = 0;
+      if (g_radio[i].mode == 1) g_radio[i].fixedDataRate = "20.000";
+    }
   }
   // SS-Pins setzen (nur rfm1-3, rfm4+5 nutzen AddOn-Bus)
   const byte ssPinDefaults[3] = { RFM1_SS, RFM2_SS, RFM3_SS };
@@ -798,7 +841,14 @@ void HandleCommandI(unsigned long *commandData, byte length){
       break;
     }
     if (rfm != NULL){
-      pca301.Begin(rfm, commandData[1], interval, [](String key, String value, bool write) {
+      if (pca301 == nullptr) {
+        pca301 = new PCA301();
+        pca301->EnableLogging(pca301Logging);
+        pca301->SetLogItemCallback([](String logItem) {
+          logger.println(String(F("PCA301: ")) + logItem);
+        });
+      }
+      pca301->Begin(rfm, commandData[1], interval, [](String key, String value, bool write) {
         String result = "";
         Settings *s = new Settings();
         if (write) {
@@ -842,16 +892,16 @@ void HandleCommandS(unsigned long *data, byte size) {
 }
 
 void HandlePCA301Send(unsigned long *data, byte size) {
-  if (size == 10 && pca301.IsInitialized()) {
-    pca301.GetUsedRadio()->EnableReceiver(false);
+  if (size == 10 && Pca301Active()) {
+    pca301->GetUsedRadio()->EnableReceiver(false);
 
     byte payload[10];
     for (int i = 0; i < 10; i++) {
       payload[i] = data[i];
     }
-    pca301.SendPayload(payload, false);
+    pca301->SendPayload(payload, false);
 
-    pca301.GetUsedRadio()->EnableReceiver(true);
+    pca301->GetUsedRadio()->EnableReceiver(true);
 
   }
 }
@@ -906,55 +956,55 @@ void HandleCommandV() {
   for (int i = 0; i < 5; i++) AppendRfmInfo(result, i + 1, rfms[i]);
 
   if (ownSensors.HasSHT75()) {
-    result += " + SHT75";
+    result += F(" + SHT75");
   }
   if (ownSensors.HasBMP180()) {
-    result += " + BMP180";
+    result += F(" + BMP180");
   }
   if (ownSensors.HasBMP280()) {
-    result += " + BMP280";
+    result += F(" + BMP280");
   }
   if (ownSensors.HasBME280()) {
-    result += " + BME280";
+    result += F(" + BME280");
   }
   if (ownSensors.HasBME680()) {
-    result += " + BME680";
+    result += F(" + BME680");
   }
   if (ownSensors.HasDHT22()) {
-    result += " + DHT22";
+    result += F(" + DHT22");
   }
   if (ownSensors.HasLM75()) {
-    result += " + LM75";
+    result += F(" + LM75");
   }
   if(ownSensors.HasBH1750()) {
-    result += " + BH1750";
+    result += F(" + BH1750");
   }
   if (sc16is750.IsConnected() || sc16is750_2.IsConnected()) {
-    result += " + SC16IS750 (";
+    result += F(" + SC16IS750 (");
     if (sc16is750.IsConnected()) {
-      result += "0x90";
+      result += F("0x90");
     }
     if (sc16is750.IsConnected() && sc16is750_2.IsConnected()) {
-      result += ", ";
+      result += F(", ");
     }
     if (sc16is750_2.IsConnected()) {
-      result += "0x92";
+      result += F("0x92");
     }
     result += ")";
   }
   if (display.IsConnected()) {
-    result += " + OLED";
+    result += F(" + OLED");
   }
   if (digitalPorts.IsConnected()) {
-    result += " + MCP23008";
+    result += F(" + MCP23008");
   }
 
-  result += " {IP=";
+  result += F(" {IP=");
   if (WiFi.status() == WL_CONNECTED) {
     result += WiFi.localIP().toString();
   }
   else if (!USE_WIFI) {
-    result += "Disabled";
+    result += F("Disabled");
   }
   else {
     result += WiFi.softAPIP().toString();
@@ -995,11 +1045,181 @@ struct LaCrosseEntry {
   bool WeakBattery;
   int RSSI;
   unsigned long LastSeen;
+  byte RawID;                              // ID from the radio, differs from ID after a battery change
+  unsigned long FirstSeen;
 };
 #define MAX_LACROSSE_ENTRIES 16
 LaCrosseEntry laCrosseEntries[MAX_LACROSSE_ENTRIES] = {};
 
-static void RecordLaCrosse(const LaCrosse::Frame &frame, int rssi) {
+// Name of a LaCrosse ID from the setting lacrosseNames ("1A=Wohnzimmer, 2B=Keller"), empty if none
+static String LaCrosseName(byte id) {
+  const String &names = lacrosseNamesSetting;
+  int start = 0;
+  while (start < (int)names.length()) {
+    int end = EC3000Tracker::NextNameSeparator(names, start);
+    int eq = names.indexOf('=', start);
+    if (eq > start && eq < end) {
+      String idStr = names.substring(start, eq);
+      idStr.trim();
+      char *rest;
+      unsigned long entryId = strtoul(idStr.c_str(), &rest, 16);
+      if (idStr.length() > 0 && idStr.length() <= 2 && *rest == '\0' && entryId == id) {
+        return EC3000Tracker::CleanName(names.substring(eq + 1, end));
+      }
+    }
+    start = end + 1;
+  }
+  return String();
+}
+
+static String HexId(byte id) {
+  char buf[3];
+  snprintf(buf, sizeof(buf), "%02X", id);
+  return String(buf);
+}
+
+// Topic part of a LaCrosse sensor: the hex ID, or with lacrosseNameTopics its name (characters MQTT
+// does not allow in a topic level, and spaces, become '_')
+static String LaCrosseTopicId(byte id) {
+  if (lacrosseNameTopics) {
+    String name = LaCrosseName(id);
+    if (name.length() > 0) {
+      for (unsigned int i = 0; i < name.length(); i++) {
+        char c = name[i];
+        if (c == '/' || c == '+' || c == '#' || c == ' ') {
+          name[i] = '_';
+        }
+      }
+      return name;
+    }
+  }
+  return HexId(id);
+}
+
+// lacrosseMap = "3C=1A, 4F=2B" (ID from the radio = ID used by the gateway)
+static void LoadLaCrosseMap(const String &setting) {
+  laCrosseMapCount = 0;
+  int start = 0;
+  while (start < (int)setting.length() && laCrosseMapCount < MAX_LACROSSE_MAP) {
+    int end = EC3000Tracker::NextNameSeparator(setting, start);
+    int eq = setting.indexOf('=', start);
+    if (eq > start && eq < end) {
+      String from = setting.substring(start, eq);
+      String to = setting.substring(eq + 1, end);
+      from.trim();
+      to.trim();
+      char *r1;
+      char *r2;
+      unsigned long f = strtoul(from.c_str(), &r1, 16);
+      unsigned long t = strtoul(to.c_str(), &r2, 16);
+      if (from.length() > 0 && to.length() > 0 && *r1 == '\0' && *r2 == '\0' && f < 64 && t < 64 && f != t) {
+        laCrosseMap[laCrosseMapCount].From = f;
+        laCrosseMap[laCrosseMapCount].To = t;
+        laCrosseMapCount++;
+      }
+    }
+    start = end + 1;
+  }
+}
+
+static String LaCrosseMapString() {
+  String result;
+  for (byte i = 0; i < laCrosseMapCount; i++) {
+    if (i > 0) {
+      result += F(", ");
+    }
+    result += HexId(laCrosseMap[i].From) + "=" + HexId(laCrosseMap[i].To);
+  }
+  return result;
+}
+
+static void SaveLaCrosseMap() {
+  Settings *s = new Settings();
+  s->Read(&logger);
+  s->Add("lacrosseMap", LaCrosseMapString());
+  s->Write();
+  delete s;
+}
+
+// Can rawId be the new ID of the sensor waiting for its battery change? Not mapped yet and either
+// never seen or first seen at most 5 minutes before the button was pressed (batteries changed first).
+// Returns the table entry of rawId (to remove it) or nullptr; sets ok.
+static LaCrosseEntry *CheckNewLaCrosseId(byte rawId, bool &ok) {
+  ok = false;
+  for (byte i = 0; i < laCrosseMapCount; i++) {
+    if (laCrosseMap[i].From == rawId || laCrosseMap[i].To == rawId) return nullptr;
+  }
+  for (byte i = 0; i < MAX_LACROSSE_ENTRIES; i++) {
+    LaCrosseEntry *e = &laCrosseEntries[i];
+    if (e->Used && (e->ID == rawId || e->RawID == rawId)) {
+      ok = e->ID == rawId && e->RawID == rawId && (long)(e->FirstSeen - (batteryChangeStart - BATTERY_CHANGE_WINDOW_MS)) >= 0;
+      return e;
+    }
+  }
+  ok = true;
+  return nullptr;
+}
+
+// Called for every valid LaCrosse frame before it is recorded and published: completes a pending
+// battery change and replaces the radio ID by the mapped ID. FHEM (OK 9 ...) still gets the radio ID.
+static void ApplyLaCrosseMap(LaCrosse::Frame &frame) {
+  if (batteryChangeId >= 0 && millis() - batteryChangeStart > BATTERY_CHANGE_WINDOW_MS) {
+    logger.println(String(F("Battery change for LaCrosse ")) + HexId(batteryChangeId) + F(": no new ID within 5 minutes"));
+    batteryChangeId = -1;
+  }
+  byte rawId = frame.ID;
+  // a new ID: not seen yet, not mapped yet and the sensor reports new batteries
+  bool isNew = false;
+  LaCrosseEntry *rawEntry = nullptr;
+  if (batteryChangeId >= 0 && rawId != batteryChangeId && rawId < 64 && frame.NewBatteryFlag) {
+    rawEntry = CheckNewLaCrosseId(rawId, isNew);
+  }
+  if (isNew) {
+    if (rawEntry != nullptr) {
+      rawEntry->Used = false;   // the new ID was shown on its own before the button was pressed
+    }
+    byte keep = 0;
+    for (byte i = 0; i < laCrosseMapCount; i++) {
+      // drop the old mapping of this sensor and any old use of the new radio ID
+      if (laCrosseMap[i].To != batteryChangeId && laCrosseMap[i].From != rawId) {
+        laCrosseMap[keep++] = laCrosseMap[i];
+      }
+    }
+    laCrosseMapCount = keep;
+    if (laCrosseMapCount < MAX_LACROSSE_MAP) {
+      laCrosseMap[laCrosseMapCount].From = rawId;
+      laCrosseMap[laCrosseMapCount].To = batteryChangeId;
+      laCrosseMapCount++;
+      SaveLaCrosseMap();
+      logger.println(String(F("Battery change: LaCrosse ")) + HexId(rawId) + F(" is now ") + HexId(batteryChangeId));
+    }
+    batteryChangeId = -1;
+  }
+  for (byte i = 0; i < laCrosseMapCount; i++) {
+    if (laCrosseMap[i].From == rawId) {
+      frame.ID = laCrosseMap[i].To;
+      break;
+    }
+  }
+}
+
+// POST /api/lacrosse/battery?id=1A starts a battery change for sensor 1A, without id it cancels
+static void HandleBatteryChange(ESP8266WebServer *server) {
+  String id = server->arg("id");
+  id.trim();
+  char *rest;
+  unsigned long value = strtoul(id.c_str(), &rest, 16);
+  if (id.length() > 0 && *rest == '\0' && value < 64) {
+    batteryChangeId = value;
+    batteryChangeStart = millis();
+    logger.println(String(F("Battery change for LaCrosse ")) + HexId(value) + F(" started, waiting 5 minutes for a new ID"));
+  } else {
+    batteryChangeId = -1;
+  }
+  server->send(200, "application/json", batteryChangeId >= 0 ? F("{\"ok\":true}") : F("{\"ok\":false}"));
+}
+
+static void RecordLaCrosse(const LaCrosse::Frame &frame, byte rawId, int rssi) {
   // same ID, else a free slot, else the sensor not seen for the longest time
   LaCrosseEntry *slot = nullptr;
   for (byte i = 0; i < MAX_LACROSSE_ENTRIES && slot == nullptr; i++) {
@@ -1014,6 +1234,9 @@ static void RecordLaCrosse(const LaCrosse::Frame &frame, int rssi) {
       if (millis() - laCrosseEntries[i].LastSeen > millis() - slot->LastSeen) slot = &laCrosseEntries[i];
     }
   }
+  if (!slot->Used || slot->ID != frame.ID) {
+    slot->FirstSeen = millis();
+  }
   slot->Used = true;
   slot->ID = frame.ID;
   slot->Temperature = frame.Temperature;
@@ -1022,9 +1245,12 @@ static void RecordLaCrosse(const LaCrosse::Frame &frame, int rssi) {
   slot->WeakBattery = frame.WeakBatteryFlag;
   slot->RSSI = rssi;
   slot->LastSeen = millis();
+  slot->RawID = rawId;
 }
 
 #ifdef USE_MQTT_Pubsub
+static void PublishLaCrosseDiscovery(const LaCrosse::Frame &frame);
+
 static void PublishValue(const String &topic, const String &value) {
   topic.toCharArray(bufTopic, sizeof(bufTopic));
   value.toCharArray(bufData, sizeof(bufData));
@@ -1080,6 +1306,11 @@ static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
     return;
   }
 
+  if (haDiscovery && !(laCrosseDiscovered[sensorId / 32] & (1UL << (sensorId % 32)))) {
+    PublishLaCrosseDiscovery(frame);
+    laCrosseDiscovered[sensorId / 32] |= 1UL << (sensorId % 32);
+  }
+
   String id = String(frame.ID, HEX);
   if (id.length() == 1) {
     id = '0' + id;
@@ -1093,7 +1324,7 @@ static void PublishLaCrosseMqtt(const LaCrosse::Frame &frame) {
   }
   PublishValue(mqttTopicBaseGW + "/lacrosse_ids", activeChannelStr);
 
-  String topicBase = mqttTopicBaseGW + "/" + id;
+  String topicBase = mqttTopicBaseGW + "/" + LaCrosseTopicId(frame.ID);
   PublishValue(topicBase + "/newBat", String(frame.NewBatteryFlag, DEC));
   PublishValue(topicBase + "/temp", String(frame.Temperature));
   PublishValue(topicBase + "/hum", String(frame.Humidity));
@@ -1252,6 +1483,159 @@ static void PublishEC3000Discovery(EC3000Tracker::Device *device) {
   device->Discovered = true;
   logger.println(String(F("Home Assistant discovery sent for EC3000 ")) + EC3000IdString(id));
 }
+
+// One Home Assistant entity of a LaCrosse sensor, state from the plain topic <topic>/<ID>/<key>
+static void PublishLaCrosseDiscoveryEntity(const String &idStr, const String &topicId, const String &deviceName, const char *component,
+                                           const char *key, const char *name, const __FlashStringHelper *extraFlash) {
+  String extra(extraFlash);
+  char json[MQTT_JSON_SIZE];
+  unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
+  snprintf_P(json, sizeof(json),
+    PSTR("{\"name\":\"%s\",\"unique_id\":\"lgw_lacrosse_%s_%s\",\"state_topic\":\"%s/%s/%s\","
+    "\"expire_after\":%lu,\"availability_topic\":\"%s/availability\",%s"
+    "\"device\":{\"identifiers\":[\"lgw_lacrosse_%s\"],\"name\":\"%s\","
+    "\"manufacturer\":\"La Crosse Technology\",\"model\":\"LaCrosse sensor\",\"via_device\":\"%s\"}}"),
+    name, idStr.c_str(), key, mqttTopicBaseGW.c_str(), topicId.c_str(), key,
+    expireAfter, mqttTopicBaseGW.c_str(), extra.c_str(),
+    idStr.c_str(), deviceName.c_str(), GatewayDeviceId().c_str());
+  String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_lacrosse_" + idStr + "/" + key + "/config";
+  PublishStream(topic, json, true);
+}
+
+// Home Assistant MQTT discovery for one LaCrosse sensor (retained, once per MQTT connection).
+// Humidity only for sensors that send it (106 = no humidity sensor).
+static void PublishLaCrosseDiscovery(const LaCrosse::Frame &frame) {
+  String idStr = HexId(frame.ID);
+  String topicId = LaCrosseTopicId(frame.ID);
+  String deviceName = LaCrosseName(frame.ID);
+  if (deviceName.length() == 0) {
+    deviceName = "LaCrosse " + idStr;
+  }
+  PublishLaCrosseDiscoveryEntity(idStr, topicId, deviceName, "sensor", "temp", "Temperature",
+    F("\"unit_of_measurement\":\"\u00b0C\",\"device_class\":\"temperature\",\"state_class\":\"measurement\","));
+  if (frame.Humidity > 0 && frame.Humidity <= 100) {
+    PublishLaCrosseDiscoveryEntity(idStr, topicId, deviceName, "sensor", "hum", "Humidity",
+      F("\"unit_of_measurement\":\"%\",\"device_class\":\"humidity\",\"state_class\":\"measurement\","));
+  }
+  PublishLaCrosseDiscoveryEntity(idStr, topicId, deviceName, "binary_sensor", "weakBat", "Battery",
+    F("\"payload_on\":\"1\",\"payload_off\":\"0\",\"device_class\":\"battery\","));
+  PublishLaCrosseDiscoveryEntity(idStr, topicId, deviceName, "binary_sensor", "newBat", "New battery",
+    F("\"payload_on\":\"1\",\"payload_off\":\"0\",\"entity_category\":\"diagnostic\","));
+  logger.println(String(F("Home Assistant discovery sent for LaCrosse ")) + idStr);
+}
+
+// -- PCA301 -------------------------------------------------------------------
+// Values: <topic>/PCA301/<ID> {"power":49.8,"energy":1.23,"state":"ON","channel":1} after every poll
+// Switching: <topic>/PCA301/<ID>/set with ON or OFF. The table is created with the first PCA301 values.
+
+static String Pca301IdString(const byte id[3]) {
+  char buf[7];
+  snprintf(buf, sizeof(buf), "%02X%02X%02X", id[0], id[1], id[2]);
+  return String(buf);
+}
+
+static void ResetPca301Discovery() {
+  for (byte i = 0; i < pca301EntryCount; i++) {
+    pca301Entries[i].Discovered = false;
+  }
+}
+
+static Pca301Entry *FindPca301(const byte id[3], bool create) {
+  for (byte i = 0; i < pca301EntryCount; i++) {
+    if (memcmp(pca301Entries[i].ID, id, 3) == 0) {
+      return &pca301Entries[i];
+    }
+  }
+  if (!create || pca301EntryCount >= MAX_PCA301_ENTRIES) {
+    return nullptr;
+  }
+  if (pca301Entries == nullptr) {
+    pca301Entries = new Pca301Entry[MAX_PCA301_ENTRIES];
+  }
+  Pca301Entry *e = &pca301Entries[pca301EntryCount++];
+  memcpy(e->ID, id, 3);
+  e->Channel = 0;
+  e->Discovered = false;
+  return e;
+}
+
+static void PublishPca301DiscoveryEntity(const String &idStr, const char *component, const char *key, const char *name,
+                                         const char *valueKey, const String &extra) {
+  char json[MQTT_JSON_SIZE];
+  snprintf_P(json, sizeof(json),
+    PSTR("{\"name\":\"%s\",\"unique_id\":\"lgw_pca301_%s_%s\",\"state_topic\":\"%s/PCA301/%s\","
+    "\"value_template\":\"{{ value_json.%s }}\",\"availability_topic\":\"%s/availability\",%s"
+    "\"device\":{\"identifiers\":[\"lgw_pca301_%s\"],\"name\":\"PCA301 %s\","
+    "\"manufacturer\":\"ELV\",\"model\":\"PCA301\",\"via_device\":\"%s\"}}"),
+    name, idStr.c_str(), key, mqttTopicBaseGW.c_str(), idStr.c_str(), valueKey, mqttTopicBaseGW.c_str(), extra.c_str(),
+    idStr.c_str(), idStr.c_str(), GatewayDeviceId().c_str());
+  String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_pca301_" + idStr + "/" + key + "/config";
+  PublishStream(topic, json, true);
+}
+
+static void PublishPca301Discovery(byte index) {
+  Pca301Entry *e = &pca301Entries[index];
+  String idStr = Pca301IdString(e->ID);
+  PublishPca301DiscoveryEntity(idStr, "switch", "switch", "Switch", "state",
+    String(F("\"payload_on\":\"ON\",\"payload_off\":\"OFF\",\"state_on\":\"ON\",\"state_off\":\"OFF\",\"command_topic\":\""))
+    + mqttTopicBaseGW + F("/PCA301/") + idStr + F("/set\","));
+  PublishPca301DiscoveryEntity(idStr, "sensor", "power", "Power", "power",
+    F("\"unit_of_measurement\":\"W\",\"device_class\":\"power\",\"state_class\":\"measurement\","));
+  PublishPca301DiscoveryEntity(idStr, "sensor", "energy", "Energy", "energy",
+    F("\"unit_of_measurement\":\"kWh\",\"device_class\":\"energy\",\"state_class\":\"total_increasing\","));
+  e->Discovered = true;
+  logger.println(String(F("Home Assistant discovery sent for PCA301 ")) + idStr);
+}
+
+static void PublishPca301(const PCA301::Frame &frame) {
+  Pca301Entry *e = FindPca301(frame.ID, true);
+  if (e != nullptr) {
+    e->Channel = frame.Channel;
+  }
+  if (!mqttEnabled || !client.connected()) {
+    return;
+  }
+  if (e != nullptr && haDiscovery && !e->Discovered) {
+    PublishPca301Discovery(e - pca301Entries);
+  }
+  char json[100];
+  snprintf_P(json, sizeof(json), PSTR("{\"power\":%.1f,\"energy\":%.2f,\"state\":\"%s\",\"channel\":%u}"),
+    frame.Power, frame.AccumulatedPower, frame.IsOn ? "ON" : "OFF", (unsigned int)frame.Channel);
+  PublishStream(mqttTopicBaseGW + F("/PCA301/") + Pca301IdString(frame.ID), json, false);
+}
+
+static void HandlePca301Command(const char *topic, const byte *payload, unsigned int length) {
+  String prefix = mqttTopicBaseGW + F("/PCA301/");
+  String t = topic;
+  if (!t.startsWith(prefix) || !t.endsWith(F("/set")) || t.length() != prefix.length() + 6 + 4) {
+    return;
+  }
+  String idStr = t.substring(prefix.length(), prefix.length() + 6);
+  String value;
+  for (unsigned int i = 0; i < length && i < 8; i++) {
+    value += (char)payload[i];
+  }
+  value.trim();
+  value.toUpperCase();
+  bool on = value == F("ON") || value == F("1");
+  if (!on && value != F("OFF") && value != F("0")) {
+    return;
+  }
+  byte id[3];
+  for (byte i = 0; i < 3; i++) {
+    id[i] = strtoul(idStr.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
+  }
+  Pca301Entry *e = FindPca301(id, false);
+  if (e == nullptr || !Pca301Active()) {
+    logger.println(String(F("PCA301 ")) + idStr + F(" unknown, command ignored"));
+    return;
+  }
+  byte data[10] = {e->Channel, 0x05, id[0], id[1], id[2], (byte)(on ? 1 : 0), 0xFF, 0xFF, 0xFF, 0xFF};
+  pca301->GetUsedRadio()->EnableReceiver(false);
+  pca301->SendPayload(data, false);
+  pca301->GetUsedRadio()->EnableReceiver(true);
+  logger.println(String(F("PCA301 ")) + idStr + (on ? F(" on") : F(" off")) + F(" via MQTT"));
+}
 #endif
 
 // GET /api/data: state of the gateway, the EC3000 and the LaCrosse sensors as JSON
@@ -1299,7 +1683,7 @@ static void HandleApiData(ESP8266WebServer *server) {
       }
       values += String(history[h], 1);
     }
-    values += "]}";
+    values += F("]}");
     server->sendContent(values);
   }
 
@@ -1311,13 +1695,19 @@ static void HandleApiData(ESP8266WebServer *server) {
       continue;
     }
     snprintf_P(buf, sizeof(buf),
-      PSTR("%s{\"id\":\"%02X\",\"temperature\":%.1f,\"humidity\":%u,\"newBattery\":%s,\"weakBattery\":%s,\"rssi\":%d,\"age\":%lu}"),
-      first ? "" : ",", e->ID, e->Temperature, (unsigned int)e->Humidity,
+      PSTR("%s{\"id\":\"%02X\",\"rawId\":\"%02X\",\"name\":\"%s\",\"temperature\":%.1f,\"humidity\":%u,\"newBattery\":%s,\"weakBattery\":%s,\"rssi\":%d,\"age\":%lu}"),
+      first ? "" : ",", e->ID, e->RawID, LaCrosseName(e->ID).c_str(), e->Temperature, (unsigned int)e->Humidity,
       e->NewBattery ? "true" : "false", e->WeakBattery ? "true" : "false", e->RSSI, (millis() - e->LastSeen) / 1000);
     first = false;
     server->sendContent(buf);
   }
-  server->sendContent("]}");
+  if (batteryChangeId >= 0) {
+    snprintf_P(buf, sizeof(buf), PSTR("],\"batteryChange\":{\"id\":\"%02X\",\"remaining\":%lu}}"), batteryChangeId,
+      (BATTERY_CHANGE_WINDOW_MS - (millis() - batteryChangeStart)) / 1000);
+    server->sendContent(buf);
+  } else {
+    server->sendContent("],\"batteryChange\":null}");
+  }
   server->sendContent("");
 }
 
@@ -1385,7 +1775,9 @@ bool HandleReceivedData(RFMxx *rfm) {
       LaCrosse::Frame laCrosseFrame;
       LaCrosse::DecodeFrame(payload, &laCrosseFrame);
       if(laCrosseFrame.IsValid) {
-        RecordLaCrosse(laCrosseFrame, rfm->GetPacketRSSI());
+        byte rawId = laCrosseFrame.ID;
+        ApplyLaCrosseMap(laCrosseFrame);
+        RecordLaCrosse(laCrosseFrame, rawId, rfm->GetPacketRSSI());
 #ifdef USE_MQTT_Pubsub
         PublishLaCrosseMqtt(laCrosseFrame);
 #endif
@@ -1416,8 +1808,8 @@ bool HandleReceivedData(RFMxx *rfm) {
       if(bitRead(ANALYZE_FRAMES, 6) && EC3000::IsValidDataRate(dataRate)) {
         logger.println(EC3000::AnalyzeFrame(payload));
       }
-      if(bitRead(ANALYZE_FRAMES, 7) && PCA301::IsValidDataRate(dataRate) && pca301.IsInitialized()) {
-        logger.println(pca301.AnalyzeFrame(payload));
+      if(bitRead(ANALYZE_FRAMES, 7) && PCA301::IsValidDataRate(dataRate) && Pca301Active()) {
+        logger.println(pca301->AnalyzeFrame(payload));
       }
     }
 
@@ -1518,9 +1910,15 @@ bool HandleReceivedData(RFMxx *rfm) {
       }
 
       // Try PCA301
-      if(pca301.IsInitialized() && data.length() == 0 && PCA301::IsValidDataRate(rfm->GetDataRate())) {
-        data = pca301.GetFhemDataString(payload);
+      if(Pca301Active() && data.length() == 0 && PCA301::IsValidDataRate(rfm->GetDataRate())) {
+        data = pca301->GetFhemDataString(payload);
         frameLength = 12;
+#ifdef USE_MQTT_Pubsub
+        PCA301::Frame pcaFrame;
+        if (pca301->TakeValues(pcaFrame)) {
+          PublishPca301(pcaFrame);
+        }
+#endif
       }
 
       if(data.length() > 0) {
@@ -1821,7 +2219,7 @@ static void dbgStep(uint32_t step, const char* desc) {
   ESP.rtcUserMemoryWrite(0, &flag, sizeof(flag));
   ESP.rtcUserMemoryWrite(1, &step, sizeof(step));
   if (!DebugHelper::isEnabled()) return;
-  Serial.printf("[DBG] >>> STEP %u: %s  Heap=%u ContStack=%u\n",
+  Serial.printf_P(PSTR("[DBG] >>> STEP %u: %s  Heap=%u ContStack=%u\n"),
     (unsigned)step, desc, ESP.getFreeHeap(), ESP.getFreeContStack());
   Serial.flush();
 }
@@ -1946,7 +2344,7 @@ static bool StartWifi(Settings &settings) {
   }
 
   dbgStep(10, "Vor captivePortal.Begin()");
-  Serial.printf("[DBG] AP-Name=%s  Heap=%u  ContStack=%u\n",
+  Serial.printf_P(PSTR("[DBG] AP-Name=%s  Heap=%u  ContStack=%u\n"),
     apName.c_str(), ESP.getFreeHeap(), ESP.getFreeContStack());
   Serial.flush();
 
@@ -2273,11 +2671,8 @@ void setup(void) {
   });
 
   if (settings.Get("Flags", "").indexOf("LOG.PCA301") != -1) {
-    pca301.EnableLogging(true);
+    pca301Logging = true;
   }
-  pca301.SetLogItemCallback([](String logItem) {
-    logger.println(String(F("PCA301: ")) + logItem);
-  });
 
   if (digitalPorts.Begin(
       [](String data)    { Dispatch(data); },
@@ -2295,6 +2690,7 @@ void setup(void) {
     if (s == "8.842")  return  8842ul;
     if (s == "6.631")  return  6631ul;
     if (s == "4.800")  return  4800ul;
+    if (s == "20.000") return 20000ul;   // EC3000
     return def;
   };
 
@@ -2313,6 +2709,16 @@ void setup(void) {
     unsigned long dr   = parseDataRateWithDefault(g_radio[i].fixedDataRate, drDefaults[i]);
     long          freq = g_radio[i].freqKHz;
     CheckRFM(i + 1, rfms[i], dr, &settings, freq);
+    if (g_radio[i].mode == 2 && rfms[i]->IsConnected() && rfms[i]->GetRadioType() == RFMxx::RadioType::RFM69CW) {
+      // PCA301 like the FHEM command <radio>,<freq>,<interval>i
+      unsigned long pcaData[3] = { (unsigned long)(i + 1), (unsigned long)(freq > 0 ? freq : 868950),
+                                   g_radio[i].pcaIntervalS > 0 ? g_radio[i].pcaIntervalS : 60 };
+      HandleCommandI(pcaData, 3);
+      logger.println(String(F("Radio #")) + String(i + 1) + F(": PCA301"));
+    }
+    else if (g_radio[i].mode == 1 && rfms[i]->IsConnected()) {
+      logger.println(String(F("Radio #")) + String(i + 1) + F(": EC3000"));
+    }
   }
 
   for (byte i = 0; i < 5; i++) {
@@ -2370,6 +2776,11 @@ void setup(void) {
       ota.Begin(frontend->WebServer());
       frontend->WebServer()->on("/api/data", HTTP_GET, []() {
         HandleApiData(frontend->WebServer());
+      });
+      frontend->WebServer()->on("/api/lacrosse/battery", HTTP_POST, []() {
+        if (frontend->IsAuthentified()) {
+          HandleBatteryChange(frontend->WebServer());
+        }
       });
 
       uint16_t p1 = settings.GetInt("DataPort1", 81);
@@ -2491,6 +2902,9 @@ void setup(void) {
 
   ec3000NamesSetting = settings.Get("ec3000Names", "");
   ec3000OnlyKnownSetting = settings.GetBool("ec3000OnlyKnown", false);
+  lacrosseNamesSetting = settings.Get("lacrosseNames", "");
+  lacrosseNameTopics = settings.GetBool("lacrosseNameTopics", false);
+  LoadLaCrosseMap(settings.Get("lacrosseMap", ""));
 
 #ifdef USE_MQTT_Pubsub
   mqttEnabled = IsMqttConfigured(settings);
@@ -2519,6 +2933,19 @@ void setup(void) {
     logger.println(F("MQTT deaktiviert: kein Server oder Topic konfiguriert"));
   }
 #endif
+
+  // start commands from the setup (like the FHEM attribute initCommands), e.g. "20000#3r 3,868950,60i"
+  {
+    String initCommands = settings.Get(F("initCommands"), "");
+    initCommands.trim();
+    if (initCommands.length() > 0) {
+      logger.println(String(F("Start commands: ")) + initCommands);
+      for (unsigned int i = 0; i < initCommands.length(); i++) {
+        HandleSerialPort(initCommands[i]);
+      }
+      HandleSerialPort(' ');
+    }
+  }
 
   delay(1000);
   logger.println(F("Sending init String to FHEM"));
@@ -2647,8 +3074,8 @@ void loop(void) {
 
     byte receivedPackets = HandleDataReception();
 
-    if (pca301.IsInitialized()) {
-      pca301.Handle();
+    if (Pca301Active()) {
+      pca301->Handle();
     }
 
     stateManager.Handle(receivedPackets);

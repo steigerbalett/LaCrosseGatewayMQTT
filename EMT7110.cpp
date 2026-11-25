@@ -66,7 +66,7 @@ String EMT7110::AnalyzeFrame(byte *data) {
   DecodeFrame(data, &frame);
 
   // Show the raw data bytes
-  result += "EMT7110 [";
+  result += F("EMT7110 [");
   for (int i = 0; i < FRAME_LENGTH; i++) {
     result += String(data[i], HEX);
     result += " ";
@@ -75,47 +75,47 @@ String EMT7110::AnalyzeFrame(byte *data) {
 
   // Check CRC
   if (!frame.IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
   }
   // Start
-  result += " S:";
+  result += F(" S:");
   result += String(frame.Header1, HEX);
   result += " ";
   result += String(frame.Header2, HEX);
 
   // ID
-  result += " ID:";
+  result += F(" ID:");
   result += String(frame.ID, HEX);
 
   // Voltag
-  result += " V:";
+  result += F(" V:");
   result += frame.Voltage;
 
   // Current
-  result += " mA:";
+  result += F(" mA:");
   result += frame.Current;
 
   // Power
-  result += " W:";
+  result += F(" W:");
   result += frame.Power;
 
   // AccumulatedPower
-  result += " kWh:";
+  result += F(" kWh:");
   result += frame.AccumulatedPower;
 
   // Connected
-  result += " Con.:";
+  result += F(" Con.:");
   result += frame.ConsumersConnected;
 
   // Pairing
-  result += " Pair:";
+  result += F(" Pair:");
   result += frame.PairingFlag;
 
   // CRC
-  result += " CRC:";
+  result += F(" CRC:");
   result += frame.CRC;
  
   return result;
@@ -153,7 +153,7 @@ String EMT7110::BuildFhemDataString(struct Frame *frame) {
 
   // Header and ID
   String result;
-  result += "OK EMT7110 ";
+  result += F("OK EMT7110 ");
   result += (byte)(frame->ID >> 8);
   result += " ";
   result += (byte)(frame->ID);

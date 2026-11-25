@@ -77,7 +77,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
     }
   });
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.printf("Error[%u]: ", error);
+    Serial.printf_P(PSTR("Error[%u]: "), error);
     if (error == OTA_AUTH_ERROR) Serial.println(F("Auth Failed"));
     else if (error == OTA_BEGIN_ERROR) Serial.println(F("Begin Failed"));
     else if (error == OTA_CONNECT_ERROR) Serial.println(F("Connect Failed"));

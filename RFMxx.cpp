@@ -80,6 +80,9 @@ void RFMxx::SetDataRate(unsigned long dataRate) {
 }
 
 void RFMxx::Receive() {
+  if(m_payload == nullptr) {
+    return;
+  }
   if(IsRFM69) {
     if(ReadReg(REG_IRQFLAGS2) & RF_IRQFLAGS2_PAYLOADREADY) {
       // read the RSSI before the receiver is restarted
@@ -175,6 +178,11 @@ bool RFMxx::Begin(bool isPrimary) {
   }
 
   if(m_radioType != RFMxx::None) {
+    if(m_payload == nullptr || m_payloadCapacity < m_fifoSize) {
+      delete[] m_payload;
+      m_payload = new byte[m_fifoSize];
+      m_payloadCapacity = m_fifoSize;
+    }
     EnableReceiver(false);
   }
 
@@ -232,15 +240,15 @@ String RFMxx::GetInfoString() {
   result += GetRadioName();
   result += " ";
   result += String(GetFrequency());
-  result += " kHz ";
+  result += F(" kHz ");
   if(m_modulation == RFMxx::Modulation::FSK) {
-    result += "FSK ";
+    result += F("FSK ");
     result += String(GetDataRate()) + " kbps";
   }
   else if(m_modulation == RFMxx::Modulation::LoRa) {
-    result += "LoRa SF=";
+    result += F("LoRa SF=");
     result += String(GetSpreadingFactor());
-    result += " BW=";
+    result += F(" BW=");
     result += String(GetBandwidthHz());
   }
 

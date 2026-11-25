@@ -104,7 +104,8 @@ private:
   unsigned long m_lastReceiveTime;
   bool m_payloadReady;
   int m_packetRssi = -1024;
-  byte m_payload[250];
+  byte *m_payload = nullptr;     // allocated in Begin() when a radio is found (64 bytes RFM69, 250 RFM95)
+  uint8_t m_payloadCapacity = 0;
   byte GetByteFromFifo();
   void ClearFifo();
   void SetPin(byte pin, bool value);

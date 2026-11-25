@@ -78,9 +78,9 @@ void SerialPortFlasher::Add(byte b) {
       
       if(m_receivedSize == m_expectedSize) {
         m_state = State::Finished;
-        Serial.print("Finished");
-        Serial.println("Update.end: " + String(Update.end(true)));
-        Serial.print("Error: ");
+        Serial.print(F("Finished"));
+        Serial.println(String(F("Update.end: ")) + String(Update.end(true)));
+        Serial.print(F("Error: "));
         Update.printError(Serial);
         ESP.restart();
       }
@@ -100,22 +100,22 @@ void SerialPortFlasher::Add(byte b) {
   ////}
 
   ////Serial.print(b);
-  ////Serial.print(".");
+  ////Serial.print(F("."));
 }
 
 void SerialPortFlasher::Handle() {
   if (IsUploading() && millis() > m_lastReception + 2000) {
-    Serial.println("ERROR: timeout");
+    Serial.println(F("ERROR: timeout"));
     m_state = State::Finished;
     
-    ////Serial.println("Finished: " + String(m_receivedSize));
+    ////Serial.println(String(F("Finished: ")) + String(m_receivedSize));
     
     ////delay(100);
-    ////Serial.println("Update.end: " + String(Update.end(true)));
-    ////Serial.print("Error: ");
+    ////Serial.println(String(F("Update.end: ")) + String(Update.end(true)));
+    ////Serial.print(F("Error: "));
     ////Update.printError(Serial);
 
-    ////Serial.println("restart");
+    ////Serial.println(F("restart"));
     ////ESP.restart();
   }
 }

@@ -81,24 +81,24 @@ void StateManager::Handle(byte frames){
     m_roolOverIsPossible = false;
   }
     
-  // Calculate frames per minute
+  // Calculate frames per minute (sum of the last 12 buckets of 5 seconds)
+  if (currentMillis - m_fpmBucketStart >= FPM_BUCKETS * FPM_BUCKET_MS) {
+    for (byte i = 0; i < FPM_BUCKETS; i++) {
+      m_fpmBuckets[i] = 0;
+    }
+    m_fpmBucketStart = currentMillis;
+  }
+  while (currentMillis - m_fpmBucketStart >= FPM_BUCKET_MS) {
+    m_fpmBucketStart += FPM_BUCKET_MS;
+    m_fpmIndex = (m_fpmIndex + 1) % FPM_BUCKETS;
+    m_fpmBuckets[m_fpmIndex] = 0;
+  }
+  if (m_fpmBuckets[m_fpmIndex] < 0xFFFF - frames) {
+    m_fpmBuckets[m_fpmIndex] += frames;
+  }
   m_framesPerMinute = 0;
-  for(int i=0; i<TIMES_SIZE; i++){
-    if(currentMillis > 60000 && m_times[i] < currentMillis -60000) {
-      m_times[i] = 0;
-    }
-    
-    if(frames > 0) {
-      if(m_times[i] == 0) {
-        m_times[i] = currentMillis;
-        frames--;
-      }
-    }
-    
-    if(m_times[i] > 0) {
-      m_framesPerMinute++;
-    }
-    
+  for (byte i = 0; i < FPM_BUCKETS; i++) {
+    m_framesPerMinute += m_fpmBuckets[i];
   }
 }
 
@@ -115,13 +115,13 @@ void StateManager::Update() {
 
   unsigned long upTimeSeconds = millis() / 1000;
   String upTimeText(m_uptimeDays + upTimeSeconds / 86400);
-  upTimeText += "Tg. ";
+  upTimeText += F("Tg. ");
   upTimeText += String(upTimeSeconds / 3600 % 24);
-  upTimeText += "Std. ";
+  upTimeText += F("Std. ");
   upTimeText += String((upTimeSeconds / 60) % 60);
-  upTimeText += "Min. ";
+  upTimeText += F("Min. ");
   upTimeText += String(upTimeSeconds % 60);
-  upTimeText += "Sek. ";
+  upTimeText += F("Sek. ");
 
   
   m_values.Put("UpTimeSeconds", String(upTimeSeconds));
@@ -144,13 +144,13 @@ String StateManager::GetHTML() {
   Update();
   String result = "<style>table{border:1px solid black;border-collapse:collapse;}tr,td{padding:4px;border:1px solid; Margin:5px}</style>";
   
-  result += "<table>";
+  result += F("<table>");
   for (uint i = 0; i < m_values.Size(); i++) {
-    result += "<tr><td>";
+    result += F("<tr><td>");
     result += m_values.GetKeyAt(i);
-    result += ": </td><td>";
+    result += F(": </td><td>");
     result += m_values.GetValueAt(i);
-    result += "</td></tr>";
+    result += F("</td></tr>");
   }
 
   return result;
@@ -160,16 +160,16 @@ String StateManager::GetXML() {
   Update();
   String result = "";
 
-  result += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
-  result += "<LGW>";
+  result += F("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+  result += F("<LGW>");
   for (uint i = 0; i < m_values.Size(); i++) {
-    result += "<Info Key = \"";
+    result += F("<Info Key = \"");
     result += m_values.GetKeyAt(i);
-    result += "\" Value=\"";
+    result += F("\" Value=\"");
     result += m_values.GetValueAt(i);
-    result += "\"/>";
+    result += F("\"/>");
   }
-  result += "</LGW>";
+  result += F("</LGW>");
   
   return result;
 }
@@ -178,7 +178,7 @@ String StateManager::GetKVP(bool full) {
   Update();
   String result = "";
 
-  result += "OK VALUES LGW ";
+  result += F("OK VALUES LGW ");
   result += m_identity;
   result += " ";
 

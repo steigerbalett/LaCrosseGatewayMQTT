@@ -7,7 +7,7 @@ String HardwarePageBuilder::BuildSerialBridgeLine(TcpServer* serialBridge, Strin
     result += String(serialBridge->GetPort()) + "\t" + String(serialBridge->GetClientsConnected()) + " client(s) connected\n";
   }
   else {
-    result += "---\n";
+    result += F("---\n");
   }
   return result;
 }
@@ -21,15 +21,15 @@ String HardwarePageBuilder::BuildRfmLine(RFMxx *rfm, String name) {
     result += rfm->GetRadioName() + "\t";
     result += (String)rfm->GetFrequency() + " kHz    ";
     if (rfm->GetRadioType() == RFMxx::RadioType::RFM95W) {
-      result += "LoRa SF=";
+      result += F("LoRa SF=");
       result += String(rfm->GetSpreadingFactor());
-      result += " BW=";
+      result += F(" BW=");
       result += String(rfm->GetBandwidthHz() / 1000);
-      result += " kHz";
+      result += F(" kHz");
     }
     else {
       if (rfm->ToggleInterval) {
-        result += "toggle: ";
+        result += F("toggle: ");
         result += String(rfm->ToggleInterval) + " seconds > ";
         bool first = true;
         // Bit0=17.241 / Bit1=9.579 / Bit2=8.842 / Bit3=6.631 / Bit4=4.800
@@ -37,7 +37,7 @@ String HardwarePageBuilder::BuildRfmLine(RFMxx *rfm, String name) {
         const char* rateLabels[] = { "17.241", "9.579", "8.842", "6.631", "4.800" };
         for (int b = 0; b < 5; b++) {
           if (bitRead(rfm->ToggleMode, b)) {
-            if (!first) result += " / ";
+            if (!first) result += F(" / ");
             result += rateLabels[b];
             first = false;
           }
@@ -49,7 +49,7 @@ String HardwarePageBuilder::BuildRfmLine(RFMxx *rfm, String name) {
     }
   }
   else {
-    result += "---";
+    result += F("---");
   }
 
   return result + "\n";
@@ -139,36 +139,36 @@ String HardwarePageBuilder::Build(RFMxx *rfm1, RFMxx *rfm2, RFMxx *rfm3, RFMxx *
   }
   result += (String)"BMP180\t" + (ownSensors->HasBMP180() ? "OK\t" : "---\t") + cv180t + "\n";
 
-  result += "DHT22\t";
+  result += F("DHT22\t");
   if (ownSensors->HasDHT22()) {
-    result += "OK\t";
+    result += F("OK\t");
     DHTxx *dhtXX = ownSensors->GetDHTxxInstance();
     DHTxxValue cvDHT = dhtXX->GetLastMeasuredValue();
     result += "T=" + String(cvDHT.Temperature, 1);
     result += " H=" + String(cvDHT.Humidity);
   }
   else {
-    result += "---\t";
+    result += F("---\t");
   }
   result += "\n";
 
-  result += "LM75\t";
+  result += F("LM75\t");
   if (ownSensors->HasLM75()) {
-    result += "OK\t";
+    result += F("OK\t");
     result += "T=" + String(ownSensors->GetLM75Instance()->GetLastMeasuredValue().Temperature, 1);
   }
   else {
-    result += "---\t";
+    result += F("---\t");
   }
   result += "\n";
 
-  result += "BH1750\t";
+  result += F("BH1750\t");
   if (ownSensors->HasBH1750()) {
-    result += "OK\t";
+    result += F("OK\t");
     result += "LX=" + String(ownSensors->GetBH1750Instance()->GetLastMeasuredValue());
   }
   else {
-    result += "---\t";
+    result += F("---\t");
   }
   result += "\n";
 
@@ -178,11 +178,11 @@ String HardwarePageBuilder::Build(RFMxx *rfm1, RFMxx *rfm2, RFMxx *rfm3, RFMxx *
 
   result += (String)"OLED\t";
   if (display->IsConnected()) {
-    result += "OK\t";
+    result += F("OK\t");
     result += display->IsOn() ? "On" : "Off";
   }
   else {
-    result += "---\t";
+    result += F("---\t");
   }
   result += "\n";
 
@@ -196,10 +196,10 @@ String HardwarePageBuilder::Build(RFMxx *rfm1, RFMxx *rfm2, RFMxx *rfm3, RFMxx *
 
   result += (String)"Nextion\t";
   if (nextion->IsConnected()) {
-    result += "OK\t";
+    result += F("OK\t");
   }
   else {
-    result += "---\t";
+    result += F("---\t");
   }
   result += "\n";
 

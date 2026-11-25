@@ -41,6 +41,9 @@ function lvSpark(v){if(!v||v.length<2)return "<svg viewBox='0 0 100 30'><line x1
  var pts=v.map(function(x,i){return (i/(v.length-1)*w).toFixed(1)+','+(h-p-(x-mn)/r*(h-2*p)).toFixed(1);}).join(' ');
  return "<svg viewBox='0 0 "+w+" "+h+"' preserveAspectRatio='none'><polygon points='0,"+h+" "+pts+" "+w+","+h+"' fill='var(--pri)' fill-opacity='.18'/>"+
  "<polyline points='"+pts+"' fill='none' stroke='var(--pri)' stroke-width='2'/></svg>";}
+function lvBat(b,id){if(b&&b.id==id)return "<span class='badge warn'>wartet auf neue ID "+lvDur(b.remaining)+"</span> <button type='button' onclick=\"lvBatGo('')\">Abbrechen</button>";
+ return "<button type='button'"+(b?" disabled":"")+" title='Neue ID der n&auml;chsten 5 Minuten auf diese ID abbilden' onclick=\"lvBatGo('"+id+"')\">Change Battery</button>";}
+function lvBatGo(id){fetch('/api/lacrosse/battery?id='+id,{method:'POST'}).then(lvLoad);}
 function lvPill(k,v){return "<div class='lv-pill'>"+k+": <b>"+v+"</b></div>";}
 function lvLoad(){fetch('/api/data',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
  document.getElementById('lvSys').innerHTML=lvPill('Laufzeit',lvDur(d.uptime))+lvPill('WLAN',d.wifiRssi+' dBm')+
@@ -53,9 +56,9 @@ function lvLoad(){fetch('/api/data',{cache:'no-store'}).then(function(r){return 
   "<div class='info'>max. "+e.maxPower.toFixed(1)+" W &middot; verworfen "+e.rejected+"</div>"+
   "<div class='lv-spark'>"+lvSpark(e.history)+"</div><div class='lv-stats'><div><span>Verbrauch</span>"+e.energy.toFixed(3)+" kWh</div>"+
   "<div><span>An-Zeit</span>"+lvDur(e.onSeconds)+"</div><div><span>RSSI</span>"+e.rssi+" dBm</div></div></div>";}).join('');
- if(d.lacrosse.length)document.getElementById('lvLc').innerHTML="<table><thead><tr><th>ID</th><th>Temperatur</th><th>Feuchte</th><th>Batterie</th><th>RSSI</th><th>Zuletzt</th></tr></thead><tbody>"+
-  d.lacrosse.map(function(l){return "<tr><td>"+l.id+"</td><td>"+l.temperature.toFixed(1)+" &deg;C</td><td>"+(l.humidity>0&&l.humidity<=100?l.humidity+" %":"&ndash;")+
-  "</td><td class='"+(l.weakBattery?"batt-weak":"batt-ok")+"'>"+(l.weakBattery?"schwach":"ok")+(l.newBattery?" (neu)":"")+"</td><td>"+l.rssi+" dBm</td><td>"+lvAge(l.age)+"</td></tr>";}).join('')+"</tbody></table>";
+ if(d.lacrosse.length)document.getElementById('lvLc').innerHTML="<table><thead><tr><th>ID</th><th>Temperatur</th><th>Feuchte</th><th>Batterie</th><th>RSSI</th><th>Zuletzt</th><th></th></tr></thead><tbody>"+
+  d.lacrosse.map(function(l){return "<tr><td>"+(l.name?lvEsc(l.name)+" <span class='info'>"+l.id+"</span>":l.id)+(l.rawId!=l.id?" <span class='info'>(Funk "+l.rawId+")</span>":"")+"</td><td>"+l.temperature.toFixed(1)+" &deg;C</td><td>"+(l.humidity>0&&l.humidity<=100?l.humidity+" %":"&ndash;")+
+  "</td><td class='"+(l.weakBattery?"batt-weak":"batt-ok")+"'>"+(l.weakBattery?"schwach":"ok")+(l.newBattery?" (neu)":"")+"</td><td>"+l.rssi+" dBm</td><td>"+lvAge(l.age)+"</td><td>"+lvBat(d.batteryChange,l.id)+"</td></tr>";}).join('')+"</tbody></table>";
 }).catch(function(){document.getElementById('lvSys').innerHTML=lvPill('Verbindung','getrennt');});}
 lvLoad();setInterval(lvLoad,5000);
 </script>

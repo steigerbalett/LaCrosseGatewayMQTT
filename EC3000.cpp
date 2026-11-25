@@ -71,7 +71,7 @@ String EC3000::AnalyzeFrame(byte *data) {
   DecodeFrame(payload, &frame);
 
   // Show the raw data bytes
-  result += "EC3000 [";
+  result += F("EC3000 [");
   for (int i = 0; i < FRAME_LENGTH; i++) {
     result += String(payload[i], HEX);
     result += " ";
@@ -80,50 +80,50 @@ String EC3000::AnalyzeFrame(byte *data) {
 
   // Check CRC
   if (!frame.IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
   }
 
   // ID
-  result += " ID:";
+  result += F(" ID:");
   result += String(frame.ID, HEX);
 
   // TotalSeconds
-  result += " TS:";
+  result += F(" TS:");
   result += frame.TotalSeconds;
 
   // OnSeconds
-  result += " OS:";
+  result += F(" OS:");
   result += frame.OnSeconds;
 
   // Power
-  result += " W:";
+  result += F(" W:");
   result += frame.Power;
 
   // MaximumPower
-  result += " max-W:";
+  result += F(" max-W:");
   result += frame.MaximumPower;
 
   // Consumption
-  result += " Cons:";
+  result += F(" Cons:");
   result += frame.Consumption;
 
   // NumberOfResets
-  result += " Res.:";
+  result += F(" Res.:");
   result += frame.NumberOfResets;
  
   // Reception
-  result += " Rec.:";
+  result += F(" Rec.:");
   result += frame.Reception;
   
   // IsOn
-  result += " IsOn:";
+  result += F(" IsOn:");
   result += frame.IsOn;
 
   // CRC
-  result += " CRC:";
+  result += F(" CRC:");
   result += String(frame.CRC, HEX);
  
   return result;
@@ -160,7 +160,7 @@ String EC3000::BuildFhemDataString(struct Frame *frame) {
 
   // Header and ID
   String result;
-  result += "OK 22 ";
+  result += F("OK 22 ");
   result += (byte)(frame->ID >> 8);
   result += " ";
   result += (byte)(frame->ID);

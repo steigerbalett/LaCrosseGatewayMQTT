@@ -128,7 +128,7 @@ String LaCrosse::BuildFhemDataString(struct Frame *frame) {
   // |---------------------- fix "OK"
 
   String pBuf;
-  pBuf += "OK 9 ";
+  pBuf += F("OK 9 ");
   pBuf += frame->ID;
   pBuf += ' ';
 
@@ -192,7 +192,7 @@ String LaCrosse::AnalyzeFrame(byte *data) {
 
   if (!hideIt) {
     // Show the raw data bytes
-    result += "LaCrosse [";
+    result += F("LaCrosse [");
     for (int i = 0; i < FRAME_LENGTH; i++) {
       result += String(data[i], HEX);
       result += " ";
@@ -201,41 +201,41 @@ String LaCrosse::AnalyzeFrame(byte *data) {
 
     // Check CRC
     if (!frame.IsValid) {
-      result += " CRC:WRONG";
+      result += F(" CRC:WRONG");
     }
     else {
-      result += " CRC:OK";
+      result += F(" CRC:OK");
 
       // Start
-      result += " S:";
+      result += F(" S:");
       result += String(frame.Header, HEX);
 
       // Sensor ID
-      result += " ID:";
+      result += F(" ID:");
       result += String(frame.ID, HEX);
 
       // New battery flag
-      result += " NewBatt:";
+      result += F(" NewBatt:");
       result += String(frame.NewBatteryFlag, DEC);
 
       // Bit 12
-      result += " Bit12:";
+      result += F(" Bit12:");
       result += String(frame.Bit12, DEC);
 
       // Temperature
-      result += " Temp:";
+      result += F(" Temp:");
       result += frame.Temperature;
 
       // Humidity
-      result += " Hum:";
+      result += F(" Hum:");
       result += frame.Humidity;
 
       // Weak battery flag
-      result += " WeakBatt:";
+      result += F(" WeakBatt:");
       result += String(frame.WeakBatteryFlag, DEC);
 
       // CRC
-      result += " CRC:";
+      result += F(" CRC:");
       result += String(frame.CRC, DEC);
     }
     

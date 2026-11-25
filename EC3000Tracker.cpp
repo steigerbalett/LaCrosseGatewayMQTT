@@ -164,12 +164,22 @@ void EC3000Tracker::ResetDiscovery() {
   }
 }
 
+// Name lists are separated by ',' (or ';' as written by 1.39.54); returns the end of the entry at start
+int EC3000Tracker::NextNameSeparator(const String &names, int start) {
+  for (int i = start; i < (int)names.length(); i++) {
+    if (names[i] == ',' || names[i] == ';') {
+      return i;
+    }
+  }
+  return names.length();
+}
+
 // Removes characters that would break JSON, HTML attributes or the name list
 String EC3000Tracker::CleanName(const String &name) {
   String result;
   for (unsigned int i = 0; i < name.length(); i++) {
     char c = name[i];
-    if (c == '"' || c == '\\' || c == '\'' || c == '<' || c == '>' || c == ';' || c == '=' || c == '&' || (byte)c < 32) {
+    if (c == '"' || c == '\\' || c == '\'' || c == '<' || c == '>' || c == ';' || c == ',' || c == '=' || c == '&' || (byte)c < 32) {
       continue;
     }
     result += c;
@@ -182,10 +192,7 @@ void EC3000Tracker::SetNames(const String &names, bool onlyKnown) {
   m_nameCount = 0;
   int start = 0;
   while (start < (int)names.length() && m_nameCount < MAX_NAMES) {
-    int end = names.indexOf(';', start);
-    if (end < 0) {
-      end = names.length();
-    }
+    int end = NextNameSeparator(names, start);
     String entry = names.substring(start, end);
     start = end + 1;
 

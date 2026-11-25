@@ -255,7 +255,7 @@ void Display::Handle(WSBase::Frame frame, unsigned int framesPerMinute, String v
       Clear(DisplayArea_RSSI);
       String text;
       text += rssi;
-      text += " dBm";
+      text += F(" dBm");
       m_display.Print(DisplayArea_RSSI, text, OLED::Alignments::Right);
       
       if (m_wifiFlag) {

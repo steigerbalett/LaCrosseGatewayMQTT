@@ -106,9 +106,9 @@ String UniversalSensor::GetFhemDataString(byte *data) {
   if (data[0] == UNIVERSAL_SENSOR_HEADER) {
     uint16_t crc16 = CalculateCRC16(data, FRAME_LENGTH - 2);
     if((byte)(crc16 >> 8) == data[FRAME_LENGTH -2] && (byte)(crc16 & 0xFF) == data[FRAME_LENGTH - 1]) {
-      result += "OK WS ";
+      result += F("OK WS ");
       result += String(data[1], DEC);
-      result += " 5";
+      result += F(" 5");
       for(byte i = 2; i < FRAME_LENGTH; i++) {
         result += " ";
         result += String(data[i], DEC);

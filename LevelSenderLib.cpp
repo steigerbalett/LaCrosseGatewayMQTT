@@ -32,7 +32,7 @@ void LevelSenderLib::DecodeFrame(byte *data, struct Frame *frame){
 
   frame->CRC = data[5];
   if (frame->CRC != CalculateCRC(data)) {
-    if (m_debug) { Serial.println("## CRC FAIL ##"); }
+    if (m_debug) { Serial.println(F("## CRC FAIL ##")); }
     frame->IsValid = false;
   }
 
@@ -40,7 +40,7 @@ void LevelSenderLib::DecodeFrame(byte *data, struct Frame *frame){
 
   frame->Header = (data[0] & 0xF0) >> 4;
   if (frame->Header != 11) {
-    if (m_debug) { Serial.println("No valid start"); }
+    if (m_debug) { Serial.println(F("No valid start")); }
     frame->IsValid = false;
   }
 
@@ -62,21 +62,21 @@ void LevelSenderLib::DecodeFrame(byte *data, struct Frame *frame){
   if (frame->Temperature < -40.0 || frame->Temperature > 60.0) {
     frame->IsValid = false;
     if (m_debug) {
-      Serial.print("No valid Temperature: ");
+      Serial.print(F("No valid Temperature: "));
       Serial.println(frame->Temperature);
     }
   }
   if (frame->Level < 2.0 || frame->Level > 300) {
     frame->IsValid = false;
     if (m_debug) {
-      Serial.print("No valid Level: ");
+      Serial.print(F("No valid Level: "));
       Serial.println(frame->Level);
     }
   }
   if (frame->Voltage < 2.0 || frame->Voltage > 13.0) {
     frame->IsValid = false;
     if (m_debug) {
-      Serial.print("No valid Voltage: ");
+      Serial.print(F("No valid Voltage: "));
       Serial.println(frame->Voltage);
     }
   }
@@ -116,7 +116,7 @@ String LevelSenderLib::AnalyzeFrame(byte *data) {
   DecodeFrame(data, &frame);
 
   // Show the raw data bytes
-  result += "LevelSender [";
+  result += F("LevelSender [");
   for (int i = 0; i < FRAME_LENGTH; i++) {
     result += String(data[i], HEX);
     result += " ";
@@ -125,33 +125,33 @@ String LevelSenderLib::AnalyzeFrame(byte *data) {
 
   // Check CRC
   if (!frame.IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
 
     // Start
-    result += " S:";
+    result += F(" S:");
     result += String(frame.Header, HEX);
 
     // Sensor ID
-    result += " ID:";
+    result += F(" ID:");
     result += String(frame.ID, HEX);
 
     // Level
-    result += " Level:";
+    result += F(" Level:");
     result += frame.Level;
 
     // Temperature
-    result += " Temp:";
+    result += F(" Temp:");
     result += frame.Temperature;
 
     // Voltage
-    result += " Volt:";
+    result += F(" Volt:");
     result += frame.Voltage;
 
     // CRC
-    result += " CRC:";
+    result += F(" CRC:");
     result += String(frame.CRC, HEX);
   }
 
@@ -182,9 +182,9 @@ String LevelSenderLib::BuildFhemDataString(struct Frame *frame) {
   // `--------------------------------- fix "LS"
 
   String result;
-  result += "OK LS ";
+  result += F("OK LS ");
   result += frame->ID;
-  result += " 0 ";
+  result += F(" 0 ");
 
   // Level
   int level = (int)(frame->Level * 10 + 1000);

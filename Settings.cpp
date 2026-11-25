@@ -72,11 +72,11 @@ String Settings::Write() {
   }
 
   result += rawData.length();
-  result += " Byte (max. ";
+  result += F(" Byte (max. ");
   result += EEPROM_SIZE;
-  result += ") and ";
+  result += F(") and ");
   result += m_data.Size();
-  result += " values (max. ";
+  result += F(" values (max. ");
   result += m_data.GetCapacity();
   result += ")";
 
@@ -157,7 +157,7 @@ String Settings::ToString() {
     result += m_data.GetKeyAt(i);
     result += " ";
     result += m_data.GetValueAt(i);
-    result += "; ";
+    result += F("; ");
   }
   return result;
 }

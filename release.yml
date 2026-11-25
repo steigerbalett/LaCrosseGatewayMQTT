@@ -237,12 +237,39 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   # Finales Release nur bei Tags AUF main
   # ──────────────────────────────────────────────────────────────────────────
+  # Liegt der getaggte Commit auf main? (github.event.base_ref ist leer, wenn der Tag
+  # getrennt vom Branch gepusht wird, deshalb selbst prüfen)
+  check-main:
+    name: Tag auf main?
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    outputs:
+      on_main: ${{ steps.check.outputs.on_main }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prüfen
+        id: check
+        run: |
+          git fetch origin main
+          COMMIT=$(git rev-parse "${GITHUB_REF}^{commit}")
+          if git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "on_main=true" >> $GITHUB_OUTPUT
+            echo "Tag ${GITHUB_REF_NAME} liegt auf main"
+          else
+            echo "on_main=false" >> $GITHUB_OUTPUT
+            echo "Tag ${GITHUB_REF_NAME} liegt nicht auf main: kein Release"
+          fi
+
   release:
     name: Create GitHub Release (main tag)
-    needs: build
+    needs: [build, check-main]
     runs-on: ubuntu-latest
     # Tag-Push UND der Commit, auf den der Tag zeigt, muss auf main liegen
-    if: startsWith(github.ref, 'refs/tags/v') && github.event.base_ref == 'refs/heads/main'
+    if: needs.check-main.outputs.on_main == 'true'
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 

@@ -60,12 +60,13 @@ public:
   // after a new MQTT connection the discovery has to be sent again
   void ResetDiscovery();
 
-  // Names for IDs, format "BA3D=Waschmaschine;BF2C=Trockner".
+  // Names for IDs, format "BA3D=Waschmaschine, BF2C=Trockner" (";" also accepted).
   // With onlyKnown only listed IDs are tracked, all others are ignored.
   void SetNames(const String &names, bool onlyKnown);
   String GetName(word id);           // "" if the ID has no name
   bool IsAllowed(word id);
   static String CleanName(const String &name);
+  static int NextNameSeparator(const String &names, int start);
 
   byte GetCapacity() { return MAX_DEVICES; }
   Device *GetAt(byte index) { return index < MAX_DEVICES ? &m_devices[index] : nullptr; }

@@ -4,13 +4,16 @@
 #include "Arduino.h"
 #include "HashMap.h"
 
-#define TIMES_SIZE 200
+#define FPM_BUCKETS 12          // frames per minute: 12 buckets of 5 seconds
+#define FPM_BUCKET_MS 5000UL
 
 class StateManager {
 private:
   unsigned long m_lastKVPUpdate = 0;
   unsigned long m_lastFullKVPUpdate = 0;
-  unsigned long m_times[TIMES_SIZE];
+  word m_fpmBuckets[FPM_BUCKETS] = {0};
+  byte m_fpmIndex = 0;
+  unsigned long m_fpmBucketStart = 0;
   String m_version;
   String m_identity;
   String m_hostname;

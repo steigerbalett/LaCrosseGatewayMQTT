@@ -124,7 +124,7 @@ String TX38IT::BuildFhemDataString(struct Frame *frame) {
   // |---------------------- fix "OK"
 
   String pBuf;
-  pBuf += "OK 9 ";
+  pBuf += F("OK 9 ");
   pBuf += frame->ID;
   pBuf += ' ';
 
@@ -195,42 +195,42 @@ void TX38IT::AnalyzeFrame(byte *data) {
     Serial.print(div);
 
     // Show the raw data bytes
-    Serial.print("TX38IT [");
+    Serial.print(F("TX38IT ["));
     for (int i = 0; i < FRAME_LENGTH; i++) {
       Serial.print(data[i], DEC);
-      Serial.print(" ");
+      Serial.print(F(" "));
     }
-    Serial.print("]");
+    Serial.print(F("]"));
 
     // Check CRC
     if (!frame.IsValid) {
-      Serial.print(" CRC:WRONG");
+      Serial.print(F(" CRC:WRONG"));
     }
     else {
-      Serial.print(" CRC:OK");
+      Serial.print(F(" CRC:OK"));
 
       // Start
-      Serial.print(" S:");
+      Serial.print(F(" S:"));
       Serial.print(frame.Header, DEC);
 
       // Sensor ID
-      Serial.print(" ID:");
+      Serial.print(F(" ID:"));
       Serial.print(frame.ID, DEC);
 
       // New battery flag
-      Serial.print(" NewBatt:");
+      Serial.print(F(" NewBatt:"));
       Serial.print(frame.NewBatteryFlag, DEC);
 
       // Weak battery flag
-      Serial.print(" WeakBatt:");
+      Serial.print(F(" WeakBatt:"));
       Serial.print(frame.WeakBatteryFlag, DEC);
 
       // Temperature
-      Serial.print(" Temp:");
+      Serial.print(F(" Temp:"));
       Serial.print(frame.Temperature);
 
       // CRC
-      Serial.print(" CRC:");
+      Serial.print(F(" CRC:"));
       Serial.print(frame.CRC, DEC);
     }
 

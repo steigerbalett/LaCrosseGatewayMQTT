@@ -24,6 +24,7 @@ public:
   void SetCommandCallback(WFCommandCallbackType callback);
   void SetHardwareCallback(WFHardwareCallbackType callback);
   void SetPassword(String password);
+  bool IsAuthentified();
 
 private:
   ESP8266WebServer    m_webserver;
@@ -34,7 +35,6 @@ private:
   WFCommandCallbackType  m_commandCallback  = nullptr;
   WFHardwareCallbackType m_hardwareCallback = nullptr;
 
-  bool   IsAuthentified();
   String GetTop();
   String GetNavigation();
   String GetBottom();

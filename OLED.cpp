@@ -16,6 +16,10 @@ bool OLED::Begin(byte address, Orientations orientation, OLED::Controllers contr
     exists = true;
   }
 
+  if (exists && m_buffer == nullptr) {
+    m_buffer = new byte[OLED_BUFFER_SIZE]();
+  }
+
   if (exists) {
     Command(DISPLAYOFF);
     Command(NORMALDISPLAY);
@@ -72,6 +76,7 @@ void OLED::SetContrast(byte contrast) {
 }
 
 void OLED::Clear() {
+  if (m_buffer == nullptr) return;
   for (unsigned int i = 0; i < (128 * 64 / 8); i++) {
     m_buffer[i] = 0;
   }
@@ -85,12 +90,13 @@ bool OLED::Command(byte command) {
   byte res = Wire.endTransmission();
   interrupts();
   if (res != 0) {
-    Serial.println("ERROR (Command): " + String(res));
+    Serial.println(String(F("ERROR (Command): ")) + String(res));
   }
   return res == 0;
 }
 
 void OLED::Refresh() {
+  if (m_buffer == nullptr) return;
   int pos = 0;
   for (byte i = 0; i < 8; i++) {
     Command(0xB0 + i);
@@ -116,7 +122,7 @@ void OLED::Refresh() {
 }
 
 void OLED::SetPixel(int x, int y, Colors color) {
-  if (x >= 0 && x < 128 && y >= 0 && y < 64) {
+  if (m_buffer != nullptr && x >= 0 && x < 128 && y >= 0 && y < 64) {
     switch (color) {
     case Colors::White:  m_buffer[x + (y / 8) * 128] |= (1 << (y & 7)); break;
     case Colors::Black:  m_buffer[x + (y / 8) * 128] &= ~(1 << (y & 7)); break;
@@ -209,15 +215,20 @@ int OLED::GetStringWidth(String text) {
 }
 
 void OLED::PushContent() {
+  if (m_buffer == nullptr) return;
+  if (m_stack == nullptr) m_stack = new byte[OLED_BUFFER_SIZE];
   for (int i = 0; i < OLED_BUFFER_SIZE; i++) {
     m_stack[i] = m_buffer[i];
   }
 }
 
 void OLED::PopContent() {
+  if (m_buffer == nullptr || m_stack == nullptr) return;
   for (int i = 0; i < OLED_BUFFER_SIZE; i++) {
     m_buffer[i] = m_stack[i];
   }
+  delete[] m_stack;
+  m_stack = nullptr;
   Refresh();
 }
 

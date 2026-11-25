@@ -126,17 +126,17 @@ void BME680::Handle() {
     ////uint8_t gasMeasureIndex = status && 0x0F;
     ////bool gasIsValid = bitRead(gasLsb, 5);
     ////bool heatIsStable = bitRead(gasLsb, 4);
-    ////Serial.print("IM:");
+    ////Serial.print(F("IM:"));
     ////Serial.print(isMeasuring);
-    ////Serial.print(" ND:");
+    ////Serial.print(F(" ND:"));
     ////Serial.print(newData);
-    ////Serial.print(" GM:");
+    ////Serial.print(F(" GM:"));
     ////Serial.print(isGasMeasuring);
-    ////Serial.print(" GV:");
+    ////Serial.print(F(" GV:"));
     ////Serial.print(gasIsValid);
-    ////Serial.print(" HS");
+    ////Serial.print(F(" HS"));
     ////Serial.print(heatIsStable);
-    ////Serial.print(" GI");
+    ////Serial.print(F(" GI"));
     ////Serial.print(gasMeasureIndex);
     ////Serial.println();
 

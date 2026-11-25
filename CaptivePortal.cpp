@@ -1,8 +1,8 @@
 #include "CaptivePortal.h"
 
 #define CP_DBG(msg)       do { Serial.print(F("[CP] ")); Serial.println(F(msg)); Serial.flush(); } while(0)
-#define CP_DBGF(fmt, ...) do { Serial.printf("[CP] " fmt "\n", ##__VA_ARGS__); Serial.flush(); } while(0)
-#define CP_HEAP()         do { Serial.printf("[CP] Heap=%u ContStack=%u\n", \
+#define CP_DBGF(fmt, ...) do { Serial.printf_P(PSTR("[CP] " fmt "\n"), ##__VA_ARGS__); Serial.flush(); } while(0)
+#define CP_HEAP()         do { Serial.printf_P(PSTR("[CP] Heap=%u ContStack=%u\n"), \
                                 ESP.getFreeHeap(), ESP.getFreeContStack()); Serial.flush(); } while(0)
 
 CaptivePortal::CaptivePortal()
@@ -262,7 +262,7 @@ String CaptivePortal::buildScanHtml() {
     if (sec) html += F(" &#x1F512;");
     html += F(" <small>");
     for (int j = 0; j < 4; j++) html += (j < b) ? '|' : '.';
-    html += " (";
+    html += F(" (");
     html += r;
     html += F(" dBm)</small></li>");
   }

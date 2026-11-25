@@ -52,7 +52,7 @@ bool DataPort::Handle(CommandCallbackType* callback) {
       if (m_isConnected) {
         String logItem = "DataPort: #";
         logItem += m_port;
-        logItem += " Client disconnected";
+        logItem += F(" Client disconnected");
         m_logItemCallback (logItem);
         m_client.stop();
         m_isConnected = false;
@@ -73,9 +73,9 @@ bool DataPort::Handle(CommandCallbackType* callback) {
         if (m_logItemCallback) {
           String logItem = "DataPort: #";
           logItem += m_port;
-          logItem += " Client connected, IP=";
+          logItem += F(" Client connected, IP=");
           logItem += m_client.remoteIP().toString();
-          logItem += " Port=";
+          logItem += F(" Port=");
           logItem += m_client.remotePort();
           m_logItemCallback(logItem);
           if (m_ConnectCallback) {
@@ -92,7 +92,7 @@ bool DataPort::Handle(CommandCallbackType* callback) {
           if (m_logItemCallback != NULL) {
             String logItem = "DataPort: #";
             logItem += m_port;
-            logItem += " received '";
+            logItem += F(" received '");
             request.replace("\n", " ");
             logItem += request;
             logItem += "'";

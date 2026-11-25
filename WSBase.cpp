@@ -54,7 +54,7 @@ String WSBase::BuildFhemDataString(struct Frame *frame, byte sensorType) {
   }
 
   if (isValid) {
-    pBuf += "OK WS ";
+    pBuf += F("OK WS ");
     pBuf += frame->ID;
     pBuf += " ";
     pBuf += sensorType;
@@ -164,7 +164,7 @@ String WSBase::AnalyzeFrame(byte *data, Frame *frame, byte frameLength, String p
 
   // Show the raw data bytes
   result += prefix;
-  result += " [";
+  result += F(" [");
   for (int i = 0; i < frameLength; i++) {
     result += String(data[i], HEX);
     if (i < frameLength) {
@@ -175,89 +175,89 @@ String WSBase::AnalyzeFrame(byte *data, Frame *frame, byte frameLength, String p
 
   // CRC
   if (!frame->IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
 
     // Start
-    result += " S:";
+    result += F(" S:");
     result += String(frame->Header, HEX);
 
     // Sensor ID
-    result += " ID:";
+    result += F(" ID:");
     result += String(frame->ID, HEX);
 
     // New battery flag
-    result += " NewBatt:";
+    result += F(" NewBatt:");
     result += String(frame->NewBatteryFlag, DEC);
 
     // Low battery flag
-    result += " LowBatt:";
+    result += F(" LowBatt:");
     result += String(frame->LowBatteryFlag, DEC);
 
     // Error flag
-    result += " Error:";
+    result += F(" Error:");
     result += String(frame->ErrorFlag, DEC);
 
     // Temperature
-    result += " Temp:";
+    result += F(" Temp:");
     if (frame->HasTemperature) {
       result += frame->Temperature;
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // Humidity
-    result += " Hum:";
+    result += F(" Hum:");
     if (frame->HasHumidity) {
       result += frame->Humidity;
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // Rain
-    result += " Rain:";
+    result += F(" Rain:");
     if (frame->HasRain) {
       result += frame->Rain;
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // Wind speed
-    result += " Wind:";
+    result += F(" Wind:");
     if (frame->HasWindSpeed) {
       result += frame->WindSpeed;
-      result += "m/s";
+      result += F("m/s");
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // Wind direction
-    result += " from:";
+    result += F(" from:");
     if (frame->HasWindDirection) {
       result += frame->WindDirection;
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // Wind gust
-    result += " Gust:";
+    result += F(" Gust:");
     if (frame->HasWindGust) {
       result += frame->WindGust;
-      result += " m/s";
+      result += F(" m/s");
     }
     else {
-      result += "---";
+      result += F("---");
     }
 
     // CRC
-    result += " CRC:";
+    result += F(" CRC:");
     result += String(frame->CRC, HEX);
 
   }

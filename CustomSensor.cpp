@@ -62,7 +62,7 @@ String CustomSensor::BuildFhemDataString(struct CustomSensor::Frame *frame) {
   |-------------------------------------------------------------- fix "OK"
   */
   
-  pBuf += "OK CC ";
+  pBuf += F("OK CC ");
   pBuf += frame->ID;
   pBuf += " ";
 
@@ -95,38 +95,38 @@ String CustomSensor::AnalyzeFrame(byte *data) {
   byte frameLength = CustomSensor::GetFrameLength(data);
 
   // Show the raw data bytes
-  result += "CustomSensor [";
+  result += F("CustomSensor [");
   for (int i = 0; i < frameLength; i++) {
     result += String(data[i], HEX);
     result += " ";
   }
-  result += "] ";
+  result += F("] ");
 
   // CRC
   if (!frame.IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
 
     // Sensor ID
-    result += " ID:0x";
+    result += F(" ID:0x");
     result += String(frame.ID, HEX);
 
     // Size
-    result += " NbrOfDataBytes:";
+    result += F(" NbrOfDataBytes:");
     result += String(frame.NbrOfDataBytes, DEC);
     
     // Data
-    result += " Data:";
+    result += F(" Data:");
     for (int i = 0; i < frame.NbrOfDataBytes; i++) {
-      result += "0x";
+      result += F("0x");
       result += String(frame.Data[i], HEX);
       result += " ";
     }
 
     // CRC
-    result += " CRC:0x";
+    result += F(" CRC:0x");
     result += String(frame.CRC, HEX);
   }
 

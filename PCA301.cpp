@@ -209,7 +209,7 @@ void PCA301::DecodeFrame(byte *bytes, struct PCA301::Frame *frame) {
       logItem += bt;
       logItem += " ";
     }
-    logItem += "  ";
+    logItem += F("  ");
     logItem += frame->IsFromPlug ? "(From Plug)" : "(From other sender)";
     logItem += GetPlugIdentifier(frame->ID[0], frame->ID[1], frame->ID[2], frame->Channel);
     Log(logItem);
@@ -273,6 +273,8 @@ String PCA301::GetFhemDataString(byte *data) {
   DecodeFrame(data, &frame);
   if (frame.IsValid && frame.IsFromPlug && !frame.IsPairingCommand  && !frame.IsOnOffCommand) {
     if (m_plugList.IsKnownPlug(frame.ID)) {
+      m_values = frame;
+      m_hasValues = true;
       word p = (word)(frame.Power * 10);
       word a = (word)(frame.AccumulatedPower * 100);
 
@@ -347,6 +349,15 @@ void PCA301::Begin(RFMxx *rfm, unsigned long frequency, word interval, TSettings
   m_plugList.Begin(interval);
 }
 
+bool PCA301::TakeValues(struct PCA301::Frame &frame) {
+  if (!m_hasValues) {
+    return false;
+  }
+  frame = m_values;
+  m_hasValues = false;
+  return true;
+}
+
 bool PCA301::IsInitialized() {
   return m_rfm != NULL;
 }
@@ -365,14 +376,14 @@ void PCA301::Log(String logItem, bool force) {
 String PCA301::GetPlugIdentifier(byte id1, byte id2, byte id3, byte channel) {
   String result;
 
-  result += " [ID=";
+  result += F(" [ID=");
   result += String(id1, HEX);
   result += " ";
   result += String(id2, HEX);
   result += " ";
   result += String(id3, HEX);
   result.toUpperCase();
-  result += "  Channel=";
+  result += F("  Channel=");
   result += channel;
   result += "]";
 
@@ -419,7 +430,7 @@ String PCA301::AnalyzeFrame(byte *payload) {
   DecodeFrame(payload, &frame);
 
   // Show the raw data bytes
-  result += "PCA301 [";
+  result += F("PCA301 [");
   for (int i = 0; i < PCA301::FRAME_LENGTH; i++) {
     result += ToHex(payload[i]) + " ";
   }
@@ -427,41 +438,41 @@ String PCA301::AnalyzeFrame(byte *payload) {
 
   // Check CRC
   if (!frame.IsValid) {
-    result += " CRC:WRONG";
+    result += F(" CRC:WRONG");
   }
   else {
-    result += " CRC:OK";
+    result += F(" CRC:OK");
   }
   result.toUpperCase();
  
   result += frame.IsFromPlug ? " Plug" : " Other";
 
   // ID
-  result += " ID:";
+  result += F(" ID:");
   result += ToHex(frame.ID[0]);
   result += ToHex(frame.ID[1]);
   result += ToHex(frame.ID[2]);
 
-  result += " Ch:";
+  result += F(" Ch:");
   result += frame.Channel;
 
-  result += " Cmd:";
+  result += F(" Cmd:");
   result += frame.Command;
 
   // Power
-  result += " W:";
+  result += F(" W:");
   result += frame.Power;
 
   // Accumulated power
-  result += " Acc:";
+  result += F(" Acc:");
   result += frame.AccumulatedPower;
 
   // IsOn
-  result += " IsOn:";
+  result += F(" IsOn:");
   result += frame.IsOn;
 
   // CRC
-  result += " CRC:";
+  result += F(" CRC:");
   result += ToHex(frame.CRC1);
   result += ToHex(frame.CRC2);
 

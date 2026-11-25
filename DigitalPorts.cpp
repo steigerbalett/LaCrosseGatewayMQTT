@@ -42,7 +42,7 @@ void DigitalPorts::Handle() {
       byte currentGPIOs = m_mcp.GetGPIOs();
       if (m_lastGPIOs != currentGPIOs) {
         String result;
-        result += "OK VALUES LGPB ";
+        result += F("OK VALUES LGPB ");
         result += m_identity + " ";
         for (byte i = 0; i < 8; i++) {
           bool isSet = !((currentGPIOs >> i) & 0x1);
@@ -65,7 +65,7 @@ void DigitalPorts::Handle() {
 }
 
 void DigitalPorts::Command(String command) {
-  command += ", ";
+  command += F(", ");
   while (command.indexOf(',') != -1) {
     String part = command.substring(0, command.indexOf(','));
     part.trim();

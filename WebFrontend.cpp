@@ -278,6 +278,9 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   String freqVal  = settings->Get(p + "Freq",  radioNbr == 1 ? "868310" : "");
   int    mask     = settings->GetInt(p + "ToggleMask",  radioNbr == 1 ? 1 : 0);
   String interval = settings->Get(p + "ToggleInterval", "30");
+  String mode     = settings->Get(p + "Mode", "lacrosse");
+  String pcaIv    = settings->Get(p + "PcaInterval", "60");
+  bool   isLaCrosse = mode != "ec3000" && mode != "pca301";
 
   int activeBits = 0;
   for (int b = 0; b < 5; b++) if (mask & (1 << b)) activeBits++;
@@ -306,7 +309,19 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   result += F("<tr><td><label>Frequenz (kHz):</label></td><td>");
   result += F("<input name='"); result += p;
   result += F("Freq' size='12' maxlength='10' value='"); result += freqVal;
-  result += F("'> <span class='info'>z.B. 868310</span></td></tr>");
+  result += F("'> <span class='info'>LaCrosse z.B. 868310, EC3000 868300, PCA301 868950</span></td></tr>");
+
+  // Betriebsart: LaCrosse (Datenraten unten), EC3000 (20.000 kbps) oder PCA301 (6.631 kbps, mit Abfrage)
+  result += F("<tr><td><label>Betriebsart:</label></td><td><select name='"); result += p;
+  result += F("Mode' onchange='upd"); result += id; result += F("()'>");
+  result += F("<option value='lacrosse'"); if (isLaCrosse) result += F(" selected"); result += F(">LaCrosse &amp; Co. (Datenraten unten)</option>");
+  result += F("<option value='ec3000'"); if (mode == "ec3000") result += F(" selected"); result += F(">EC3000 Energiez&auml;hler (20.000 kbps)</option>");
+  result += F("<option value='pca301'"); if (mode == "pca301") result += F(" selected"); result += F(">PCA301 Schaltsteckdosen</option>");
+  result += F("</select> <span class='info'>nur RFM69, ersetzt den FHEM-Befehl</span></td></tr>");
+  result += F("<tr id='"); result += id; result += F("PI'"); if (mode != "pca301") result += F(" style='display:none'");
+  result += F("><td><label>PCA301-Abfrage (s):</label></td><td><input name='"); result += p;
+  result += F("PcaInterval' size='6' maxlength='5' value='"); result += pcaIv;
+  result += F("'> <span class='info'>Abstand der Abfragen pro Steckdose (Standard 60)</span></td></tr>");
 
 // SS-Pin (nur für Radio 1-3 relevant)
   if (radioNbr <= 3) {
@@ -335,7 +350,8 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
   const char* rateLabels[] = {
     "17.241 kbps", "9.579 kbps", "8.842 kbps", "6.631 kbps", "4.800 kbps"
   };
-  result += F("<tr><td><label>Datenrate(n):</label></td><td>");
+  result += F("<tr id='"); result += id; result += F("RT'"); if (!isLaCrosse) result += F(" style='display:none'");
+  result += F("><td><label>Datenrate(n):</label></td><td>");
   result += F("<span class='info' style='display:block;margin-bottom:6px'>"
               "&#128161; Eine Auswahl = fixe Rate &nbsp;|&nbsp; "
               "Mehrere = Toggle zwischen diesen Raten</span>");
@@ -354,7 +370,7 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
 
   // Toggle-Intervall - nur sichtbar wenn >1 Checkbox aktiv
   result += F("<tr id='"); result += id; result += F("TR'");
-  if (activeBits <= 1) result += F(" style='display:none'");
+  if (activeBits <= 1 || !isLaCrosse) result += F(" style='display:none'");
   result += F("><td><label>Toggle-Intervall (s):</label></td><td>");
   result += F("<input id='"); result += id; result += F("IV' name='");
   result += p; result += F("ToggleInterval' size='6' maxlength='5' value='");
@@ -373,7 +389,10 @@ String WebFrontend::BuildRadioCard(Settings *settings, byte radioNbr) {
     result += F("']\").checked)n++;");
   }
   result += F("var r=document.getElementById('"); result += id; result += F("TR');");
-  result += F("r.style.display=n>1?'':'none';");
+  result += F("var m=document.querySelector(\"[name='"); result += p; result += F("Mode']\").value;");
+  result += F("document.getElementById('"); result += id; result += F("RT').style.display=m=='lacrosse'?'':'none';");
+  result += F("document.getElementById('"); result += id; result += F("PI').style.display=m=='pca301'?'':'none';");
+  result += F("r.style.display=(n>1&&m=='lacrosse')?'':'none';");
   result += F("if(n>1){var v=document.getElementById('"); result += id; result += F("IV');");
   result += F("if(!v.value||v.value==='0')v.value='30';}}</script>");
 
@@ -440,7 +459,7 @@ String WebFrontend::BuildHardwareRow(String text1, String text2, String text3) {
 String WebFrontend::GetDisplayName() {
   String result;
   result += m_stateManager->GetHostname();
-  result += " ("; result += WiFi.localIP().toString(); result += ")";
+  result += F(" ("); result += WiFi.localIP().toString(); result += ")";
   return result;
 }
 
@@ -466,16 +485,18 @@ String WebFrontend::SavePartial(std::initializer_list<String> keys) {
 String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot) {
   Settings *existing = new Settings();
   existing->Read(m_logger);
-  Settings *merged = new Settings();
-  String raw = existing->ToString();
+  // copy, not via ToString/FromString: that round trip splits values containing ';' and loses the next key
+  Settings *merged = new Settings(*existing);
   delete existing;
-  String data = raw.startsWith("SETUP ") ? raw.substring(6) : raw;
-  merged->FromString(data);
 
   for (byte i = 0; i < count; i++) {
     String key = String(keys[i]);
     if (m_webserver.hasArg(key)) {
-      merged->Add(key, m_webserver.arg(key));
+      String value = m_webserver.arg(key);
+      if (key.endsWith("Names")) {
+        value.replace(';', ',');   // name lists: ',' keeps the serial SETUP command working
+      }
+      merged->Add(key, value);
     } else {
       bool isCheckbox = (key == "UseWiFi"        || key == "RadioLock"       ||
                          key == "SendHumidity"    || key == "SendBatteryBeep" ||
@@ -484,7 +505,8 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "AddUnits"        || key == "AsDataFull"      ||
                          key == "ToggleLed"       || key == "oled13"          ||
                          key == "debug"           || key == "haDiscovery"     ||
-                         key == "ec3000OnlyKnown" || key == "ec3000Afc");
+                         key == "ec3000OnlyKnown" || key == "ec3000Afc"       ||
+                         key == "lacrosseNameTopics");
       if (isCheckbox) merged->Add(key, "false");
     }
   }
@@ -792,7 +814,9 @@ for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
           argName == p + "ToggleInterval" ||
           argName == p + "Type"       ||
           argName == p + "Freq"       ||
-          argName == p + "SS") { skip = true; }
+          argName == p + "SS"         ||
+          argName == p + "Mode"       ||
+          argName == p + "PcaInterval") { skip = true; }
       for (int b = 0; b < 5 && !skip; b++) {
         if (argName == p + "Rate" + String(b)) skip = true;
       }
@@ -883,17 +907,16 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
 
   Settings *existing = new Settings();
   existing->Read(m_logger);
-  Settings *merged = new Settings();
-  String raw = existing->ToString();
-  if (raw.startsWith("SETUP ")) {
-    merged->FromString(raw.substring(6));   // "SETUP " = 6 Zeichen
-  } else {
-    merged->FromString(raw);
-  }
+  Settings *merged = new Settings(*existing);
 
   // RadioLock
   String radioLockVal = m_webserver.hasArg("RadioLock") ? "true" : "false";
   merged->Add("RadioLock", radioLockVal);
+  if (m_webserver.hasArg("initCommands")) {
+    String cmds = m_webserver.arg("initCommands");
+    cmds.trim();
+    merged->Add("initCommands", cmds);
+  }
 
   const char* rateNames[] = {"17.241","9.579","8.842","6.631","4.800"};
   for (byte radioNbr = 1; radioNbr <= 5; radioNbr++) {
@@ -910,6 +933,13 @@ m_webserver.on("/save_radios", HTTP_POST, [this]() {
       freqVal = existing->Get(p + "Freq", radioNbr == 1 ? "868310" : "");
     }
     merged->Add(p + "Freq", freqVal);
+
+    String modeVal = m_webserver.arg(p + "Mode");
+    if (modeVal != "ec3000" && modeVal != "pca301") modeVal = "lacrosse";
+    merged->Add(p + "Mode", modeVal);
+    String pcaIvVal = m_webserver.arg(p + "PcaInterval");
+    if (pcaIvVal.toInt() <= 0) pcaIvVal = "60";
+    merged->Add(p + "PcaInterval", pcaIvVal);
 
     // SS-Pin nur für Radio 1-3
     if (radioNbr <= 3) {
@@ -1073,6 +1103,15 @@ m_webserver.on("/save_ec3000", HTTP_POST, [this]() {
   const char* keys[] = {"ec3000Names","ec3000OnlyKnown","ec3000Afc"};
   String info = SaveSelectedKeys(keys, 3, true);
   m_webserver.send(200, "text/html", GetRedirectToRoot("EC3000 gespeichert<br>" + info));
+  delay(1000); ESP.restart();
+});
+
+// -- /save_lacrosse --------------------------------------------------------
+m_webserver.on("/save_lacrosse", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"lacrosseNames","lacrosseNameTopics","lacrosseMap"};
+  String info = SaveSelectedKeys(keys, 3, true);
+  m_webserver.send(200, "text/html", GetRedirectToRoot("LaCrosse gespeichert<br>" + info));
   delay(1000); ESP.restart();
 });
 
@@ -1249,9 +1288,28 @@ m_webserver.on("/setup", [this]() {
     data += F("<tr><td><label>Home Assistant:</label></td><td>");
     data += F("<input type='checkbox' name='haDiscovery' value='true'");
     data += settings->GetBool("haDiscovery", true) ? F(" checked") : F("");
-    data += F("> MQTT-Discovery senden <span class='info'>(EC3000 erscheinen automatisch als Ger&auml;te, Neustart n&ouml;tig)</span></td></tr>");
+    data += F("> MQTT-Discovery senden <span class='info'>(LaCrosse-Sensoren und EC3000 erscheinen automatisch als Ger&auml;te, Neustart n&ouml;tig)</span></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; MQTT speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // -- LaCrosse --
+    data += F("<form method='post' action='/save_lacrosse'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#127777; LaCrosse-Sensoren</h2>");
+    data += F("<p class='info'>Namen f&uuml;r die IDs, getrennt mit Komma, z.&nbsp;B. <code>1A=Wohnzimmer, 2B=Keller</code>. ");
+    data += F("Die Namen erscheinen in Home Assistant und auf der Live-Seite. Nach einem Batteriewechsel hat der Sensor eine neue ID.</p><table>");
+    data += F("<tr><td><label>Namen:</label></td><td>");
+    data += F("<input name='lacrosseNames' size='60' maxlength='400' value='"); { String names = settings->Get("lacrosseNames", ""); names.replace("'", "&#39;"); data += names; } data += F("'></td></tr>");
+    data += F("<tr><td></td><td><input type='checkbox' name='lacrosseNameTopics' value='true'");
+    data += settings->GetBool("lacrosseNameTopics", false) ? F(" checked") : F("");
+    data += F("> Name statt ID im MQTT-Topic <span class='info'>(<code>&lt;topic&gt;/Wohnzimmer/temp</code> statt <code>&lt;topic&gt;/1A/temp</code>, Leerzeichen werden zu _)</span></td></tr>");
+    data += F("<tr><td><label>Batteriewechsel:</label></td><td>");
+    data += F("<input name='lacrosseMap' size='60' maxlength='120' value='"); { String map = settings->Get("lacrosseMap", ""); map.replace("'", "&#39;"); data += map; } data += F("'>");
+    data += F("<br><span class='info'>Neue ID = alte ID, z.&nbsp;B. <code>3C=1A</code>. Wird mit &bdquo;Change Battery&ldquo; auf der <a href='/live'>Live-Seite</a> automatisch eingetragen.</span></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; LaCrosse speichern &amp; neu starten'>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
@@ -1259,7 +1317,7 @@ m_webserver.on("/setup", [this]() {
     data += F("<form method='post' action='/save_ec3000'>");
     data += F("<div class='card' style='margin-bottom:12px'>");
     data += F("<h2>&#128268; EC3000 Energiez&auml;hler</h2>");
-    data += F("<p class='info'>Namen f&uuml;r die IDs, getrennt mit Semikolon, z.&nbsp;B. <code>BA3D=Waschmaschine;BF2C=Trockner</code>. ");
+    data += F("<p class='info'>Namen f&uuml;r die IDs, getrennt mit Komma, z.&nbsp;B. <code>BA3D=Waschmaschine, BF2C=Trockner</code>. ");
     data += F("Die Namen erscheinen in Home Assistant und auf der Live-Seite.</p><table>");
     data += F("<tr><td><label>Namen:</label></td><td>");
     data += F("<input name='ec3000Names' size='60' maxlength='600' value='"); { String names = settings->Get("ec3000Names", ""); names.replace("'", "&#39;"); data += names; } data += F("'></td></tr>");
@@ -1370,6 +1428,10 @@ m_webserver.on("/setup", [this]() {
     data += F("<input name='RadioLock' type='checkbox' value='true' ");
     data += settings->GetBool("RadioLock") ? "checked" : "";
     data += F("> RadioLock (FHEM darf Radio-Einstellungen nicht &uuml;berschreiben)</td></tr></table>");
+    data += F("<h2>&#9654; Startbefehle</h2><table><tr><td>");
+    data += F("<input name='initCommands' size='60' maxlength='200' value='"); { String c = settings->Get("initCommands", ""); c.replace("'", "&#39;"); data += c; } data += F("'>");
+    data += F("<br><span class='info'>Wie das FHEM-Attribut <code>initCommands</code>, wird nach jedem Start ausgef&uuml;hrt, ");
+    data += F("z.&nbsp;B. <code>20000#3r 3,868950,60i</code>. Leer lassen, wenn FHEM die Befehle schickt oder die Betriebsart oben reicht.</span></td></tr></table>");
     data += F("<br><input type='submit' value='&#128190; Radios speichern'>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
