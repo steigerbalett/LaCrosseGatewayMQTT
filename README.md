@@ -85,3 +85,25 @@ ist es offline, werden alle seine Entitäten „nicht verfügbar“.
 
 Im Menü „Live“ zeigt das Gateway alle 5 Sekunden die LaCrosse-Sensoren und darunter die EC3000 mit Leistungsverlauf der letzten 4 Minuten
 Dieselben Daten liefert `http://<gateway>/api/data` als JSON (wie `/state` ohne Login).
+
+## Danke
+
+- **HCS** und allen Mitwirkenden im **FHEM-Forum**
+  ([Thread LaCrosseGateway](https://forum.fhem.de/index.php/topic,43672.0.html),
+  [FHEM-Wiki](http://www.fhemwiki.de/wiki/LaCrosseGateway)): Von dort stammt das LaCrosseGateway mit
+  allen Sensor-Decodern, auch der EC3000-Decoder. Ohne die jahrelange Arbeit, die Tests und die Hinweise
+  der FHEM-Gemeinde gäbe es dieses Projekt nicht.
+- **Rainerlan** für die erste MQTT-Version ([Rainerlan/LaCrosseGatewayMQTT](https://github.com/Rainerlan/LaCrosseGatewayMQTT)),
+  auf der dieses Repository aufbaut.
+- **D3R-ST3FAN** für die Display-Seiten.
+- **EC3000-Erweiterung:** Die Ideen für EC3000 über MQTT, den Plausibilitätsfilter, die Home-Assistant-Discovery,
+  die Live-Seite und den Status-Topic stammen aus der
+  [ESP-EC3000-MQTT-Bridge](https://github.com/wunderbaum/ESP-EC3000-MQTT-Bridge) von **wunderbaum**,
+  mit Beiträgen von **yustAnotherUser** und **Xento**. Danke dafür! Umgesetzt wurden sie hier neu für den ESP8266.
+- Allen, die Fehler melden, testen und Verbesserungen vorschlagen.
+
+## Lizenz
+
+GNU General Public License, Version 2 oder (nach Wahl) jede spätere Version, wie FHEM selbst.
+Der vollständige Text steht in [LICENSE](LICENSE). Die Rechte an den übernommenen Teilen liegen bei
+ihren jeweiligen Autoren.
