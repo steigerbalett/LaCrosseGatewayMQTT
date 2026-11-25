@@ -482,7 +482,7 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "AddUnits"        || key == "AsDataFull"      ||
                          key == "ToggleLed"       || key == "oled13"          ||
                          key == "debug"           || key == "haDiscovery"     ||
-                         key == "ec3000OnlyKnown");
+                         key == "ec3000OnlyKnown" || key == "ec3000Afc");
       if (isCheckbox) merged->Add(key, "false");
     }
   }
@@ -1055,8 +1055,8 @@ m_webserver.on("/save_oled", HTTP_POST, [this]() {
 // -- /save_ec3000 ----------------------------------------------------------
 m_webserver.on("/save_ec3000", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
-  const char* keys[] = {"ec3000Names","ec3000OnlyKnown"};
-  String info = SaveSelectedKeys(keys, 2, true);
+  const char* keys[] = {"ec3000Names","ec3000OnlyKnown","ec3000Afc"};
+  String info = SaveSelectedKeys(keys, 3, true);
   m_webserver.send(200, "text/html", GetRedirectToRoot("EC3000 gespeichert<br>" + info));
   delay(1000); ESP.restart();
 });
@@ -1251,6 +1251,9 @@ m_webserver.on("/setup", [this]() {
     data += F("<tr><td></td><td><input type='checkbox' name='ec3000OnlyKnown' value='true'");
     data += settings->GetBool("ec3000OnlyKnown", false) ? F(" checked") : F("");
     data += F("> Nur diese IDs verwenden <span class='info'>(Whitelist f&uuml;r MQTT und Live-Seite, FHEM bekommt weiter alle)</span></td></tr>");
+    data += F("<tr><td></td><td><input type='checkbox' name='ec3000Afc' value='true'");
+    data += settings->GetBool("ec3000Afc", false) ? F(" checked") : F("");
+    data += F("> Automatische Frequenzkorrektur (AFC) <span class='info'>(Test: hilft evtl. bei Steckdosen mit schlechtem Empfang, mit RSSI und Verworfen-Z&auml;hler auf der Live-Seite vergleichen)</span></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; EC3000 speichern &amp; neu starten'>");
     data += F("</div></form>");

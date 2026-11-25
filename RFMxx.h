@@ -58,6 +58,7 @@ public:
   void InitializeLaCrosse();
   void InitializePCA301();
   void InitializeEC3000();
+  static bool EC3000Afc;  // automatic frequency correction (AFC) while receiving EC3000
   void InitializeLoRa();
   void SendArray(byte *data, byte length);
   void SendString(String data);

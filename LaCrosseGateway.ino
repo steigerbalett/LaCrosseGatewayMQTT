@@ -2281,6 +2281,8 @@ void setup(void) {
   };
 
   static const unsigned long drDefaults[5] = { 17241ul, 9579ul, 8842ul, 17241ul, 17241ul };
+  // automatic frequency correction for EC3000 (must be set before the radios are initialized)
+  RFMxx::EC3000Afc = settings.GetBool("ec3000Afc", false);
 
   for (byte i = 0; i < 5; i++) {
     if (!g_radio[i].enabled) {

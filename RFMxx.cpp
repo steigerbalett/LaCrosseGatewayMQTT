@@ -21,9 +21,15 @@ void RFMxx::EnableReceiver(bool enable) {
   ClearFifo();
 }
 
+bool RFMxx::EC3000Afc = false;
+
 void RFMxx::InitializeLaCrosse() {
   m_modulation = RFMxx::Modulation::FSK;
   if(IsRFM69) {
+    if(EC3000Afc) {
+      // AFC is only meant for EC3000: switch it off again when the radio toggles back
+      WriteReg(REG_AFCFEI, 0x00);
+    }
     /* 0x01 */ WriteReg(REG_OPMODE, RF_OPMODE_SEQUENCER_ON | RF_OPMODE_LISTEN_OFF | RF_OPMODE_STANDBY);
     /* 0x02 */ WriteReg(REG_DATAMODUL, RF_DATAMODUL_DATAMODE_PACKET | RF_DATAMODUL_MODULATIONTYPE_FSK | RF_DATAMODUL_MODULATIONSHAPING_00);
     /* 0x05 */ WriteReg(REG_FDEVMSB, RF_FDEVMSB_90000);
@@ -324,6 +330,8 @@ void RFMxx::InitializeEC3000() {
     /* 0x13 */ WriteReg(REG_OCP, RF_OCP_OFF);
     /* 0x18 */ WriteReg(REG_LNA, RF_LNA_GAINSELECT_MAX | RF_LNA_ZIN_200);
     /* 0x19 */ WriteReg(REG_RXBW, RF_RXBW_DCCFREQ_010 | RF_RXBW_MANT_16 | RF_RXBW_EXP_2);
+    // 0x1E: AFC on every receiver start, cleared on restart (helps with devices whose crystal is off)
+    /* 0x1E */ WriteReg(REG_AFCFEI, EC3000Afc ? (RF_AFCFEI_AFCAUTO_ON | RF_AFCFEI_AFCAUTOCLEAR_ON) : 0x00);
     /* 0x28 */ WriteReg(REG_IRQFLAGS2, RF_IRQFLAGS2_FIFOOVERRUN);
     /* 0x29 */ WriteReg(REG_RSSITHRESH, 220);
     /* 0x2E */ WriteReg(REG_SYNCCONFIG, RF_SYNC_ON | RF_SYNC_FIFOFILL_AUTO | RF_SYNC_SIZE_5 | RF_SYNC_TOL_0);
