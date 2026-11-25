@@ -61,8 +61,25 @@ Ein manueller Reset der Steckdose (alle Zähler auf 0) wird erkannt. Eine neue I
 passenden Paket veröffentlicht. Verworfene Pakete stehen mit Grund im Log und unter `<topic>/EC3000/debug`.
 Die FHEM-Ausgabe (`OK 22 ...`) über Serial und TCP bleibt unverändert.
 
+Unter Setup → „EC3000 Energiezähler“ lassen sich Namen vergeben (`BA3D=Waschmaschine;BF2C=Trockner`).
+Mit „Nur diese IDs verwenden“ werden alle anderen IDs für MQTT und die Live-Seite ignoriert, FHEM bekommt weiter alle.
+
+### Gateway-Status
+
+| Topic | Inhalt |
+| ----- | ------ |
+| `<topic>/status` | alle 5 Minuten und nach jedem Verbinden (retained): Version, Laufzeit, WLAN-RSSI, IP, freier Speicher, MQTT-Reconnects, Reset-Grund, Frames/min, Anzahl EC3000 |
+| `<topic>/availability` | `online` nach dem Verbinden, `offline` als Last Will |
+
 ### Home Assistant
 
 Mit „MQTT-Discovery senden“ (Standard: an) legt Home Assistant jede EC3000 automatisch als Gerät
-„EC3000 &lt;ID&gt;“ an: Leistung, Energie (für das Energie-Dashboard), An/Aus und als Diagnose
-Maximalleistung, An-Zeit, Gesamtzeit, Resets und RSSI.
+„EC3000 &lt;ID&gt;“ (oder mit dem Namen aus dem Setup) an: Leistung, Energie (für das Energie-Dashboard),
+An/Aus und als Diagnose Maximalleistung, An-Zeit, Gesamtzeit, Resets und RSSI.
+Das Gateway selbst erscheint als Gerät mit Diagnose-Sensoren aus `<topic>/status`;
+ist es offline, werden alle seine Entitäten „nicht verfügbar“.
+
+## Live-Seite und JSON
+
+Im Menü „Live“ zeigt das Gateway alle 5 Sekunden die EC3000 mit Leistungsverlauf der letzten 5 Minuten
+und die LaCrosse-Sensoren. Dieselben Daten liefert `http://<gateway>/api/data` als JSON (wie `/state` ohne Login).
