@@ -51,6 +51,13 @@ public:
   // after a new MQTT connection the discovery has to be sent again
   void ResetDiscovery();
 
+  // Names for IDs, format "BA3D=Waschmaschine;BF2C=Trockner".
+  // With onlyKnown only listed IDs are tracked, all others are ignored.
+  void SetNames(const String &names, bool onlyKnown);
+  String GetName(word id);           // "" if the ID has no name
+  bool IsAllowed(word id);
+  static String CleanName(const String &name);
+
   byte GetCapacity() { return MAX_DEVICES; }
   Device *GetAt(byte index) { return index < MAX_DEVICES ? &m_devices[index] : nullptr; }
   Device *Find(word id);
@@ -60,6 +67,14 @@ public:
   static String CheckSequence(const EC3000::Frame &last, const EC3000::Frame &frame, unsigned long elapsedMs);
 
 private:
+  struct NameEntry {
+    word ID;
+    String Name;
+  };
+  static const byte MAX_NAMES = 24;
+  NameEntry m_names[MAX_NAMES];
+  byte m_nameCount = 0;
+  bool m_onlyKnown = false;
   Device m_devices[MAX_DEVICES] = {};
   Device *Allocate(word id);
   void Store(Device *device, const EC3000::Frame &frame, int rssi, byte rfm);

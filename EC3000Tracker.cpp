@@ -144,3 +144,67 @@ void EC3000Tracker::ResetDiscovery() {
     m_devices[i].Discovered = false;
   }
 }
+
+// Removes characters that would break JSON, HTML attributes or the name list
+String EC3000Tracker::CleanName(const String &name) {
+  String result;
+  for (unsigned int i = 0; i < name.length(); i++) {
+    char c = name[i];
+    if (c == '"' || c == '\\' || c == '\'' || c == '<' || c == '>' || c == ';' || c == '=' || c == '&' || (byte)c < 32) {
+      continue;
+    }
+    result += c;
+  }
+  result.trim();
+  return result;
+}
+
+void EC3000Tracker::SetNames(const String &names, bool onlyKnown) {
+  m_nameCount = 0;
+  int start = 0;
+  while (start < (int)names.length() && m_nameCount < MAX_NAMES) {
+    int end = names.indexOf(';', start);
+    if (end < 0) {
+      end = names.length();
+    }
+    String entry = names.substring(start, end);
+    start = end + 1;
+
+    int eq = entry.indexOf('=');
+    String idStr = eq < 0 ? entry : entry.substring(0, eq);
+    idStr.trim();
+    if (idStr.length() == 0 || idStr.length() > 4) {
+      continue;
+    }
+    char *rest;
+    unsigned long id = strtoul(idStr.c_str(), &rest, 16);
+    if (*rest != '\0' || id == 0 || id > 0xFFFF) {
+      continue;
+    }
+    m_names[m_nameCount].ID = (word)id;
+    m_names[m_nameCount].Name = eq < 0 ? String() : CleanName(entry.substring(eq + 1));
+    m_nameCount++;
+  }
+  m_onlyKnown = onlyKnown && m_nameCount > 0;
+}
+
+String EC3000Tracker::GetName(word id) {
+  for (byte i = 0; i < m_nameCount; i++) {
+    if (m_names[i].ID == id) {
+      return m_names[i].Name;
+    }
+  }
+  return String();
+}
+
+bool EC3000Tracker::IsAllowed(word id) {
+  if (!m_onlyKnown) {
+    return true;
+  }
+  for (byte i = 0; i < m_nameCount; i++) {
+    if (m_names[i].ID == id) {
+      return true;
+    }
+  }
+  return false;
+}

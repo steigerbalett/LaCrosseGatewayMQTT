@@ -1089,13 +1089,17 @@ static void PublishEC3000DiscoveryEntity(word id, const char *component, const c
   String idStr = EC3000IdString(id);
   String stateTopic = mqttTopicBaseGW + "/EC3000/" + idStr;
   unsigned long expireAfter = secBetweenPublish * 3 > 300 ? secBetweenPublish * 3 : 300;
+  String deviceName = ec3000Tracker.GetName(id);
+  if (deviceName.length() == 0) {
+    deviceName = "EC3000 " + idStr;
+  }
   snprintf(json, sizeof(json),
     "{\"name\":\"%s\",\"unique_id\":\"lgw_ec3000_%s_%s\",\"state_topic\":\"%s\","
     "\"value_template\":\"{{ value_json.%s }}\",\"expire_after\":%lu,%s"
-    "\"device\":{\"identifiers\":[\"lgw_ec3000_%s\"],\"name\":\"EC3000 %s\","
+    "\"device\":{\"identifiers\":[\"lgw_ec3000_%s\"],\"name\":\"%s\","
     "\"manufacturer\":\"Conrad\",\"model\":\"Energy Count 3000\",\"via_device\":\"%s\"}}",
     name, idStr.c_str(), key, stateTopic.c_str(), valueTemplate, expireAfter, extra,
-    idStr.c_str(), idStr.c_str(), GatewayDeviceId().c_str());
+    idStr.c_str(), deviceName.c_str(), GatewayDeviceId().c_str());
   String topic = String(HA_DISCOVERY_PREFIX) + "/" + component + "/lgw_ec3000_" + idStr + "/" + key + "/config";
   client.publish(topic.c_str(), json, true);
 }
@@ -1125,6 +1129,10 @@ static void PublishEC3000Discovery(EC3000Tracker::Device *device) {
 #endif
 
 static void HandleEC3000Frame(const EC3000::Frame &frame, int rssi, byte rfmNum) {
+  if (!ec3000Tracker.IsAllowed(frame.ID)) {
+    // "only known IDs" is set and this ID is not in the list
+    return;
+  }
   bool accepted;
   String reason;
   EC3000Tracker::Device *device = ec3000Tracker.Update(frame, rssi, rfmNum, accepted, reason);
@@ -2271,6 +2279,8 @@ void setup(void) {
   watchdog.Begin([](String message) {
     Dispatch(message);
   });
+
+  ec3000Tracker.SetNames(settings.Get("ec3000Names", ""), settings.GetBool("ec3000OnlyKnown", false));
 
 #ifdef USE_MQTT_Pubsub
   mqttEnabled = IsMqttConfigured(settings);

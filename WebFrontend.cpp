@@ -479,7 +479,8 @@ String WebFrontend::SaveSelectedKeys(const char** keys, byte count, bool reboot)
                          key == "PRD"             || key == "IsNextion"       ||
                          key == "AddUnits"        || key == "AsDataFull"      ||
                          key == "ToggleLed"       || key == "oled13"          ||
-                         key == "debug"           || key == "haDiscovery");
+                         key == "debug"           || key == "haDiscovery"     ||
+                         key == "ec3000OnlyKnown");
       if (isCheckbox) merged->Add(key, "false");
     }
   }
@@ -1038,6 +1039,15 @@ m_webserver.on("/save_oled", HTTP_POST, [this]() {
     info + F("</p><p><a href='/setup'>&#8592; Zur&uuml;ck</a></p></div>") + GetBottom());
 });
 
+// -- /save_ec3000 ----------------------------------------------------------
+m_webserver.on("/save_ec3000", HTTP_POST, [this]() {
+  if (!IsAuthentified()) return;
+  const char* keys[] = {"ec3000Names","ec3000OnlyKnown"};
+  String info = SaveSelectedKeys(keys, 2, true);
+  m_webserver.send(200, "text/html", GetRedirectToRoot("EC3000 gespeichert<br>" + info));
+  delay(1000); ESP.restart();
+});
+
 // -- /save_misc ------------------------------------------------------------
 m_webserver.on("/save_misc", HTTP_POST, [this]() {
   if (!IsAuthentified()) return;
@@ -1214,6 +1224,22 @@ m_webserver.on("/setup", [this]() {
     data += F("> MQTT-Discovery senden <span class='info'>(EC3000 erscheinen automatisch als Ger&auml;te, Neustart n&ouml;tig)</span></td></tr>");
     data += F("</table>");
     data += F("<br><input type='submit' value='&#128190; MQTT speichern'>");
+    data += F("</div></form>");
+    m_webserver.sendContent(data); data = "";
+
+    // -- EC3000 --
+    data += F("<form method='post' action='/save_ec3000'>");
+    data += F("<div class='card' style='margin-bottom:12px'>");
+    data += F("<h2>&#128268; EC3000 Energiez&auml;hler</h2>");
+    data += F("<p class='info'>Namen f&uuml;r die IDs, getrennt mit Semikolon, z.&nbsp;B. <code>BA3D=Waschmaschine;BF2C=Trockner</code>. ");
+    data += F("Die Namen erscheinen in Home Assistant und auf der Live-Seite.</p><table>");
+    data += F("<tr><td><label>Namen:</label></td><td>");
+    data += F("<input name='ec3000Names' size='60' maxlength='600' value='"); { String names = settings->Get("ec3000Names", ""); names.replace("'", "&#39;"); data += names; } data += F("'></td></tr>");
+    data += F("<tr><td></td><td><input type='checkbox' name='ec3000OnlyKnown' value='true'");
+    data += settings->GetBool("ec3000OnlyKnown", false) ? F(" checked") : F("");
+    data += F("> Nur diese IDs verwenden <span class='info'>(Whitelist f&uuml;r MQTT und Live-Seite, FHEM bekommt weiter alle)</span></td></tr>");
+    data += F("</table>");
+    data += F("<br><input type='submit' value='&#128190; EC3000 speichern &amp; neu starten'>");
     data += F("</div></form>");
     m_webserver.sendContent(data); data = "";
 
