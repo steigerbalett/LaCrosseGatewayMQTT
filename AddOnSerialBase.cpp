@@ -1,4 +1,5 @@
 #include "AddOnSerialBase.h"
+#include "WebAuth.h"
 
 AddOnSerialBase::AddOnSerialBase(SC16IS750 *expander, byte dtrPort, String hexFilename) {
   m_logItemCallback = nullptr;
@@ -20,7 +21,7 @@ void AddOnSerialBase::Begin() {
 
   m_server->on(("/ota/" + m_hexFilename).c_str(), HTTP_POST, [this]() {
     m_server->sendHeader("Connection", "close");
-    m_server->sendHeader("Access-Control-Allow-Origin", "*");
+    if (!WebAuthAllowed()) { m_server->send(403, "text/plain", "Nicht angemeldet"); return; }
 
     Dir dir = LittleFS.openDir("/");
     while (dir.next()) {
@@ -36,6 +37,7 @@ void AddOnSerialBase::Begin() {
     m_server->send(200, "text/plain", m_log);
     m_doLogging = false;
   }, [this]() {
+    if (!WebAuthAllowed()) return;               // without login no file is stored
     HTTPUpload &upload = m_server->upload();
     if (upload.status == UPLOAD_FILE_START) {
       m_doLogging = true;

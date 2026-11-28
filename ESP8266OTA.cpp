@@ -1,5 +1,6 @@
 #include "ESP8266OTA.h"
 #include "FirmwareInfo.h"
+#include "WebAuth.h"
 
 
 ESP8266OTA::ESP8266OTA() {
@@ -14,14 +15,14 @@ void ESP8266OTA::Log(String text, bool newLine) {
 
 static ESP8266WebServer *webServer;
 static String uploadFileName;
-void ESP8266OTA::Begin(ESP8266WebServer *server) {
+void ESP8266OTA::Begin(ESP8266WebServer *server, const String &password) {
   m_server = server;
   m_log = "";
   webServer = server;
   // Upload 
   m_server->on("/ota/firmware.bin", HTTP_POST, [this]() {
     m_server->sendHeader("Connection", "close");
-    m_server->sendHeader("Access-Control-Allow-Origin", "*");
+    if (!WebAuthAllowed()) { m_server->send(403, "text/plain", "Nicht angemeldet"); return; }
     Log("");
     Log(Update.hasError() ? "ERROR: OTA update failed" : "OTA update finished");
     if (!Update.hasError()) FirmwareInfo::RecordFlash(uploadFileName);
@@ -29,6 +30,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
     delay(1000);
     ESP.restart();
   }, [this]() {
+    if (!WebAuthAllowed()) return;                 // without login nothing is written to the flash
     HTTPUpload &upload = m_server->upload();
     if (upload.status == UPLOAD_FILE_START){
       m_log = "";
@@ -91,6 +93,7 @@ void ESP8266OTA::Begin(ESP8266WebServer *server) {
   });
 
   ArduinoOTA.setPort(8266);
+  if (password.length() > 0) ArduinoOTA.setPassword(password.c_str());   // same password as the web frontend
   ArduinoOTA.begin();
 }
 

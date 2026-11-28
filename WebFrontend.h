@@ -25,17 +25,22 @@ public:
   void SetHardwareCallback(WFHardwareCallbackType callback);
   void SetPassword(String password);
   bool IsAuthentified();
+  bool RequestAllowed();     // like IsAuthentified, but sends nothing (upload callbacks)
 
 private:
   ESP8266WebServer    m_webserver;
   int                 m_port;
   String              m_password;
+  String              m_session;          // random session token, new at every boot and logout
   String              m_uploadFileName;   // /update_do: name of the uploaded .bin
   StateManager       *m_stateManager = nullptr;
   Logger             *m_logger       = nullptr;
   WFCommandCallbackType  m_commandCallback  = nullptr;
   WFHardwareCallbackType m_hardwareCallback = nullptr;
 
+  void NewSession();
+  bool HasSession();
+  bool SameOrigin();
   String GetTop();
   String GetNavigation();
   String GetBottom();

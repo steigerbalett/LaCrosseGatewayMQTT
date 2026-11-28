@@ -12,6 +12,11 @@
 #include "ESP8266WiFiType.h"
 #include "ESPTools.h"
 #include <WiFiClientSecureBearSSL.h>
+#include "WebAuth.h"
+
+static WebFrontend *s_frontend = nullptr;
+
+bool WebAuthAllowed() { return s_frontend != nullptr && s_frontend->RequestAllowed(); }
 
 String WifiModeToString(WiFiMode_t mode) {
   switch (mode) {
@@ -240,19 +245,45 @@ void WebFrontend::SetCommandCallback(WFCommandCallbackType callback)   { m_comma
 void WebFrontend::SetHardwareCallback(WFHardwareCallbackType callback) { m_hardwareCallback = callback; }
 void WebFrontend::SetPassword(String password) { m_password = password; }
 
+// session token: 128 bit from the hardware random generator, new at every boot and logout,
+// so a cookie cannot be guessed and an old cookie does not work any more
+void WebFrontend::NewSession() {
+  char buf[33];
+  for (byte i = 0; i < 4; i++) snprintf_P(buf + i * 8, 9, PSTR("%08x"), ESP.random());
+  m_session = buf;
+}
+
+bool WebFrontend::HasSession() {
+  if (m_password.length() == 0) return true;
+  if (!m_webserver.hasHeader("Cookie")) return false;
+  String cookie = m_webserver.header("Cookie");
+  String wanted = String(F("LGWSID=")) + m_session;
+  int pos = cookie.indexOf(wanted);
+  if (pos < 0) return false;
+  if (pos > 0 && cookie[pos - 1] != ' ' && cookie[pos - 1] != ';') return false;
+  int after = pos + wanted.length();
+  return after == (int)cookie.length() || cookie[after] == ';';
+}
+
+// requests from a foreign web page (cross-site form or fetch) carry an Origin header with another host:
+// they are refused, so a web page in the browser cannot flash firmware or change the settings (CSRF)
+bool WebFrontend::SameOrigin() {
+  if (!m_webserver.hasHeader("Origin")) return true;
+  String origin = m_webserver.header("Origin");
+  return origin.length() == 0 || origin.equalsIgnoreCase(String(F("http://")) + m_webserver.hostHeader());
+}
+
+bool WebFrontend::RequestAllowed() { return SameOrigin() && HasSession(); }
+
 bool WebFrontend::IsAuthentified() {
-  bool result = false;
-  if (m_password.length() > 0) {
-    if (m_webserver.hasHeader("Cookie")) {
-      String cookie = m_webserver.header("Cookie");
-      if (cookie.indexOf("ESPSESSIONID=1") != -1) result = true;
-    }
-    if (!result) {
-      String header = "HTTP/1.1 301 OK\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n";
-      m_webserver.sendContent(header);
-    }
-  } else { result = true; }
-  return result;
+  if (!SameOrigin()) {
+    m_webserver.send(403, "text/plain", "Forbidden");
+    return false;
+  }
+  if (HasSession()) return true;
+  String header = "HTTP/1.1 301 OK\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n";
+  m_webserver.sendContent(header);
+  return false;
 }
 
 String GetOption(String option, String defaultValue) {
@@ -530,8 +561,10 @@ void WebFrontend::Begin(StateManager *stateManager, Logger *logger) {
   m_stateManager = stateManager;
   m_logger = logger;
 
-  const char *headerKeys[] = { "User-Agent", "Cookie" };
+  const char *headerKeys[] = { "User-Agent", "Cookie", "Origin" };
   m_webserver.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(char*));
+  s_frontend = this;
+  NewSession();
 
   m_webserver.on("/", [this]() {
     if (IsAuthentified()) {
@@ -1160,6 +1193,7 @@ m_webserver.on("/save_misc", HTTP_POST, [this]() {
 
 // -- /wlan_scan  (AJAX - liefert HTML-Fragment) ------------------------------
 m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
+  if (!IsAuthentified()) return;
   int n = WiFi.scanNetworks();
   String html;
 
@@ -1189,7 +1223,6 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
       safeAttr.replace("'",  "&#39;");
       safeAttr.replace("<",  "&lt;");
       safeAttr.replace(">",  "&gt;");
-      safeAttr.replace("\\", "\\\\");
 
       String safeText = ssid;
       safeText.replace("&", "&amp;");
@@ -1201,12 +1234,11 @@ m_webserver.on("/wlan_scan", HTTP_GET, [this]() {
         barStr += (b < bars) ? F("&#9608;") : F("&#9617;");
       }
 
-      html += F("<li class='wifi-item' ");
-      html += F("onclick=\"document.querySelectorAll('.wifi-item').forEach(function(e){e.classList.remove('selected')});");
-      html += F("this.classList.add('selected');");
-      html += F("document.querySelector('[name=ctSSID]').value='");
+      html += F("<li class='wifi-item' data-ssid=\"");
       html += safeAttr;
-      html += F("'\">");
+      html += F("\" onclick=\"document.querySelectorAll('.wifi-item').forEach(function(e){e.classList.remove('selected')});");
+      html += F("this.classList.add('selected');");
+      html += F("document.querySelector('[name=ctSSID]').value=this.dataset.ssid\">");
 
       html += F("<span>");
       html += safeText;
@@ -1616,6 +1648,7 @@ m_webserver.on("/setup", [this]() {
   });
 
   m_webserver.on("/getLogData", [this]() {
+    if (!IsAuthentified()) return;
     String data = "";
     if (m_logger->IsEnabled()) {
       while (m_logger->Available()) data += m_logger->Pop() + "\n";
@@ -1638,14 +1671,17 @@ m_webserver.on("/setup", [this]() {
   m_webserver.on("/login", [this]() {
     String msg;
     if (m_webserver.hasArg("DISCONNECT")) {
-      m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nSet-Cookie: ESPSESSIONID=0\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n"));
+      NewSession();                                  // the old cookie is no longer valid
+      m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nSet-Cookie: LGWSID=; Path=/; Max-Age=0\r\nLocation: /login\r\nCache-Control: no-cache\r\n\r\n"));
       return;
     }
     if (m_webserver.hasArg("PASSWORD")) {
-      if (m_webserver.arg("PASSWORD") == m_password) {
-        m_webserver.sendContent(F("HTTP/1.1 301 OK\r\nSet-Cookie: ESPSESSIONID=1\r\nLocation: /\r\nCache-Control: no-cache\r\n\r\n"));
+      if (m_password.length() > 0 && m_webserver.arg("PASSWORD") == m_password) {
+        m_webserver.sendContent(String(F("HTTP/1.1 301 OK\r\nSet-Cookie: LGWSID=")) + m_session +
+          F("; Path=/; HttpOnly; SameSite=Strict\r\nLocation: /\r\nCache-Control: no-cache\r\n\r\n"));
         return;
       }
+      delay(500);                                    // slows down guessing the password
       msg = "Login fehlgeschlagen";
     }
     String content;
@@ -1709,10 +1745,12 @@ m_webserver.on("/setup", [this]() {
 
   m_webserver.on("/update_do", HTTP_POST,
     [this]() {
+      if (!RequestAllowed()) { m_webserver.send(403, "text/plain", "Nicht angemeldet"); return; }
       if (Update.hasError()) m_webserver.send(500, "text/plain", "Update fehlgeschlagen: " + String(Update.getErrorString()));
       else { FirmwareInfo::RecordFlash(m_uploadFileName); m_webserver.send(200, "text/plain", "OK"); delay(1000); ESP.restart(); }
     },
     [this]() {
+      if (!RequestAllowed()) return;                 // without login nothing is written to the flash
       HTTPUpload& upload = m_webserver.upload();
       if (upload.status == UPLOAD_FILE_START) {
         m_logger->println(String(F("Firmware-Update: ")) + upload.filename);

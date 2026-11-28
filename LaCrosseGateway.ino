@@ -1,5 +1,5 @@
 #define PROGNAME         "LaCrosseITPlusReader.Gateway"
-#define PROGVERS         "1.39.56b1"
+#define PROGVERS         "1.39.56b2"
 
 #define RFM1_SS          15
 #define RFM2_SS          2
@@ -2109,7 +2109,11 @@ void TryConnectWIFI(String ctSSID, String ctPass, byte nbr, uint16_t timeout) {
     String opts = "";
     for (int i = 0; i < n; i++) {
       String ssid = WiFi.SSID(i);
+      ssid.replace("&", "&amp;");                   // a WiFi name is foreign text: escape it for HTML
       ssid.replace("\"", "&quot;");
+      ssid.replace("'", "&#39;");
+      ssid.replace("<", "&lt;");
+      ssid.replace(">", "&gt;");
       opts += "<option value=\"" + ssid + "\">" + ssid +
               " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
     }
@@ -2749,6 +2753,7 @@ void setup(void) {
     dbgStep(7, "StartWifi() zurueckgekehrt");
 
     if (wifiConnected) {
+      frontend->SetPassword(settings.Get("frontPass", ""));
       frontend->Begin(&stateManager, &logger);
       frontend->SetCommandCallback([](String command) {
         HandleCommandString(command);
@@ -2774,7 +2779,7 @@ void setup(void) {
       }
 
       logger.println(F("Starting OTA"));
-      ota.Begin(frontend->WebServer());
+      ota.Begin(frontend->WebServer(), settings.Get("frontPass", ""));
       frontend->WebServer()->on("/api/data", HTTP_GET, []() {
         HandleApiData(frontend->WebServer());
       });

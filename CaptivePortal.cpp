@@ -247,16 +247,15 @@ String CaptivePortal::buildScanHtml() {
     safeAttr.replace("'",  "&#39;");
     safeAttr.replace("<",  "&lt;");
     safeAttr.replace(">",  "&gt;");
-    safeAttr.replace("\\", "\\\\");
 
     String safeDisplay = ssid;
     safeDisplay.replace("&", "&amp;");
     safeDisplay.replace("<", "&lt;");
     safeDisplay.replace(">", "&gt;");
 
-    html += F("<li onclick=\"document.querySelector('[name=ssid]').value='");
+    html += F("<li data-ssid=\"");
     html += safeAttr;
-    html += F("'\">");
+    html += F("\" onclick=\"document.querySelector('[name=ssid]').value=this.dataset.ssid\">");
     html += safeDisplay;
 
     if (sec) html += F(" &#x1F512;");

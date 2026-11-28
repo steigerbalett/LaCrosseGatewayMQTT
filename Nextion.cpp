@@ -1,4 +1,5 @@
 #include "Nextion.h"
+#include "WebAuth.h"
 
 Nextion::Nextion() : m_wifiServer(0) {
   m_lastUpdate = 0;
@@ -15,7 +16,7 @@ bool Nextion::Begin(ESP8266WebServer *webServer, ESP8266SoftSerial *softSerial, 
 
   m_server->on("/ota/nextion", HTTP_POST, [this]() {
     m_server->sendHeader("Connection", "close");
-    m_server->sendHeader("Access-Control-Allow-Origin", "*");
+    if (!WebAuthAllowed()) { m_server->send(403, "text/plain", "Nicht angemeldet"); return; }
 
     Dir dir = LittleFS.openDir("/");
     while (dir.next()) {
@@ -31,6 +32,7 @@ bool Nextion::Begin(ESP8266WebServer *webServer, ESP8266SoftSerial *softSerial, 
     }
     m_server->send(200, "text/plain", m_log);
   }, [this]() {
+    if (!WebAuthAllowed()) return;               // without login no file is stored
     HTTPUpload &upload = m_server->upload();
     if (upload.status == UPLOAD_FILE_START) {
       m_log = "";

@@ -11,7 +11,7 @@
 class ESP8266OTA {
 public:
   ESP8266OTA();
-  void Begin(ESP8266WebServer *server);
+  void Begin(ESP8266WebServer *server, const String &password = "");
   void Handle();
 
 private:
